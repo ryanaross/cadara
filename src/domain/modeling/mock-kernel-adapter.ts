@@ -1,5 +1,17 @@
-import type { PrimitiveRef } from '@/domain/editor/schema'
-import { getPrimitiveRefKey, getPrimitiveRefLabel } from '@/domain/editor/schema'
+import type { SketchRecord } from '@/contracts/sketch/schema'
+import type {
+  ConstraintId,
+  DimensionId,
+  FeatureTreeNodeId,
+  ObjectTreeNodeId,
+  PickId,
+  RegionId,
+  RenderableId,
+  SketchEntityId,
+  SketchPointId,
+  SnapshotEntityId,
+} from '@/contracts/shared/ids'
+import { getPrimitiveRefKey } from '@/domain/editor/schema'
 import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
 import type {
   CommitSketchRequest,
@@ -19,31 +31,11 @@ import type {
   UpdateFeatureRequest,
   UpdateFeatureResponse,
 } from '@/domain/modeling/schema'
-import type {
-  FeatureTreeNodeId,
-  ObjectTreeNodeId,
-  PickId,
-  RenderableId,
-  SketchEntityId,
-  SnapshotEntityId,
-} from '@/contracts/shared/ids'
-import type { SketchEntityRef } from '@/contracts/shared/references'
 
 const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
 const CURRENT_REVISION_ID = 'rev_0002' as const
-
-function sketchEntityRef(
-  sketchId: `sketch_${string}`,
-  primitiveId: import('@/domain/modeling/schema').SketchPrimitiveId,
-): SketchEntityRef {
-  return {
-    kind: 'sketchEntity',
-    sketchId,
-    entityId: primitiveId.replace(/^curve_/, 'sketch_entity_').replace(/^point_/, 'sketch_entity_') as SketchEntityId,
-  }
-}
 
 function hasRevisionConflict(baseRevisionId: string) {
   return baseRevisionId !== REVISION_ID
@@ -63,12 +55,279 @@ function createRevisionConflictDiagnostic(baseRevisionId: string) {
   }
 }
 
-function entity(
-  input: Omit<
-    SnapshotEntityRecord,
-    'ownerDocumentId' | 'ownerRevisionId'
-  >,
-): SnapshotEntityRecord {
+const sketchRecord: SketchRecord = {
+  ownerDocumentId: DOCUMENT_ID,
+  ownerRevisionId: REVISION_ID,
+  ownerFeatureId: null,
+  ownerSketchId: 'sketch_primary',
+  ownerBodyId: null,
+  sketchId: 'sketch_primary',
+  label: 'Sketch 1',
+  definition: {
+    schemaVersion: 'sketch-definition/v1alpha1',
+    referenceIds: ['ref_sketch_primary_plane' as const],
+    references: [
+      {
+        referenceId: 'ref_sketch_primary_plane' as const,
+        kind: 'constructionPlane',
+        label: 'Sketch plane',
+        source: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        projectionMode: 'coplanar',
+      },
+    ],
+    pointIds: [
+      'sketch_point_1_rect-bottom-left' as SketchPointId,
+      'sketch_point_1_rect-bottom-right' as SketchPointId,
+      'sketch_point_1_rect-top-right' as SketchPointId,
+      'sketch_point_1_rect-top-left' as SketchPointId,
+    ],
+    points: [
+      {
+        pointId: 'sketch_point_1_rect-bottom-left' as SketchPointId,
+        label: 'Rectangle 1 bottom left',
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-bottom-left' as SketchPointId },
+        position: [-4, -3],
+        isConstruction: false,
+      },
+      {
+        pointId: 'sketch_point_1_rect-bottom-right' as SketchPointId,
+        label: 'Rectangle 1 bottom right',
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-bottom-right' as SketchPointId },
+        position: [4, -3],
+        isConstruction: false,
+      },
+      {
+        pointId: 'sketch_point_1_rect-top-right' as SketchPointId,
+        label: 'Rectangle 1 top right',
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-top-right' as SketchPointId },
+        position: [4, 3],
+        isConstruction: false,
+      },
+      {
+        pointId: 'sketch_point_1_rect-top-left' as SketchPointId,
+        label: 'Rectangle 1 top left',
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-top-left' as SketchPointId },
+        position: [-4, 3],
+        isConstruction: false,
+      },
+    ],
+    entityIds: [
+      'sketch_entity_1_rect-bottom' as SketchEntityId,
+      'sketch_entity_1_rect-right' as SketchEntityId,
+      'sketch_entity_1_rect-top' as SketchEntityId,
+      'sketch_entity_1_rect-left' as SketchEntityId,
+    ],
+    entities: [
+      {
+        kind: 'lineSegment',
+        entityId: 'sketch_entity_1_rect-bottom' as SketchEntityId,
+        label: 'Rectangle 1 bottom',
+        target: { kind: 'sketchEntity', sketchId: 'sketch_primary', entityId: 'sketch_entity_1_rect-bottom' as SketchEntityId },
+        isConstruction: false,
+        startPointId: 'sketch_point_1_rect-bottom-left' as SketchPointId,
+        endPointId: 'sketch_point_1_rect-bottom-right' as SketchPointId,
+      },
+      {
+        kind: 'lineSegment',
+        entityId: 'sketch_entity_1_rect-right' as SketchEntityId,
+        label: 'Rectangle 1 right',
+        target: { kind: 'sketchEntity', sketchId: 'sketch_primary', entityId: 'sketch_entity_1_rect-right' as SketchEntityId },
+        isConstruction: false,
+        startPointId: 'sketch_point_1_rect-bottom-right' as SketchPointId,
+        endPointId: 'sketch_point_1_rect-top-right' as SketchPointId,
+      },
+      {
+        kind: 'lineSegment',
+        entityId: 'sketch_entity_1_rect-top' as SketchEntityId,
+        label: 'Rectangle 1 top',
+        target: { kind: 'sketchEntity', sketchId: 'sketch_primary', entityId: 'sketch_entity_1_rect-top' as SketchEntityId },
+        isConstruction: false,
+        startPointId: 'sketch_point_1_rect-top-right' as SketchPointId,
+        endPointId: 'sketch_point_1_rect-top-left' as SketchPointId,
+      },
+      {
+        kind: 'lineSegment',
+        entityId: 'sketch_entity_1_rect-left' as SketchEntityId,
+        label: 'Rectangle 1 left',
+        target: { kind: 'sketchEntity', sketchId: 'sketch_primary', entityId: 'sketch_entity_1_rect-left' as SketchEntityId },
+        isConstruction: false,
+        startPointId: 'sketch_point_1_rect-top-left' as SketchPointId,
+        endPointId: 'sketch_point_1_rect-bottom-left' as SketchPointId,
+      },
+    ],
+    constraintIds: [
+      'constraint_1_bottom-horizontal' as ConstraintId,
+      'constraint_1_top-horizontal' as ConstraintId,
+      'constraint_1_right-vertical' as ConstraintId,
+      'constraint_1_left-vertical' as ConstraintId,
+    ],
+    constraints: [
+      {
+        constraintId: 'constraint_1_bottom-horizontal' as ConstraintId,
+        kind: 'horizontal',
+        label: 'Rectangle 1 bottom horizontal',
+        entityId: 'sketch_entity_1_rect-bottom' as SketchEntityId,
+      },
+      {
+        constraintId: 'constraint_1_top-horizontal' as ConstraintId,
+        kind: 'horizontal',
+        label: 'Rectangle 1 top horizontal',
+        entityId: 'sketch_entity_1_rect-top' as SketchEntityId,
+      },
+      {
+        constraintId: 'constraint_1_right-vertical' as ConstraintId,
+        kind: 'vertical',
+        label: 'Rectangle 1 right vertical',
+        entityId: 'sketch_entity_1_rect-right' as SketchEntityId,
+      },
+      {
+        constraintId: 'constraint_1_left-vertical' as ConstraintId,
+        kind: 'vertical',
+        label: 'Rectangle 1 left vertical',
+        entityId: 'sketch_entity_1_rect-left' as SketchEntityId,
+      },
+    ],
+    dimensionIds: [
+      'dimension_1_width' as DimensionId,
+      'dimension_1_height' as DimensionId,
+    ],
+    dimensions: [
+      {
+        dimensionId: 'dimension_1_width' as DimensionId,
+        kind: 'distance',
+        label: 'Rectangle 1 width',
+        axis: 'horizontal',
+        pointIds: [
+          'sketch_point_1_rect-bottom-left' as SketchPointId,
+          'sketch_point_1_rect-bottom-right' as SketchPointId,
+        ],
+        value: 8,
+      },
+      {
+        dimensionId: 'dimension_1_height' as DimensionId,
+        kind: 'distance',
+        label: 'Rectangle 1 height',
+        axis: 'vertical',
+        pointIds: [
+          'sketch_point_1_rect-bottom-left' as SketchPointId,
+          'sketch_point_1_rect-top-left' as SketchPointId,
+        ],
+        value: 6,
+      },
+    ],
+  },
+  solvedSnapshot: {
+    schemaVersion: 'solved-sketch/v1alpha1',
+    status: 'fullyConstrained',
+    solvedEntities: [
+      {
+        entityId: 'sketch_entity_1_rect-bottom' as SketchEntityId,
+        kind: 'lineSegment',
+        startPosition: [-4, -3],
+        endPosition: [4, -3],
+      },
+      {
+        entityId: 'sketch_entity_1_rect-right' as SketchEntityId,
+        kind: 'lineSegment',
+        startPosition: [4, -3],
+        endPosition: [4, 3],
+      },
+      {
+        entityId: 'sketch_entity_1_rect-top' as SketchEntityId,
+        kind: 'lineSegment',
+        startPosition: [4, 3],
+        endPosition: [-4, 3],
+      },
+      {
+        entityId: 'sketch_entity_1_rect-left' as SketchEntityId,
+        kind: 'lineSegment',
+        startPosition: [-4, 3],
+        endPosition: [-4, -3],
+      },
+    ],
+    solvedPoints: [
+      {
+        pointId: 'sketch_point_1_rect-bottom-left' as SketchPointId,
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-bottom-left' as SketchPointId },
+        solvedPosition: [-4, -3],
+      },
+      {
+        pointId: 'sketch_point_1_rect-bottom-right' as SketchPointId,
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-bottom-right' as SketchPointId },
+        solvedPosition: [4, -3],
+      },
+      {
+        pointId: 'sketch_point_1_rect-top-right' as SketchPointId,
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-top-right' as SketchPointId },
+        solvedPosition: [4, 3],
+      },
+      {
+        pointId: 'sketch_point_1_rect-top-left' as SketchPointId,
+        target: { kind: 'sketchPoint', sketchId: 'sketch_primary', pointId: 'sketch_point_1_rect-top-left' as SketchPointId },
+        solvedPosition: [-4, 3],
+      },
+    ],
+    constraintStatuses: [
+      {
+        constraintId: 'constraint_1_bottom-horizontal' as ConstraintId,
+        status: 'satisfied',
+      },
+      {
+        constraintId: 'constraint_1_top-horizontal' as ConstraintId,
+        status: 'satisfied',
+      },
+      {
+        constraintId: 'constraint_1_right-vertical' as ConstraintId,
+        status: 'satisfied',
+      },
+      {
+        constraintId: 'constraint_1_left-vertical' as ConstraintId,
+        status: 'satisfied',
+      },
+    ],
+    dimensionStatuses: [
+      {
+        dimensionId: 'dimension_1_width' as DimensionId,
+        status: 'driving',
+        solvedValue: 8,
+      },
+      {
+        dimensionId: 'dimension_1_height' as DimensionId,
+        status: 'driving',
+        solvedValue: 6,
+      },
+    ],
+    diagnostics: [],
+  },
+  regions: [
+    {
+      ownerDocumentId: DOCUMENT_ID,
+      ownerRevisionId: REVISION_ID,
+      ownerFeatureId: null,
+      ownerSketchId: 'sketch_primary',
+      ownerBodyId: null,
+      regionId: 'region_primary-outer' as RegionId,
+      label: 'Outer region',
+      target: { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
+      sourceSketch: { kind: 'sketch', sketchId: 'sketch_primary' },
+      boundaryEntityIds: [
+        'sketch_entity_1_rect-bottom' as SketchEntityId,
+        'sketch_entity_1_rect-right' as SketchEntityId,
+        'sketch_entity_1_rect-top' as SketchEntityId,
+        'sketch_entity_1_rect-left' as SketchEntityId,
+      ],
+      boundaryPointIds: [
+        'sketch_point_1_rect-bottom-left' as SketchPointId,
+        'sketch_point_1_rect-bottom-right' as SketchPointId,
+        'sketch_point_1_rect-top-right' as SketchPointId,
+        'sketch_point_1_rect-top-left' as SketchPointId,
+      ],
+      isClosed: true,
+    },
+  ],
+}
+
+function entity(input: Omit<SnapshotEntityRecord, 'ownerDocumentId' | 'ownerRevisionId'>): SnapshotEntityRecord {
   return {
     ownerDocumentId: DOCUMENT_ID,
     ownerRevisionId: REVISION_ID,
@@ -101,6 +360,7 @@ const entities: SnapshotEntityRecord[] = [
     relatedTargets: [
       { kind: 'construction', constructionId: 'construction_origin-planes' },
       { kind: 'sketch', sketchId: 'sketch_primary' },
+      { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
     ],
     consumedByFeatureIds: [],
   }),
@@ -133,10 +393,9 @@ const entities: SnapshotEntityRecord[] = [
     target: { kind: 'sketch', sketchId: 'sketch_primary' },
     relatedTargets: [
       { kind: 'construction', constructionId: 'construction_plane-xy' },
-      sketchEntityRef('sketch_primary', 'curve_rect-bottom'),
-      sketchEntityRef('sketch_primary', 'curve_rect-right'),
-      sketchEntityRef('sketch_primary', 'curve_profile-outer'),
-      sketchEntityRef('sketch_primary', 'point_origin'),
+      { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
+      ...sketchRecord.definition.entities.map((entry) => entry.target),
+      ...sketchRecord.definition.points.map((entry) => entry.target),
     ],
     consumedByFeatureIds: ['feature_extrude-1'],
   }),
@@ -144,54 +403,39 @@ const entities: SnapshotEntityRecord[] = [
     ownerFeatureId: null,
     ownerSketchId: 'sketch_primary',
     ownerBodyId: null,
-    id: 'snapshot_entity_sketch_primary_curve_rect_bottom' as SnapshotEntityId,
-    label: 'Bottom edge',
-    target: sketchEntityRef('sketch_primary', 'curve_rect-bottom'),
+    id: 'snapshot_entity_sketch_primary_region_outer' as SnapshotEntityId,
+    label: 'Outer region',
+    target: { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
     relatedTargets: [
       { kind: 'sketch', sketchId: 'sketch_primary' },
-      sketchEntityRef('sketch_primary', 'point_origin'),
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: null,
-    ownerSketchId: 'sketch_primary',
-    ownerBodyId: null,
-    id: 'snapshot_entity_sketch_primary_curve_rect_right' as SnapshotEntityId,
-    label: 'Right edge',
-    target: sketchEntityRef('sketch_primary', 'curve_rect-right'),
-    relatedTargets: [
-      { kind: 'sketch', sketchId: 'sketch_primary' },
-      sketchEntityRef('sketch_primary', 'point_origin'),
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: null,
-    ownerSketchId: 'sketch_primary',
-    ownerBodyId: null,
-    id: 'snapshot_entity_sketch_primary_curve_profile_outer' as SnapshotEntityId,
-    label: 'Outer profile',
-    target: sketchEntityRef('sketch_primary', 'curve_profile-outer'),
-    relatedTargets: [
-      { kind: 'sketch', sketchId: 'sketch_primary' },
-      { kind: 'construction', constructionId: 'construction_plane-xy' },
+      ...sketchRecord.definition.entities.map((entry) => entry.target),
     ],
     consumedByFeatureIds: ['feature_extrude-1'],
   }),
-  entity({
-    ownerFeatureId: null,
-    ownerSketchId: 'sketch_primary',
-    ownerBodyId: null,
-    id: 'snapshot_entity_sketch_primary_point_origin' as SnapshotEntityId,
-    label: 'Origin point',
-    target: sketchEntityRef('sketch_primary', 'point_origin'),
-    relatedTargets: [
-      { kind: 'sketch', sketchId: 'sketch_primary' },
-      { kind: 'construction', constructionId: 'construction_plane-xy' },
-    ],
-    consumedByFeatureIds: [],
-  }),
+  ...sketchRecord.definition.entities.map((entry, index) =>
+    entity({
+      ownerFeatureId: null,
+      ownerSketchId: 'sketch_primary',
+      ownerBodyId: null,
+      id: `snapshot_entity_sketch_primary_entity_${index}` as SnapshotEntityId,
+      label: entry.label,
+      target: entry.target,
+      relatedTargets: [{ kind: 'sketch', sketchId: 'sketch_primary' }],
+      consumedByFeatureIds: [],
+    }),
+  ),
+  ...sketchRecord.definition.points.map((point, index) =>
+    entity({
+      ownerFeatureId: null,
+      ownerSketchId: 'sketch_primary',
+      ownerBodyId: null,
+      id: `snapshot_entity_sketch_primary_point_${index}` as SnapshotEntityId,
+      label: point.label,
+      target: point.target,
+      relatedTargets: [{ kind: 'sketch', sketchId: 'sketch_primary' }],
+      consumedByFeatureIds: [],
+    }),
+  ),
   entity({
     ownerFeatureId: 'feature_extrude-1',
     ownerSketchId: null,
@@ -200,7 +444,7 @@ const entities: SnapshotEntityRecord[] = [
     label: 'Extrude 1',
     target: { kind: 'feature', featureId: 'feature_extrude-1' },
     relatedTargets: [
-      { kind: 'sketch', sketchId: 'sketch_primary' },
+      { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
       { kind: 'body', bodyId: 'body_part-1' },
     ],
     consumedByFeatureIds: [],
@@ -242,216 +486,28 @@ const entities: SnapshotEntityRecord[] = [
     ],
     consumedByFeatureIds: ['feature_fillet-1'],
   }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_face_top' as SnapshotEntityId,
-    label: 'Top face',
-    target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_face_bottom' as SnapshotEntityId,
-    label: 'Bottom face',
-    target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-2' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-3' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-left' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_fillet-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_face_side_front' as SnapshotEntityId,
-    label: 'Front side face',
-    target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
-    ],
-    consumedByFeatureIds: ['feature_fillet-1'],
-  }),
-  entity({
-    ownerFeatureId: 'feature_fillet-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_face_side_right' as SnapshotEntityId,
-    label: 'Right side face',
-    target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
-    ],
-    consumedByFeatureIds: ['feature_fillet-1'],
-  }),
-  entity({
-    ownerFeatureId: 'feature_fillet-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_edge_outer_0' as SnapshotEntityId,
-    label: 'Outer edge chain start',
-    target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
-    ],
-    consumedByFeatureIds: ['feature_fillet-1'],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_edge_outer_1' as SnapshotEntityId,
-    label: 'Outer edge 1',
-    target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_edge_outer_2' as SnapshotEntityId,
-    label: 'Outer edge 2',
-    target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-2' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-left' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_edge_outer_3' as SnapshotEntityId,
-    label: 'Outer edge 3',
-    target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-3' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_vertex_front_right' as SnapshotEntityId,
-    label: 'Front right vertex',
-    target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_vertex_front_left' as SnapshotEntityId,
-    label: 'Front left vertex',
-    target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-2' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_vertex_back_right' as SnapshotEntityId,
-    label: 'Back right vertex',
-    target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-3' },
-    ],
-    consumedByFeatureIds: [],
-  }),
-  entity({
-    ownerFeatureId: 'feature_extrude-1',
-    ownerSketchId: null,
-    ownerBodyId: 'body_part-1',
-    id: 'snapshot_entity_body_part_1_vertex_back_left' as SnapshotEntityId,
-    label: 'Back left vertex',
-    target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-left' },
-    relatedTargets: [
-      { kind: 'body', bodyId: 'body_part-1' },
-      { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-2' },
-      { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-3' },
-    ],
-    consumedByFeatureIds: [],
-  }),
 ]
 
-const mockSnapshot: DocumentSnapshot = {
+const snapshot: DocumentSnapshot = {
   contractVersion: CONTRACT_VERSION,
   schemaVersion: 'document-snapshot/v1alpha1',
   documentId: DOCUMENT_ID,
   revisionId: REVISION_ID,
   featureTree: [
     {
-      id: 'feature_tree_node_origin_planes' as FeatureTreeNodeId,
-      label: 'Origin Planes',
-      description: 'XY, YZ, XZ reference setup',
+      id: 'feature_tree_node_plane_xy' as FeatureTreeNodeId,
+      label: 'Top Plane',
+      description: 'Primary XY reference plane',
       kind: 'plane',
-      target: { kind: 'construction', constructionId: 'construction_origin-planes' },
+      target: { kind: 'construction', constructionId: 'construction_plane-xy' },
       ownerFeatureId: null,
       ownerSketchId: null,
       sourceFeatureId: null,
     },
     {
-      id: 'feature_tree_node_sketch_primary' as FeatureTreeNodeId,
+      id: 'feature_tree_node_sketch_1' as FeatureTreeNodeId,
       label: 'Sketch 1',
-      description: 'Primary profile on the XY plane',
+      description: 'Primary sketch on the XY plane',
       kind: 'sketch',
       target: { kind: 'sketch', sketchId: 'sketch_primary' },
       ownerFeatureId: null,
@@ -459,31 +515,21 @@ const mockSnapshot: DocumentSnapshot = {
       sourceFeatureId: null,
     },
     {
-      id: 'feature_tree_node_extrude_1' as FeatureTreeNodeId,
+      id: 'feature_tree_node_feature_extrude_1' as FeatureTreeNodeId,
       label: 'Extrude 1',
-      description: 'Mid-plane boss feature',
+      description: 'Extrude from the derived outer sketch region',
       kind: 'feature',
       target: { kind: 'feature', featureId: 'feature_extrude-1' },
       ownerFeatureId: 'feature_extrude-1',
       ownerSketchId: null,
-      sourceFeatureId: 'feature_extrude-1',
-    },
-    {
-      id: 'feature_tree_node_fillet_1' as FeatureTreeNodeId,
-      label: 'Fillet 1',
-      description: 'Edge softening for outer shell',
-      kind: 'feature',
-      target: { kind: 'feature', featureId: 'feature_fillet-1' },
-      ownerFeatureId: 'feature_fillet-1',
-      ownerSketchId: null,
-      sourceFeatureId: 'feature_fillet-1',
+      sourceFeatureId: null,
     },
   ],
   objects: [
     {
       id: 'object_tree_node_body_part_1' as ObjectTreeNodeId,
       label: 'Part 1',
-      description: 'Solid body generated by the primary boss',
+      description: 'Primary solid body',
       kind: 'body',
       target: { kind: 'body', bodyId: 'body_part-1' },
       ownerBodyId: 'body_part-1',
@@ -491,28 +537,10 @@ const mockSnapshot: DocumentSnapshot = {
     },
     {
       id: 'object_tree_node_plane_xy' as ObjectTreeNodeId,
-      label: 'Plane XY',
-      description: 'Reference plane for the primary sketch',
+      label: 'Top Plane',
+      description: 'Construction plane',
       kind: 'construction',
       target: { kind: 'construction', constructionId: 'construction_plane-xy' },
-      ownerBodyId: null,
-      ownerFeatureId: null,
-    },
-    {
-      id: 'object_tree_node_plane_yz' as ObjectTreeNodeId,
-      label: 'Plane YZ',
-      description: 'Reference plane',
-      kind: 'construction',
-      target: { kind: 'construction', constructionId: 'construction_plane-yz' },
-      ownerBodyId: null,
-      ownerFeatureId: null,
-    },
-    {
-      id: 'object_tree_node_plane_xz' as ObjectTreeNodeId,
-      label: 'Plane XZ',
-      description: 'Reference plane',
-      kind: 'construction',
-      target: { kind: 'construction', constructionId: 'construction_plane-xz' },
       ownerBodyId: null,
       ownerFeatureId: null,
     },
@@ -532,11 +560,11 @@ const mockSnapshot: DocumentSnapshot = {
         depth: 12,
         direction: 'oneSided',
         operation: 'newBody',
-        profileTarget: sketchEntityRef('sketch_primary', 'curve_profile-outer'),
+        profileTarget: { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
       },
       consumedTargets: [
         { kind: 'sketch', sketchId: 'sketch_primary' },
-        sketchEntityRef('sketch_primary', 'curve_profile-outer'),
+        { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
       ],
       producedTargets: [
         { kind: 'body', bodyId: 'body_part-1' },
@@ -575,55 +603,7 @@ const mockSnapshot: DocumentSnapshot = {
       label: 'Sketch 1',
       planeTarget: { kind: 'construction', constructionId: 'construction_plane-xy' },
       planeKey: 'xy',
-      primitiveIds: ['curve_rect-bottom', 'curve_rect-right', 'curve_profile-outer', 'point_origin'],
-      primitives: [
-        {
-          primitiveId: 'curve_rect-bottom',
-          entityId: 'sketch_entity_rect_bottom',
-          label: 'Bottom edge',
-          kind: 'line',
-          target: sketchEntityRef('sketch_primary', 'curve_rect-bottom'),
-          geometry: {
-            kind: 'line',
-            start: [-4, -3],
-            end: [4, -3],
-          },
-        },
-        {
-          primitiveId: 'curve_rect-right',
-          entityId: 'sketch_entity_rect_right',
-          label: 'Right edge',
-          kind: 'line',
-          target: sketchEntityRef('sketch_primary', 'curve_rect-right'),
-          geometry: {
-            kind: 'line',
-            start: [4, -3],
-            end: [4, 3],
-          },
-        },
-        {
-          primitiveId: 'curve_profile-outer',
-          entityId: 'sketch_entity_profile_outer',
-          label: 'Outer profile',
-          kind: 'profile',
-          target: sketchEntityRef('sketch_primary', 'curve_profile-outer'),
-          geometry: {
-            kind: 'profile',
-            boundaryPrimitiveIds: ['curve_rect-bottom', 'curve_rect-right'],
-          },
-        },
-        {
-          primitiveId: 'point_origin',
-          entityId: 'sketch_entity_point_origin',
-          label: 'Origin point',
-          kind: 'point',
-          target: sketchEntityRef('sketch_primary', 'point_origin'),
-          geometry: {
-            kind: 'point',
-            position: [0, 0],
-          },
-        },
-      ],
+      sketch: sketchRecord,
     },
   ],
   bodies: [
@@ -649,19 +629,8 @@ const mockSnapshot: DocumentSnapshot = {
       ownerFeatureId: null,
       ownerSketchId: null,
       ownerBodyId: null,
-      constructionId: 'construction_origin-planes',
-      label: 'Origin planes folder',
-      constructionType: 'plane',
-      target: { kind: 'construction', constructionId: 'construction_origin-planes' },
-    },
-    {
-      ownerDocumentId: DOCUMENT_ID,
-      ownerRevisionId: REVISION_ID,
-      ownerFeatureId: null,
-      ownerSketchId: null,
-      ownerBodyId: null,
       constructionId: 'construction_plane-xy',
-      label: 'Plane XY',
+      label: 'Top Plane',
       constructionType: 'plane',
       target: { kind: 'construction', constructionId: 'construction_plane-xy' },
     },
@@ -672,7 +641,7 @@ const mockSnapshot: DocumentSnapshot = {
       ownerSketchId: null,
       ownerBodyId: null,
       constructionId: 'construction_plane-yz',
-      label: 'Plane YZ',
+      label: 'Right Plane',
       constructionType: 'plane',
       target: { kind: 'construction', constructionId: 'construction_plane-yz' },
     },
@@ -683,7 +652,7 @@ const mockSnapshot: DocumentSnapshot = {
       ownerSketchId: null,
       ownerBodyId: null,
       constructionId: 'construction_plane-xz',
-      label: 'Plane XZ',
+      label: 'Front Plane',
       constructionType: 'plane',
       target: { kind: 'construction', constructionId: 'construction_plane-xz' },
     },
@@ -691,130 +660,59 @@ const mockSnapshot: DocumentSnapshot = {
   entities,
   references: [
     {
-      id: 'ref_feature_extrude_profile',
-      label: 'Extrude profile',
-      target: sketchEntityRef('sketch_primary', 'curve_profile-outer'),
+      id: 'ref_feature_extrude_region' as const,
+      label: 'Extrude region',
+      target: { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' as RegionId },
       ownerFeatureId: 'feature_extrude-1',
       ownerSketchId: 'sketch_primary',
       invalidation: null,
     },
-    {
-      id: 'ref_feature_fillet_chain',
-      label: 'Outer fillet chain',
-      target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-      ownerFeatureId: 'feature_fillet-1',
-      ownerSketchId: null,
-      invalidation: {
-        reason: 'Upstream edge chain changed after the last rebuild.',
-        target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-        ownerFeatureId: 'feature_fillet-1',
-        ownerSketchId: null,
-        sourceTarget: { kind: 'feature', featureId: 'feature_extrude-1' },
-      },
-    },
   ],
-  diagnostics: [
-    {
-      code: 'mock-invalid-reference',
-      severity: 'warning',
-      message: 'Fillet 1 lost one downstream edge reference after an upstream topology change.',
-      target: { kind: 'feature', featureId: 'feature_fillet-1' },
-      detail: {
-        kind: 'invalidReference',
-        reference: {
-          reason: 'Upstream edge chain changed after the last rebuild.',
-          target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-          ownerFeatureId: 'feature_fillet-1',
-          ownerSketchId: null,
-          sourceTarget: { kind: 'feature', featureId: 'feature_extrude-1' },
-        },
-      },
-    },
-    {
-      code: 'mock-rebuild-warning',
-      severity: 'warning',
-      message: 'Rebuild completed with downstream reference failures.',
-      target: { kind: 'feature', featureId: 'feature_fillet-1' },
-      detail: {
-        kind: 'rebuildFailure',
-        affectedFeatureIds: ['feature_fillet-1'],
-        affectedTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
-      },
-    },
-  ],
+  diagnostics: [],
   renderables: [
     {
       id: 'renderable_face_top' as RenderableId,
-      label: 'body_part-1.face_top',
+      label: 'Top face',
       target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
       ownerBodyId: 'body_part-1',
       ownerFeatureId: 'feature_extrude-1',
       topology: 'face',
       pickBinding: {
-        pickId: 'pick_body_part-1_face_top' as PickId,
+        pickId: 'pick_face_top' as PickId,
         target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
         topology: 'face',
       },
       geometry: {
         kind: 'planarFace',
-        center: [0, 0, 3],
+        center: [0, 0, 12],
         size: [8, 6],
         normalAxis: 'z',
       },
     },
     {
       id: 'renderable_edge_outer_0' as RenderableId,
-      label: 'body_part-1.edge_outer-0',
+      label: 'Outer edge',
       target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
       ownerBodyId: 'body_part-1',
-      ownerFeatureId: 'feature_fillet-1',
+      ownerFeatureId: 'feature_extrude-1',
       topology: 'edge',
       pickBinding: {
-        pickId: 'pick_body_part-1_edge_outer_0' as PickId,
+        pickId: 'pick_edge_outer_0' as PickId,
         target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
         topology: 'edge',
       },
       geometry: {
         kind: 'polyline',
-        points: [
-          [-4, -3, 3],
-          [0, -3, 3],
-          [4, -3, 3],
-        ],
-      },
-    },
-    {
-      id: 'renderable_vertex_front_right' as RenderableId,
-      label: 'body_part-1.vertex_front-right',
-      target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-      ownerBodyId: 'body_part-1',
-      ownerFeatureId: 'feature_extrude-1',
-      topology: 'vertex',
-      pickBinding: {
-        pickId: 'pick_body_part-1_vertex_front_right' as PickId,
-        target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
-        topology: 'vertex',
-      },
-      geometry: {
-        kind: 'pointMarker',
-        position: [4, -3, 3],
-        radius: 0.22,
+        points: [[-4, -3, 12], [4, -3, 12]],
       },
     },
   ],
 }
 
-function findTarget(target: PrimitiveRef) {
-  return mockSnapshot.entities.find(
-    (candidate) => getPrimitiveRefKey(candidate.target) === getPrimitiveRefKey(target),
-  )?.target
-}
-
 export class MockKernelAdapter implements ModelingKernelAdapter {
   async getDocumentSnapshot(_request: GetDocumentSnapshotRequest): Promise<GetDocumentSnapshotResponse> {
-    void _request
     return {
-      snapshot: structuredClone(mockSnapshot),
+      snapshot,
     }
   }
 
@@ -887,13 +785,14 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       },
       changedTargets: [
         { kind: 'sketch', sketchId },
-        ...request.primitiveIds.map((primitiveId) => sketchEntityRef(sketchId, primitiveId)),
+        ...request.definition.entities.map((entity) => entity.target),
+        ...request.definition.points.map((point) => point.target),
       ],
       diagnostics: [
         {
           code: 'mock-commit-sketch',
           severity: 'info',
-          message: 'Mock kernel accepted the sketch commit request without mutating the document.',
+          message: 'Mock kernel accepted the sketch definition commit request without mutating the document.',
           target: { kind: 'sketch', sketchId },
           detail: null,
         },
@@ -928,15 +827,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         baseRevisionId: request.baseRevisionId,
       },
       changedTargets: request.consumedTargets,
-      diagnostics: [
-        {
-          code: 'mock-update-feature',
-          severity: 'info',
-          message: 'Mock kernel accepted the feature update request without mutating committed state.',
-          target: request.consumedTargets[0] ?? null,
-          detail: null,
-        },
-      ],
+      diagnostics: [],
     }
   }
 
@@ -966,116 +857,45 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
-      changedTargets: [],
-      diagnostics: [
-        {
-          code: 'mock-delete-feature',
-          severity: 'info',
-          message: 'Mock kernel accepted the feature delete without mutating the document.',
-          target: { kind: 'feature', featureId: request.featureId },
-          detail: null,
-        },
-      ],
+      changedTargets: [{ kind: 'feature', featureId: request.featureId }],
+      diagnostics: [],
     }
   }
 
   async evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse> {
-    const stale = request.baseRevisionId !== CURRENT_REVISION_ID
-
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
-      revisionId: stale ? CURRENT_REVISION_ID : request.baseRevisionId,
+      revisionId: request.baseRevisionId,
       previewId: request.previewId,
-      freshness: stale
-        ? {
+      freshness: request.baseRevisionId === REVISION_ID
+        ? { kind: 'fresh', baseRevisionId: request.baseRevisionId }
+        : {
             kind: 'stale',
             requestedRevisionId: request.baseRevisionId,
             currentRevisionId: CURRENT_REVISION_ID,
-          }
-        : {
-            kind: 'fresh',
-            baseRevisionId: request.baseRevisionId,
           },
-      renderables: stale ? [] : structuredClone(mockSnapshot.renderables),
-      diagnostics: [
-        ...(stale
-          ? [
-              {
-                code: 'mock-stale-preview',
-                severity: 'warning' as const,
-                message: `Preview ${request.previewId} was rejected because revision ${request.baseRevisionId} is stale.`,
-                target: request.consumedTargets[0] ?? null,
-                detail: {
-                  kind: 'stalePreview' as const,
-                  previewId: request.previewId,
-                  requestedRevisionId: request.baseRevisionId,
-                  currentRevisionId: CURRENT_REVISION_ID,
-                },
-              },
-            ]
-          : [
-              {
-                code: 'mock-preview',
-                severity: 'info' as const,
-                message: `Preview evaluation for ${request.featureType} is mocked and does not mutate committed state.`,
-                target: request.consumedTargets[0] ?? null,
-                detail: null,
-              },
-            ]),
-      ],
+      renderables: snapshot.renderables,
+      diagnostics: [],
     }
   }
 
   async resolveReference(request: ResolveReferenceRequest): Promise<ResolveReferenceResponse> {
-    const resolvedTarget = findTarget(request.target)
+    const entityRecord = entities.find((entry) => getPrimitiveRefKey(entry.target) === getPrimitiveRefKey(request.target))
 
     return {
       contractVersion: CONTRACT_VERSION,
       resolution: {
-        label: resolvedTarget ? getPrimitiveRefLabel(resolvedTarget) : 'Unresolved reference',
+        label: entityRecord?.label ?? 'Resolved target',
         target: request.target,
-        ownerDocumentId: mockSnapshot.documentId,
-        ownerRevisionId: mockSnapshot.revisionId,
-        ownerFeatureId: request.target.kind === 'feature' ? request.target.featureId : null,
-        ownerSketchId: request.target.kind === 'sketch' ? request.target.sketchId : null,
-        ownerBodyId:
-          request.target.kind === 'body' ||
-          request.target.kind === 'face' ||
-          request.target.kind === 'edge' ||
-          request.target.kind === 'vertex'
-            ? request.target.bodyId
-            : null,
-        invalidation: resolvedTarget
-          ? null
-          : {
-              reason: 'The requested primitive does not exist in the mock snapshot.',
-              target: request.target,
-              ownerFeatureId: null,
-              ownerSketchId: null,
-              sourceTarget: null,
-            },
+        ownerDocumentId: DOCUMENT_ID,
+        ownerRevisionId: REVISION_ID,
+        ownerFeatureId: entityRecord?.ownerFeatureId ?? null,
+        ownerSketchId: entityRecord?.ownerSketchId ?? null,
+        ownerBodyId: entityRecord?.ownerBodyId ?? null,
+        invalidation: null,
       },
-      diagnostics: resolvedTarget
-        ? []
-        : [
-            {
-              code: 'mock-unresolved-reference',
-              severity: 'warning',
-              message: 'The requested primitive is not part of the current mock snapshot.',
-              target: request.target,
-              detail: {
-                kind: 'invalidReference',
-                reference: {
-                  reason: 'The requested primitive does not exist in the mock snapshot.',
-                  target: request.target,
-                  ownerFeatureId: null,
-                  ownerSketchId: null,
-                  sourceTarget: null,
-                },
-              },
-            },
-          ],
+      diagnostics: [],
     }
   }
 }

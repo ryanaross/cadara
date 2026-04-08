@@ -10,7 +10,6 @@ import type {
   PickId,
   RenderableId,
   RevisionId,
-  SketchEntityId,
   SketchId,
   SnapshotEntityId,
   PreviewId,
@@ -18,7 +17,8 @@ import type {
   VertexId,
 } from '@/contracts/shared/ids'
 import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
-import type { DurableRef, SketchEntityRef } from '@/contracts/shared/references'
+import type { DurableRef } from '@/contracts/shared/references'
+import type { SketchPoint2D, SketchRecord } from '@/contracts/sketch/schema'
 import type {
   ContractVersion,
   FeatureTypeVersion,
@@ -29,8 +29,7 @@ export type { PreviewId, ReferenceId }
 export type PrimitiveRef = DurableRef
 export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
 export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
-
-export type SketchPoint = readonly [number, number]
+export type SketchPoint = SketchPoint2D
 
 /**
  * Transitional feature family identifiers supported by the current scaffold.
@@ -39,15 +38,9 @@ export type SketchPoint = readonly [number, number]
 export type LegacyFeatureType = 'extrude' | 'fillet'
 
 /**
- * Transitional sketch primitive identifier used only inside sketch snapshot
- * payloads while sketch persistence is still primitive-based.
- */
-export type SketchPrimitiveId = `curve_${string}` | `point_${string}`
-
-/**
  * Transitional extrude payload currently supported by the modeling boundary.
- * `profileTarget` must identify a durable sketch or planar face seed owned by
- * the same document revision as the containing request or snapshot.
+ * `profileTarget` must identify a durable derived region, durable sketch, or planar face
+ * seed owned by the same document revision as the containing request or snapshot.
  */
 export interface ExtrudeFeatureParameterPayload {
   depth: number
@@ -149,31 +142,6 @@ export type PreviewFreshness =
     }
 
 /**
- * Legacy sketch primitive geometry payload.
- * This is transitional until Phase 2 replaces primitive-centric sketch authoring
- * with explicit sketch entities, constraints, and dimensions.
- */
-export type SketchPrimitiveGeometry =
-  | {
-      kind: 'line'
-      start: SketchPoint
-      end: SketchPoint
-    }
-  | {
-      kind: 'circle'
-      center: SketchPoint
-      radius: number
-    }
-  | {
-      kind: 'point'
-      position: SketchPoint
-    }
-  | {
-      kind: 'profile'
-      boundaryPrimitiveIds: SketchPrimitiveId[]
-    }
-
-/**
  * Top-level diagnostic record returned by the modeling boundary.
  */
 export interface ModelingDiagnostic {
@@ -272,32 +240,12 @@ export interface RenderableEntityRecord {
       }
 }
 
-/**
- * Legacy sketch primitive record mirrored into the document snapshot.
- * This remains transitional and is not the canonical long-term sketch contract.
- */
-export interface SketchPrimitiveRecord {
-  primitiveId: SketchPrimitiveId
-  entityId: SketchEntityId
-  label: string
-  kind: 'line' | 'circle' | 'arc' | 'point' | 'profile'
-  target: SketchEntityRef
-  geometry: SketchPrimitiveGeometry
-}
-
-/**
- * Transitional authored sketch snapshot.
- * The sketch record itself is durable, but its primitive payloads remain a
- * scaffold-era representation until the dedicated sketch definition contract
- * lands in Phase 2.
- */
 export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   sketchId: SketchId
   label: string
   planeTarget: PrimitiveRef
   planeKey: SketchPlaneKey
-  primitiveIds: SketchPrimitiveId[]
-  primitives: SketchPrimitiveRecord[]
+  sketch: SketchRecord
 }
 
 /**
@@ -455,28 +403,12 @@ export interface UpdateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
 }
 
-/**
- * Transitional sketch primitive commit payload.
- */
-export interface CommitSketchPrimitiveInput {
-  primitiveId: SketchPrimitiveId
-  label: string
-  kind: 'line' | 'circle' | 'point' | 'profile'
-  geometry: SketchPrimitiveGeometry
-}
-
-/**
- * Transitional sketch commit request.
- * This remains primitive-based until Phase 2 introduces a real sketch
- * definition contract.
- */
 export interface CommitSketchRequest extends DocumentMutationRequest {
   sketchId: SketchId | null
   sketchLabel: string
   planeTarget: PrimitiveRef
   planeKey: SketchPlaneKey
-  primitiveIds: SketchPrimitiveId[]
-  primitives: CommitSketchPrimitiveInput[]
+  definition: SketchRecord['definition']
 }
 
 /**

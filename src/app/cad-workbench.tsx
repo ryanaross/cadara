@@ -106,7 +106,7 @@ export function CadWorkbench() {
               Sketch session:{' '}
               <span className="text-[var(--cad-foreground)]">
                 {sketchSession?.commitRequest
-                  ? `${sketchSession.commitRequest.primitiveIds.length} primitive ids staged`
+                  ? `${sketchSession.commitRequest.definition.entityIds.length} entities staged`
                   : 'none'}
               </span>
             </div>

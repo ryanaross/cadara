@@ -41,7 +41,7 @@ export function createDefaultExtrudeDraft(
   return {
     profileTarget:
       selectedTarget &&
-      (selectedTarget.kind === 'sketch' || selectedTarget.kind === 'sketchEntity')
+      (selectedTarget.kind === 'sketch' || selectedTarget.kind === 'region')
         ? selectedTarget
         : null,
     depth: 12,
@@ -102,6 +102,7 @@ export function createExtrudeDraftFromFeature(
 
   return {
     profileTarget: isPrimitiveRef(profileTarget)
+      && (profileTarget.kind === 'sketch' || profileTarget.kind === 'region' || profileTarget.kind === 'face')
       ? profileTarget
       : feature.consumedTargets.find((target) => target.kind === 'sketch') ?? null,
     depth: typeof payload.depth === 'number' ? payload.depth : 12,

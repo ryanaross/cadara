@@ -13,7 +13,6 @@ import type {
   RenderableId,
   RevisionId,
   SketchId,
-  SketchPrimitiveId,
   SnapshotEntityId,
   VertexId,
 } from '@/domain/editor/schema'
@@ -51,8 +50,22 @@ import type {
   UpdateFeatureResponse,
   UpdateFeatureRequest,
 } from '@/domain/modeling/schema'
+import type {
+  ConstraintStatusRecord,
+  ConstraintDefinition,
+  DimensionStatusRecord,
+  DimensionDefinition,
+  RegionRecord,
+  SketchReferenceDefinition,
+  SketchSolveDiagnostic,
+  SketchDefinition,
+  SketchEntityDefinition,
+  SketchPointDefinition,
+  SketchRecord,
+  SolvedSketchSnapshot,
+} from '@/contracts/sketch/schema'
 import type { DurableRef } from '@/contracts/shared/references'
-import type { SketchEntityId } from '@/contracts/shared/ids'
+import type { ConstraintId, DimensionId, RegionId, SketchEntityId, SketchPointId } from '@/contracts/shared/ids'
 
 export interface ModelingService {
   readonly currentDocumentId: DocumentId
@@ -167,12 +180,44 @@ function assertBodyId(value: unknown): BodyId {
   return value as BodyId
 }
 
-function assertSketchPrimitiveId(value: unknown): SketchPrimitiveId {
+function assertSketchPointId(value: unknown): SketchPointId {
   if (!isString(value)) {
-    throw new Error('Invalid sketch primitive ID payload.')
+    throw new Error('Invalid sketch point ID payload.')
   }
 
-  return value as SketchPrimitiveId
+  return value as SketchPointId
+}
+
+function assertSketchEntityId(value: unknown): SketchEntityId {
+  if (!isString(value)) {
+    throw new Error('Invalid sketch entity ID payload.')
+  }
+
+  return value as SketchEntityId
+}
+
+function assertConstraintId(value: unknown): ConstraintId {
+  if (!isString(value)) {
+    throw new Error('Invalid constraint ID payload.')
+  }
+
+  return value as ConstraintId
+}
+
+function assertDimensionId(value: unknown): DimensionId {
+  if (!isString(value)) {
+    throw new Error('Invalid dimension ID payload.')
+  }
+
+  return value as DimensionId
+}
+
+function assertRegionId(value: unknown): RegionId {
+  if (!isString(value)) {
+    throw new Error('Invalid region ID payload.')
+  }
+
+  return value as RegionId
 }
 
 function assertPrimitiveRef(value: unknown): PrimitiveRef {
@@ -201,6 +246,11 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
         return { kind: 'vertex', bodyId: value.bodyId as BodyId, vertexId: value.vertexId as VertexId }
       }
       break
+    case 'loop':
+      if (isString(value.bodyId) && isString(value.loopId)) {
+        return { kind: 'loop', bodyId: value.bodyId as import('@/contracts/shared/ids').BodyId, loopId: value.loopId as import('@/contracts/shared/ids').LoopId }
+      }
+      break
     case 'sketch':
       if (isString(value.sketchId)) {
         return { kind: 'sketch', sketchId: value.sketchId as SketchId }
@@ -215,6 +265,15 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
         }
       }
       break
+    case 'sketchPoint':
+      if (isString(value.sketchId) && isString(value.pointId)) {
+        return {
+          kind: 'sketchPoint',
+          sketchId: value.sketchId as SketchId,
+          pointId: value.pointId as SketchPointId,
+        }
+      }
+      break
     case 'feature':
       if (isString(value.featureId)) {
         return { kind: 'feature', featureId: value.featureId as FeatureId }
@@ -223,6 +282,15 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
     case 'construction':
       if (isString(value.constructionId)) {
         return { kind: 'construction', constructionId: value.constructionId as ConstructionId }
+      }
+      break
+    case 'region':
+      if (isString(value.sketchId) && isString(value.regionId)) {
+        return {
+          kind: 'region',
+          sketchId: value.sketchId as SketchId,
+          regionId: value.regionId as RegionId,
+        }
       }
       break
   }
@@ -588,10 +656,6 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
       throw new Error('Invalid sketch snapshot record.')
     }
 
-    if (!Array.isArray(entry.primitiveIds) || !Array.isArray(entry.primitives)) {
-      throw new Error('Invalid sketch primitive payload.')
-    }
-
     return {
       ...normalizeOwnership(entry),
       sketchId: assertSketchId(entry.sketchId),
@@ -603,37 +667,564 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
           : (() => {
               throw new Error('Invalid sketch plane key payload.')
             })(),
-      primitiveIds: entry.primitiveIds.map((primitiveId) => assertSketchPrimitiveId(primitiveId)),
-      primitives: entry.primitives.map((primitive) => {
-        if (
-          !isRecord(primitive) ||
-          !isString(primitive.primitiveId) ||
-          !isString(primitive.label) ||
-          (primitive.kind !== 'line' &&
-            primitive.kind !== 'circle' &&
-            primitive.kind !== 'arc' &&
-            primitive.kind !== 'point' &&
-            primitive.kind !== 'profile')
-        ) {
-          throw new Error('Invalid sketch primitive record.')
-        }
+      sketch: normalizeSketchRecord(entry.sketch),
+    }
+  })
+}
 
-        return {
-          primitiveId: assertSketchPrimitiveId(primitive.primitiveId),
-          entityId:
-            typeof primitive.entityId === 'string'
-              ? (primitive.entityId as SketchSnapshotRecord['primitives'][number]['entityId'])
-              : (() => {
-                  throw new Error('Invalid sketch primitive entity ID payload.')
-                })(),
-          label: primitive.label,
-          kind: primitive.kind,
-          target: assertPrimitiveRef(
-            primitive.target,
-          ) as SketchSnapshotRecord['primitives'][number]['target'],
-          geometry: primitive.geometry as SketchSnapshotRecord['primitives'][number]['geometry'],
-        }
-      }),
+function normalizeSketchRecord(value: unknown): SketchRecord {
+  if (!isRecord(value) || !isString(value.sketchId) || !isString(value.label)) {
+    throw new Error('Invalid sketch record payload.')
+  }
+
+  return {
+    ...normalizeOwnership(value),
+    sketchId: assertSketchId(value.sketchId),
+    label: value.label,
+    definition: normalizeSketchDefinition(value.definition),
+    solvedSnapshot: normalizeSolvedSketchSnapshot(value.solvedSnapshot),
+    regions: normalizeRegionRecords(value.regions),
+  }
+}
+
+function normalizeSketchDefinition(value: unknown): SketchDefinition {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 'sketch-definition/v1alpha1' ||
+    !Array.isArray(value.referenceIds) ||
+    !Array.isArray(value.references) ||
+    !Array.isArray(value.pointIds) ||
+    !Array.isArray(value.points) ||
+    !Array.isArray(value.entityIds) ||
+    !Array.isArray(value.entities) ||
+    !Array.isArray(value.constraintIds) ||
+    !Array.isArray(value.constraints) ||
+    !Array.isArray(value.dimensionIds) ||
+    !Array.isArray(value.dimensions)
+  ) {
+    throw new Error('Invalid sketch definition payload.')
+  }
+
+  return {
+    schemaVersion: value.schemaVersion,
+    referenceIds: value.referenceIds.map((referenceId) => {
+      if (!isString(referenceId)) {
+        throw new Error('Invalid sketch reference ID payload.')
+      }
+
+      return referenceId as import('@/contracts/shared/ids').ReferenceId
+    }),
+    references: value.references.map((reference) => normalizeSketchReferenceDefinition(reference)),
+    pointIds: value.pointIds.map((pointId) => assertSketchPointId(pointId)),
+    points: value.points.map((point) => normalizeSketchPointDefinition(point)),
+    entityIds: value.entityIds.map((entityId) => assertSketchEntityId(entityId)),
+    entities: value.entities.map((entity) => normalizeSketchEntityDefinition(entity)),
+    constraintIds: value.constraintIds.map((constraintId) => assertConstraintId(constraintId)),
+    constraints: value.constraints.map((constraint) => normalizeConstraintDefinition(constraint)),
+    dimensionIds: value.dimensionIds.map((dimensionId) => assertDimensionId(dimensionId)),
+    dimensions: value.dimensions.map((dimension) => normalizeDimensionDefinition(dimension)),
+  }
+}
+
+function normalizeSketchReferenceDefinition(value: unknown): SketchReferenceDefinition {
+  if (!isRecord(value) || !isString(value.referenceId) || !isString(value.kind) || !isString(value.label)) {
+    throw new Error('Invalid sketch reference definition payload.')
+  }
+
+  if (value.kind === 'constructionPlane') {
+    if (!isRecord(value.source) || value.projectionMode !== 'coplanar') {
+      throw new Error('Invalid construction-plane sketch reference payload.')
+    }
+
+    const source = assertPrimitiveRef(value.source)
+
+    if (source.kind !== 'construction') {
+      throw new Error('Construction-plane sketch reference must target construction geometry.')
+    }
+
+    return {
+      referenceId: value.referenceId as import('@/contracts/shared/ids').ReferenceId,
+      kind: 'constructionPlane',
+      label: value.label,
+      source,
+      projectionMode: value.projectionMode,
+    }
+  }
+
+  if (value.kind === 'modelReference') {
+    if (
+      !isRecord(value.source) ||
+      (value.projectionMode !== 'projectAlongPlaneNormal' &&
+        value.projectionMode !== 'useExistingCoplanarGeometry')
+    ) {
+      throw new Error('Invalid model sketch reference payload.')
+    }
+
+    const source = assertPrimitiveRef(value.source)
+
+    if (source.kind !== 'face' && source.kind !== 'edge' && source.kind !== 'vertex') {
+      throw new Error('Model sketch reference must target a face, edge, or vertex.')
+    }
+
+    return {
+      referenceId: value.referenceId as import('@/contracts/shared/ids').ReferenceId,
+      kind: 'modelReference',
+      label: value.label,
+      source,
+      projectionMode: value.projectionMode,
+    }
+  }
+
+  throw new Error('Invalid sketch reference definition kind.')
+}
+
+function normalizeSketchPointDefinition(value: unknown): SketchPointDefinition {
+  if (
+    !isRecord(value) ||
+    !isString(value.pointId) ||
+    !isString(value.label) ||
+    !isRecord(value.target) ||
+    !Array.isArray(value.position) ||
+    value.position.length !== 2 ||
+    value.position.some((component) => typeof component !== 'number') ||
+    typeof value.isConstruction !== 'boolean'
+  ) {
+    throw new Error('Invalid sketch point definition payload.')
+  }
+
+  return {
+    pointId: assertSketchPointId(value.pointId),
+    label: value.label,
+    target: assertPrimitiveRef(value.target) as SketchPointDefinition['target'],
+    position: value.position as unknown as SketchPointDefinition['position'],
+    isConstruction: value.isConstruction,
+  }
+}
+
+function normalizeSketchEntityDefinition(value: unknown): SketchEntityDefinition {
+  if (!isRecord(value) || !isString(value.kind) || !isString(value.entityId) || !isString(value.label)) {
+    throw new Error('Invalid sketch entity definition payload.')
+  }
+
+  if (value.kind === 'lineSegment') {
+    if (
+      !isRecord(value.target) ||
+      !isString(value.startPointId) ||
+      !isString(value.endPointId) ||
+      typeof value.isConstruction !== 'boolean'
+    ) {
+      throw new Error('Invalid line segment definition payload.')
+    }
+
+    return {
+      kind: 'lineSegment',
+      entityId: assertSketchEntityId(value.entityId),
+      label: value.label,
+      target: assertPrimitiveRef(value.target) as SketchEntityDefinition['target'],
+      isConstruction: value.isConstruction,
+      startPointId: assertSketchPointId(value.startPointId),
+      endPointId: assertSketchPointId(value.endPointId),
+    }
+  }
+
+  if (value.kind === 'circle') {
+    if (
+      !isRecord(value.target) ||
+      !isString(value.centerPointId) ||
+      typeof value.radius !== 'number' ||
+      typeof value.isConstruction !== 'boolean'
+    ) {
+      throw new Error('Invalid circle definition payload.')
+    }
+
+    return {
+      kind: 'circle',
+      entityId: assertSketchEntityId(value.entityId),
+      label: value.label,
+      target: assertPrimitiveRef(value.target) as SketchEntityDefinition['target'],
+      isConstruction: value.isConstruction,
+      centerPointId: assertSketchPointId(value.centerPointId),
+      radius: value.radius,
+    }
+  }
+
+  if (value.kind === 'point') {
+    if (
+      !isRecord(value.target) ||
+      !isString(value.pointId) ||
+      typeof value.isConstruction !== 'boolean'
+    ) {
+      throw new Error('Invalid point definition payload.')
+    }
+
+    return {
+      kind: 'point',
+      entityId: assertSketchEntityId(value.entityId),
+      label: value.label,
+      target: assertPrimitiveRef(value.target) as SketchEntityDefinition['target'],
+      isConstruction: value.isConstruction,
+      pointId: assertSketchPointId(value.pointId),
+    }
+  }
+
+  if (value.kind === 'arc') {
+    if (
+      !isRecord(value.target) ||
+      !isString(value.centerPointId) ||
+      !isString(value.startPointId) ||
+      !isString(value.endPointId) ||
+      (value.sweepDirection !== 'clockwise' && value.sweepDirection !== 'counterClockwise') ||
+      typeof value.isConstruction !== 'boolean'
+    ) {
+      throw new Error('Invalid arc definition payload.')
+    }
+
+    return {
+      kind: 'arc',
+      entityId: assertSketchEntityId(value.entityId),
+      label: value.label,
+      target: assertPrimitiveRef(value.target) as SketchEntityDefinition['target'],
+      isConstruction: value.isConstruction,
+      centerPointId: assertSketchPointId(value.centerPointId),
+      startPointId: assertSketchPointId(value.startPointId),
+      endPointId: assertSketchPointId(value.endPointId),
+      sweepDirection: value.sweepDirection,
+    }
+  }
+
+  throw new Error('Invalid sketch entity definition kind.')
+}
+
+function normalizeConstraintDefinition(value: unknown): ConstraintDefinition {
+  if (!isRecord(value) || !isString(value.constraintId) || !isString(value.kind) || !isString(value.label)) {
+    throw new Error('Invalid constraint definition payload.')
+  }
+
+  if (value.kind === 'coincident') {
+    if (
+      !Array.isArray(value.pointIds) ||
+      value.pointIds.length !== 2
+    ) {
+      throw new Error('Invalid coincident constraint payload.')
+    }
+
+    return {
+      constraintId: assertConstraintId(value.constraintId),
+      kind: 'coincident',
+      label: value.label,
+      pointIds: [
+        assertSketchPointId(value.pointIds[0]),
+        assertSketchPointId(value.pointIds[1]),
+      ],
+    }
+  }
+
+  if (value.kind === 'horizontal' || value.kind === 'vertical') {
+    if (!isString(value.entityId)) {
+      throw new Error('Invalid axis constraint payload.')
+    }
+
+    return {
+      constraintId: assertConstraintId(value.constraintId),
+      kind: value.kind,
+      label: value.label,
+      entityId: assertSketchEntityId(value.entityId),
+    }
+  }
+
+  throw new Error('Invalid constraint definition kind.')
+}
+
+function normalizeDimensionDefinition(value: unknown): DimensionDefinition {
+  if (!isRecord(value) || !isString(value.dimensionId) || !isString(value.kind) || !isString(value.label)) {
+    throw new Error('Invalid dimension definition payload.')
+  }
+
+  if (value.kind === 'distance') {
+    if (
+      (value.axis !== 'aligned' && value.axis !== 'horizontal' && value.axis !== 'vertical') ||
+      !Array.isArray(value.pointIds) ||
+      value.pointIds.length !== 2 ||
+      typeof value.value !== 'number'
+    ) {
+      throw new Error('Invalid distance dimension payload.')
+    }
+
+    return {
+      dimensionId: assertDimensionId(value.dimensionId),
+      kind: 'distance',
+      label: value.label,
+      axis: value.axis,
+      pointIds: [
+        assertSketchPointId(value.pointIds[0]),
+        assertSketchPointId(value.pointIds[1]),
+      ],
+      value: value.value,
+    }
+  }
+
+  if (value.kind === 'circleRadius') {
+    if (!isString(value.entityId) || typeof value.value !== 'number') {
+      throw new Error('Invalid circle radius dimension payload.')
+    }
+
+    return {
+      dimensionId: assertDimensionId(value.dimensionId),
+      kind: 'circleRadius',
+      label: value.label,
+      entityId: assertSketchEntityId(value.entityId),
+      value: value.value,
+    }
+  }
+
+  throw new Error('Invalid dimension definition kind.')
+}
+
+function normalizeSolvedSketchSnapshot(value: unknown): SolvedSketchSnapshot {
+  if (
+    !isRecord(value) ||
+    value.schemaVersion !== 'solved-sketch/v1alpha1' ||
+    (value.status !== 'unsolved' &&
+      value.status !== 'solved' &&
+      value.status !== 'underConstrained' &&
+      value.status !== 'fullyConstrained' &&
+      value.status !== 'overConstrained' &&
+      value.status !== 'inconsistent' &&
+      value.status !== 'partiallySolved') ||
+    !Array.isArray(value.solvedEntities) ||
+    !Array.isArray(value.solvedPoints) ||
+    !Array.isArray(value.constraintStatuses) ||
+    !Array.isArray(value.dimensionStatuses) ||
+    !Array.isArray(value.diagnostics)
+  ) {
+    throw new Error('Invalid solved sketch snapshot payload.')
+  }
+
+  return {
+    schemaVersion: value.schemaVersion,
+    status: value.status,
+    solvedEntities: value.solvedEntities.map((entity) => normalizeSolvedSketchEntityGeometry(entity)),
+    solvedPoints: value.solvedPoints.map((point) => {
+      if (
+        !isRecord(point) ||
+        !isString(point.pointId) ||
+        !isRecord(point.target) ||
+        !Array.isArray(point.solvedPosition) ||
+        point.solvedPosition.length !== 2 ||
+        point.solvedPosition.some((component) => typeof component !== 'number')
+      ) {
+        throw new Error('Invalid solved sketch point payload.')
+      }
+
+      return {
+        pointId: assertSketchPointId(point.pointId),
+        target: assertPrimitiveRef(point.target) as SolvedSketchSnapshot['solvedPoints'][number]['target'],
+        solvedPosition: point.solvedPosition as unknown as SolvedSketchSnapshot['solvedPoints'][number]['solvedPosition'],
+      }
+    }),
+    constraintStatuses: value.constraintStatuses.map((status) => normalizeConstraintStatusRecord(status)),
+    dimensionStatuses: value.dimensionStatuses.map((status) => normalizeDimensionStatusRecord(status)),
+    diagnostics: value.diagnostics.map((diagnostic) => normalizeSketchSolveDiagnostic(diagnostic)),
+  }
+}
+
+function normalizeSolvedSketchEntityGeometry(value: unknown): SolvedSketchSnapshot['solvedEntities'][number] {
+  if (!isRecord(value) || !isString(value.entityId) || !isString(value.kind)) {
+    throw new Error('Invalid solved sketch entity payload.')
+  }
+
+  if (value.kind === 'point') {
+    if (!Array.isArray(value.solvedPosition) || value.solvedPosition.length !== 2 || value.solvedPosition.some((component) => typeof component !== 'number')) {
+      throw new Error('Invalid solved point-entity payload.')
+    }
+
+    return {
+      entityId: assertSketchEntityId(value.entityId),
+      kind: 'point',
+      solvedPosition: value.solvedPosition as unknown as [number, number],
+    }
+  }
+
+  if (value.kind === 'lineSegment') {
+    if (
+      !Array.isArray(value.startPosition) ||
+      value.startPosition.length !== 2 ||
+      value.startPosition.some((component) => typeof component !== 'number') ||
+      !Array.isArray(value.endPosition) ||
+      value.endPosition.length !== 2 ||
+      value.endPosition.some((component) => typeof component !== 'number')
+    ) {
+      throw new Error('Invalid solved line-segment payload.')
+    }
+
+    return {
+      entityId: assertSketchEntityId(value.entityId),
+      kind: 'lineSegment',
+      startPosition: value.startPosition as unknown as [number, number],
+      endPosition: value.endPosition as unknown as [number, number],
+    }
+  }
+
+  if (value.kind === 'circle') {
+    if (
+      !Array.isArray(value.centerPosition) ||
+      value.centerPosition.length !== 2 ||
+      value.centerPosition.some((component) => typeof component !== 'number') ||
+      typeof value.solvedRadius !== 'number'
+    ) {
+      throw new Error('Invalid solved circle payload.')
+    }
+
+    return {
+      entityId: assertSketchEntityId(value.entityId),
+      kind: 'circle',
+      centerPosition: value.centerPosition as unknown as [number, number],
+      solvedRadius: value.solvedRadius,
+    }
+  }
+
+  if (value.kind === 'arc') {
+    if (
+      !Array.isArray(value.centerPosition) ||
+      value.centerPosition.length !== 2 ||
+      value.centerPosition.some((component) => typeof component !== 'number') ||
+      !Array.isArray(value.startPosition) ||
+      value.startPosition.length !== 2 ||
+      value.startPosition.some((component) => typeof component !== 'number') ||
+      !Array.isArray(value.endPosition) ||
+      value.endPosition.length !== 2 ||
+      value.endPosition.some((component) => typeof component !== 'number') ||
+      (value.sweepDirection !== 'clockwise' && value.sweepDirection !== 'counterClockwise')
+    ) {
+      throw new Error('Invalid solved arc payload.')
+    }
+
+    return {
+      entityId: assertSketchEntityId(value.entityId),
+      kind: 'arc',
+      centerPosition: value.centerPosition as unknown as [number, number],
+      startPosition: value.startPosition as unknown as [number, number],
+      endPosition: value.endPosition as unknown as [number, number],
+      sweepDirection: value.sweepDirection,
+    }
+  }
+
+  throw new Error('Invalid solved sketch entity kind.')
+}
+
+function normalizeConstraintStatusRecord(value: unknown): ConstraintStatusRecord {
+  if (
+    !isRecord(value) ||
+    !isString(value.constraintId) ||
+    (value.status !== 'satisfied' && value.status !== 'unsatisfied' && value.status !== 'conflicting')
+  ) {
+    throw new Error('Invalid constraint status payload.')
+  }
+
+  return {
+    constraintId: assertConstraintId(value.constraintId),
+    status: value.status,
+  }
+}
+
+function normalizeDimensionStatusRecord(value: unknown): DimensionStatusRecord {
+  if (
+    !isRecord(value) ||
+    !isString(value.dimensionId) ||
+    (value.status !== 'driving' && value.status !== 'driven' && value.status !== 'unsatisfied') ||
+    !(typeof value.solvedValue === 'number' || value.solvedValue === null)
+  ) {
+    throw new Error('Invalid dimension status payload.')
+  }
+
+  return {
+    dimensionId: assertDimensionId(value.dimensionId),
+    status: value.status,
+    solvedValue: value.solvedValue,
+  }
+}
+
+function normalizeSketchSolveDiagnostic(value: unknown): SketchSolveDiagnostic {
+  if (
+    !isRecord(value) ||
+    !isString(value.code) ||
+    (value.severity !== 'info' && value.severity !== 'warning' && value.severity !== 'error') ||
+    !isString(value.message)
+  ) {
+    throw new Error('Invalid sketch solve diagnostic payload.')
+  }
+
+  const target = (() => {
+    if (value.target == null) {
+      return null
+    }
+
+    if (!isRecord(value.target) || !isString(value.target.kind)) {
+      throw new Error('Invalid sketch solve diagnostic target payload.')
+    }
+
+    switch (value.target.kind) {
+      case 'entity':
+        return isString(value.target.entityId)
+          ? { kind: 'entity' as const, entityId: assertSketchEntityId(value.target.entityId) }
+          : (() => { throw new Error('Invalid sketch solve entity target.') })()
+      case 'point':
+        return isString(value.target.pointId)
+          ? { kind: 'point' as const, pointId: assertSketchPointId(value.target.pointId) }
+          : (() => { throw new Error('Invalid sketch solve point target.') })()
+      case 'constraint':
+        return isString(value.target.constraintId)
+          ? { kind: 'constraint' as const, constraintId: assertConstraintId(value.target.constraintId) }
+          : (() => { throw new Error('Invalid sketch solve constraint target.') })()
+      case 'dimension':
+        return isString(value.target.dimensionId)
+          ? { kind: 'dimension' as const, dimensionId: assertDimensionId(value.target.dimensionId) }
+          : (() => { throw new Error('Invalid sketch solve dimension target.') })()
+      case 'region':
+        return isString(value.target.regionId)
+          ? { kind: 'region' as const, regionId: assertRegionId(value.target.regionId) }
+          : (() => { throw new Error('Invalid sketch solve region target.') })()
+      default:
+        throw new Error('Invalid sketch solve diagnostic target kind.')
+    }
+  })()
+
+  return {
+    code: value.code,
+    severity: value.severity,
+    message: value.message,
+    target,
+  }
+}
+
+function normalizeRegionRecords(value: unknown): RegionRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid sketch region payload.')
+  }
+
+  return value.map((region) => {
+    if (
+      !isRecord(region) ||
+      !isString(region.regionId) ||
+      !isString(region.label) ||
+      !isRecord(region.target) ||
+      !isRecord(region.sourceSketch) ||
+      !Array.isArray(region.boundaryEntityIds) ||
+      !Array.isArray(region.boundaryPointIds) ||
+      typeof region.isClosed !== 'boolean'
+    ) {
+      throw new Error('Invalid region record payload.')
+    }
+
+    return {
+      ...normalizeOwnership(region),
+      regionId: assertRegionId(region.regionId),
+      label: region.label,
+      target: assertPrimitiveRef(region.target) as RegionRecord['target'],
+      sourceSketch: assertPrimitiveRef(region.sourceSketch) as RegionRecord['sourceSketch'],
+      boundaryEntityIds: region.boundaryEntityIds.map((entityId) => assertSketchEntityId(entityId)),
+      boundaryPointIds: region.boundaryPointIds.map((pointId) => assertSketchPointId(pointId)),
+      isClosed: region.isClosed,
     }
   })
 }

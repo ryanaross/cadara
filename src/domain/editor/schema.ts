@@ -30,7 +30,6 @@ export type {
   VertexId,
 } from '@/contracts/shared/ids'
 
-export type SketchPrimitiveId = `curve_${string}` | `point_${string}`
 export type PrimitiveRef = DurableRef
 
 export type SelectionTarget = PrimitiveRef
@@ -164,20 +163,20 @@ export const sketchStartSelectionFilter: SelectionFilter = {
 
 export const extrudeSelectionFilter: SelectionFilter = {
   kind: 'extrudeProfile',
-  allowedKinds: ['sketch', 'sketchEntity', 'face'],
-  label: 'Extrude profiles or planar faces',
+  allowedKinds: ['sketch', 'region', 'face'],
+  label: 'Extrude regions or planar faces',
   requirements: [
     {
       id: 'extrude-profile',
       label: 'Extrude seed',
-      description: 'Extrude accepts an existing sketch, a sketch profile primitive, or a planar face.',
+      description: 'Extrude accepts an existing sketch, a derived sketch region, or a planar face.',
       slots: [
         {
           id: 'extrude-seed',
           label: 'Extrude seed',
-          description: 'Select one sketch, sketch profile, or planar face.',
-          acceptedKinds: ['sketch', 'sketchEntity', 'face'],
-          acceptedSemantics: ['existingSketch', 'sketchEntity', 'planarFace'],
+          description: 'Select one sketch, derived sketch region, or planar face.',
+          acceptedKinds: ['sketch', 'region', 'face'],
+          acceptedSemantics: ['existingSketch', 'planarFace'],
         },
       ],
     },
@@ -369,6 +368,9 @@ function getTargetSemantics(
       if (catalog && catalog.existingSketchKeys.includes(getPrimitiveRefKey(target))) {
         semantics.push('existingSketch')
       }
+      break
+    case 'region':
+      semantics.push('existingSketch')
       break
     case 'sketchEntity':
       semantics.push('sketchEntity')

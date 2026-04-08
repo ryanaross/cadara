@@ -307,8 +307,8 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           Sketch draft:{' '}
           <span className="text-[var(--cad-foreground)]">
             {sketchSession?.commitRequest
-              ? sketchSession.commitRequest.primitiveIds.join(', ')
-              : 'No accepted primitives'}
+              ? sketchSession.commitRequest.definition.entityIds.join(', ')
+              : 'No authored entities'}
           </span>
         </p>
       </section>

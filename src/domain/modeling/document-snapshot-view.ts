@@ -84,7 +84,12 @@ export function getFeatureSnapshot(
 
 export function buildSelectionTargetCatalog(snapshot: DocumentSnapshot): SelectionTargetCatalog {
   return {
-    existingSketchKeys: snapshot.sketches.map((sketch) => getPrimitiveRefKey({ kind: 'sketch', sketchId: sketch.sketchId })),
+    existingSketchKeys: [
+      ...snapshot.sketches.map((sketch) => getPrimitiveRefKey({ kind: 'sketch', sketchId: sketch.sketchId })),
+      ...snapshot.sketches.flatMap((sketch) =>
+        sketch.sketch.regions.map((region) => getPrimitiveRefKey(region.target)),
+      ),
+    ],
     constructionPlaneKeys: snapshot.constructions
       .filter((construction) => construction.constructionType === 'plane')
       .map((construction) => getPrimitiveRefKey(construction.target)),

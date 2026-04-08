@@ -763,7 +763,7 @@ function createPreviewMissingProfileDiagnostics(): ModelingDiagnostic[] {
     {
       code: 'feature-preview-missing-profile',
       severity: 'warning',
-      message: 'Select a sketch, sketch profile, or planar face before previewing extrude.',
+      message: 'Select a sketch, derived sketch region, or planar face before previewing extrude.',
       target: null,
       detail: null,
     },
@@ -2175,12 +2175,9 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
     planeKey: SketchSessionState['commitRequest'] extends null
       ? never
       : NonNullable<SketchSessionState['commitRequest']>['planeKey']
-    primitiveIds: SketchSessionState['commitRequest'] extends null
+    definition: SketchSessionState['commitRequest'] extends null
       ? never
-      : NonNullable<SketchSessionState['commitRequest']>['primitiveIds']
-    primitives: SketchSessionState['commitRequest'] extends null
-      ? never
-      : NonNullable<SketchSessionState['commitRequest']>['primitives']
+      : NonNullable<SketchSessionState['commitRequest']>['definition']
   }) => Promise<{
     revisionId: RevisionId
     revisionState: { kind: 'accepted' } | { kind: 'conflict'; actualRevisionId: RevisionId }
@@ -2233,8 +2230,7 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
         sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
         planeTarget: input.session.commitRequest?.planeTarget ?? input.session.planeTarget,
         planeKey: input.session.commitRequest?.planeKey ?? input.session.planeKey,
-        primitiveIds: input.session.commitRequest?.primitiveIds ?? [],
-        primitives: input.session.commitRequest?.primitives ?? [],
+        definition: input.session.commitRequest?.definition ?? input.session.definition,
       })
 
       if (!result) {

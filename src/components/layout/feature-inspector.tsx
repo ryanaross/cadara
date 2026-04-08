@@ -115,11 +115,11 @@ export function FeatureInspector({
             <p className="text-xs text-[var(--cad-muted-foreground)]">Profile target</p>
             <p className="mt-1 text-sm text-[var(--cad-foreground)]">
               {draft.profileTarget
-                ? `${draft.profileTarget.kind} / ${'primitiveId' in draft.profileTarget ? draft.profileTarget.primitiveId : 'sketchId' in draft.profileTarget ? draft.profileTarget.sketchId : 'selected'}`
+                ? `${draft.profileTarget.kind} / ${'regionId' in draft.profileTarget ? draft.profileTarget.regionId : 'sketchId' in draft.profileTarget ? draft.profileTarget.sketchId : 'selected'}`
                 : 'No profile selected'}
             </p>
             <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">
-              Accepted targets: sketch, sketch profile primitive, or planar face.
+              Accepted targets: sketch, derived sketch region, or planar face.
             </p>
           </div>
         </section>
