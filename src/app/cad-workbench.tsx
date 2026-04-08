@@ -16,6 +16,7 @@ import {
   type ViewportInteractionEvent,
 } from '@/domain/editor/schema'
 import {
+  buildSelectionTargetCatalog,
   getFeatureSnapshot,
   getSelectionDetail,
 } from '@/domain/modeling/document-snapshot-view'
@@ -47,6 +48,10 @@ export function CadWorkbench() {
         if (!isCancelled) {
           setSnapshot(nextSnapshot)
           setSnapshotDiagnostics(nextSnapshot.diagnostics)
+          dispatch({
+            type: 'setSelectionCatalog',
+            catalog: buildSelectionTargetCatalog(nextSnapshot),
+          })
         }
       })
 
@@ -128,6 +133,10 @@ export function CadWorkbench() {
 
             setSnapshot(nextSnapshot)
             setSnapshotDiagnostics(nextSnapshot.diagnostics)
+            dispatch({
+              type: 'setSelectionCatalog',
+              catalog: buildSelectionTargetCatalog(nextSnapshot),
+            })
           })
           .catch((error: unknown) => {
             if (isCancelled) {
@@ -204,6 +213,10 @@ export function CadWorkbench() {
           .then((nextSnapshot) => {
             setSnapshot(nextSnapshot)
             setSnapshotDiagnostics(nextSnapshot.diagnostics)
+            dispatch({
+              type: 'setSelectionCatalog',
+              catalog: buildSelectionTargetCatalog(nextSnapshot),
+            })
             dispatch({
               type: 'setPreview',
               preview: {

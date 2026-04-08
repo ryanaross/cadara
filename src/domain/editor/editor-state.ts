@@ -24,22 +24,24 @@ import type {
   ViewportInteractionEvent,
 } from '@/domain/editor/schema'
 import {
-  defaultSelectionFilter,
+  getDefaultSelectionFilterForMode,
   getPrimitiveRefLabel,
+  getSelectionFilterForCommand,
+  getSelectionFilterRejectionLabel,
+  getSelectionPreviewLabel,
   initialEditorState,
   primitiveRefEquals,
+  resolveSelectionCandidate,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-
-const extrudeSelectionFilter = {
-  allowedKinds: ['sketch', 'sketchPrimitive'] as const,
-  label: 'Extrude profiles',
-}
+import type { ModelingDiagnostic } from '@/domain/modeling/schema'
+import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 
 export type EditorAction =
   | { type: 'activateCommand'; toolId: ToolId; mode: EditorState['mode'] }
   | { type: 'startSketchSession'; planeTarget: PrimitiveRef }
   | { type: 'hydrateSketchSession'; session: SketchSessionState }
+  | { type: 'setSelectionCatalog'; catalog: SelectionTargetCatalog | null }
   | { type: 'setSelectionFilter'; filter: SelectionFilter | null }
   | { type: 'beginFeatureCreate'; featureType: 'extrude'; target: PrimitiveRef | null }
   | { type: 'beginFeatureEdit'; featureId: FeatureId; featureType: 'extrude'; draft: ExtrudeFeatureParameterDraft }
@@ -67,15 +69,6 @@ function createActiveCommand(toolId: ToolId): ActiveCommand {
   }
 }
 
-export function getDefaultSelectionFilterForMode(mode: EditorState['mode']): SelectionFilter {
-  return mode === 'sketch'
-    ? {
-        allowedKinds: ['construction', 'sketch', 'sketchPrimitive'] as const,
-        label: 'Sketch references',
-      }
-    : defaultSelectionFilter
-}
-
 function getExtrudeSelectionPreview(
   target: PrimitiveRef | null,
   prefix = 'Extrude profile',
@@ -85,6 +78,54 @@ function getExtrudeSelectionPreview(
     label: target ? `${prefix} ${getPrimitiveRefLabel(target)} selected` : 'Select a sketch or profile for extrude',
     target,
   }
+}
+
+function previewEquals(left: EditorState['preview'], right: EditorState['preview']) {
+  if (left === right) {
+    return true
+  }
+
+  if (left === null || right === null) {
+    return left === right
+  }
+
+  const targetsMatch =
+    left.target === null || right.target === null
+      ? left.target === right.target
+      : primitiveRefEquals(left.target, right.target)
+
+  return left.kind === right.kind && left.label === right.label && targetsMatch
+}
+
+function diagnosticsEqual(left: ModelingDiagnostic[], right: ModelingDiagnostic[]) {
+  if (left === right) {
+    return true
+  }
+
+  if (left.length !== right.length) {
+    return false
+  }
+
+  return left.every((diagnostic, index) => {
+    const candidate = right[index]
+
+    if (!candidate) {
+      return false
+    }
+
+    const targetMatches =
+      diagnostic.target === null || candidate.target === null
+        ? diagnostic.target === candidate.target
+        : primitiveRefEquals(diagnostic.target, candidate.target)
+
+    return (
+      diagnostic.code === candidate.code &&
+      diagnostic.severity === candidate.severity &&
+      diagnostic.message === candidate.message &&
+      targetMatches &&
+      JSON.stringify(diagnostic.detail) === JSON.stringify(candidate.detail)
+    )
+  })
 }
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -138,7 +179,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           mode: action.mode,
           activeCommand: createActiveCommand(action.toolId),
           activeEditSession: session,
-          selectionFilter: extrudeSelectionFilter,
+          selectionFilter: getSelectionFilterForCommand(action.toolId, action.mode),
           preview: getExtrudeSelectionPreview(session.draft.profileTarget),
         }
       }
@@ -148,10 +189,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         mode: action.mode,
         activeCommand: createActiveCommand(action.toolId),
         activeEditSession: null,
-        selectionFilter: getDefaultSelectionFilterForMode(action.mode),
+        selectionFilter: getSelectionFilterForCommand(action.toolId, action.mode),
         preview: {
           kind: 'selection',
-          label: `Awaiting target for ${action.toolId}`,
+          label: `Awaiting ${getSelectionFilterForCommand(action.toolId, action.mode).label.toLowerCase()}`,
           target: state.selection[0] ?? null,
         },
       }
@@ -194,6 +235,15 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           target: action.session.planeTarget,
         },
       }
+    case 'setSelectionCatalog':
+      if (state.selectionCatalog === action.catalog) {
+        return state
+      }
+
+      return {
+        ...state,
+        selectionCatalog: action.catalog,
+      }
     case 'setSelectionFilter':
       return {
         ...state,
@@ -208,7 +258,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         ...state,
         activeCommand: createActiveCommand('extrude'),
         activeEditSession: session,
-        selectionFilter: extrudeSelectionFilter,
+        selectionFilter: getSelectionFilterForCommand('extrude', state.mode),
         preview: getExtrudeSelectionPreview(session.draft.profileTarget),
       }
     }
@@ -222,7 +272,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           draft: action.draft,
           mode: 'edit',
         }),
-        selectionFilter: extrudeSelectionFilter,
+        selectionFilter: getSelectionFilterForCommand('extrude', state.mode),
         preview: getExtrudeSelectionPreview(action.draft.profileTarget, 'Editing extrude from'),
       }
     case 'patchExtrudeEditSession':
@@ -248,6 +298,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         return state
       }
 
+      if (state.activeEditSession.status === action.status) {
+        return state
+      }
+
       return {
         ...state,
         activeEditSession: {
@@ -257,6 +311,14 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       }
     case 'setFeatureEditDiagnostics':
       if (!state.activeEditSession) {
+        return state
+      }
+
+      if (
+        diagnosticsEqual(state.activeEditSession.diagnostics, action.diagnostics) &&
+        (action.revisionId === undefined ||
+          action.revisionId === state.activeEditSession.lastPreviewRevisionId)
+      ) {
         return state
       }
 
@@ -363,7 +425,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           preview: state.activeCommand
             ? {
                 kind: 'selection',
-                label: `Awaiting target for ${state.activeCommand.toolId}`,
+                label: `Awaiting ${state.selectionFilter?.label.toLowerCase() ?? 'selection'}`,
                 target: state.preview?.target ?? null,
               }
             : state.preview,
@@ -372,7 +434,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
       if (
         !action.event.target ||
-        !selectionFilterAllowsTarget(state.selectionFilter, action.event.target)
+        !selectionFilterAllowsTarget(state.selectionFilter, state.selection, action.event.target, state.selectionCatalog)
       ) {
         return state
       }
@@ -391,22 +453,31 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           preview: state.activeCommand
             ? {
                 kind: 'selection',
-                label: `Hovering ${getPrimitiveRefLabel(action.event.target)}`,
+                label: getSelectionPreviewLabel(state.selectionFilter, action.event.target, 'hover'),
                 target: action.event.target,
               }
             : state.preview,
         }
       }
 
-      const nextSelection = state.selection.some((target) =>
-        primitiveRefEquals(target, action.event.target!),
+      const candidate = resolveSelectionCandidate(
+        state.selectionFilter,
+        state.selection,
+        action.event.target,
+        state.selectionCatalog,
       )
-        ? state.selection
-        : [action.event.target]
+
+      if (!candidate.accepted) {
+        return state
+      }
+
+      const nextSelection = candidate.nextSelection
 
       const nextEditSession =
         state.activeEditSession?.featureType === 'extrude' &&
-        (action.event.target.kind === 'sketch' || action.event.target.kind === 'sketchPrimitive')
+        (action.event.target.kind === 'sketch' ||
+          action.event.target.kind === 'sketchPrimitive' ||
+          action.event.target.kind === 'face')
           ? {
               ...state.activeEditSession,
               draft: updateExtrudeDraft(state.activeEditSession.draft, {
@@ -436,20 +507,27 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
                 nextEditSession?.featureType === 'extrude' &&
                 targetMatchesExtrudeProfile(action.event.target, nextEditSession.draft)
                   ? `Extrude profile ${getPrimitiveRefLabel(action.event.target)} selected`
-                  : `Selected ${getPrimitiveRefLabel(action.event.target)}`,
+                  : getSelectionPreviewLabel(state.selectionFilter, action.event.target, 'select'),
               target: action.event.target,
             }
           : state.preview,
       }
     }
     case 'requestSelection': {
-      if (!selectionFilterAllowsTarget(state.selectionFilter, action.target)) {
+      if (
+        !selectionFilterAllowsTarget(
+          state.selectionFilter,
+          state.selection,
+          action.target,
+          state.selectionCatalog,
+        )
+      ) {
         return {
           ...state,
           preview: state.activeCommand
             ? {
                 kind: 'selection',
-                label: `${action.target.kind} is filtered out for ${state.activeCommand.toolId}`,
+                label: getSelectionFilterRejectionLabel(state.selectionFilter, action.target),
                 target: state.preview?.target ?? null,
               }
             : state.preview,
@@ -467,6 +545,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selection: [],
       }
     case 'setPreview':
+      if (previewEquals(state.preview, action.preview)) {
+        return state
+      }
+
       return {
         ...state,
         preview: action.preview,

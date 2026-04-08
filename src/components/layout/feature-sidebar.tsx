@@ -67,7 +67,7 @@ function formatDocumentDiagnosticDetail(diagnostic: ModelingDiagnostic) {
 
 export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps) {
   const {
-    state: { selection, selectionFilter, preview, activeEditSession, mode, sketchSession },
+    state: { selection, selectionFilter, selectionCatalog, preview, activeEditSession, mode, sketchSession },
   } = useEditorState()
 
   const selectedLabels = selection.map((target) => getPrimitiveRefLabel(target))
@@ -100,7 +100,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
               const target = item.target
               const isSelected =
                 selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
-              const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
+              const isAllowed = selectionFilterAllowsTarget(selectionFilter, selection, target, selectionCatalog)
 
               return (
                 <button
@@ -149,7 +149,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                 const target = item.target
                 const isSelected =
                   selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
-                const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
+                const isAllowed = selectionFilterAllowsTarget(selectionFilter, selection, target, selectionCatalog)
 
                 return (
                   <button
@@ -287,6 +287,20 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           Selection:{' '}
           <span className="text-[var(--cad-foreground)]">
             {selectedLabels.length > 0 ? selectedLabels.join(', ') : 'Nothing selected'}
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+          Target rule:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {selectionFilter?.requirements[0]?.description ?? 'No active target rule'}
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+          Target slots:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {selectionFilter?.requirements
+              .map((requirement) => requirement.slots.length)
+              .join(' / ') ?? '0'}
           </span>
         </p>
         <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">

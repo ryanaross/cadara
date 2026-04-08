@@ -33,6 +33,18 @@ export function openSketchSessionFromSelection(
   return null
 }
 
+export function canStartSketchFromTarget(target: PrimitiveRef, snapshot: DocumentSnapshot | null) {
+  if (target.kind === 'construction') {
+    return true
+  }
+
+  if (target.kind !== 'sketch' || !snapshot) {
+    return false
+  }
+
+  return snapshot.sketches.some((entry) => entry.sketchId === target.sketchId)
+}
+
 export async function commitActiveSketchSession(input: {
   modelingService: ModelingService
   session: SketchSessionState

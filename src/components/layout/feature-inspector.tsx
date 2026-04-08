@@ -118,6 +118,9 @@ export function FeatureInspector({
                 ? `${draft.profileTarget.kind} / ${'primitiveId' in draft.profileTarget ? draft.profileTarget.primitiveId : 'sketchId' in draft.profileTarget ? draft.profileTarget.sketchId : 'selected'}`
                 : 'No profile selected'}
             </p>
+            <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">
+              Accepted targets: sketch, sketch profile primitive, or planar face.
+            </p>
           </div>
         </section>
 

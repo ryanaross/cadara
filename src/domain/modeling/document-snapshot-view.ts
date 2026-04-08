@@ -5,6 +5,7 @@ import type {
   FeatureSnapshotRecord,
   SnapshotEntityRecord,
 } from '@/domain/modeling/schema'
+import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 
 export interface DocumentSelectionDetail {
   label: string
@@ -79,4 +80,16 @@ export function getFeatureSnapshot(
   featureId: FeatureSnapshotRecord['featureId'],
 ) {
   return snapshot.features.find((feature) => feature.featureId === featureId) ?? null
+}
+
+export function buildSelectionTargetCatalog(snapshot: DocumentSnapshot): SelectionTargetCatalog {
+  return {
+    existingSketchKeys: snapshot.sketches.map((sketch) => getPrimitiveRefKey({ kind: 'sketch', sketchId: sketch.sketchId })),
+    constructionPlaneKeys: snapshot.constructions
+      .filter((construction) => construction.constructionType === 'plane')
+      .map((construction) => getPrimitiveRefKey(construction.target)),
+    planarFaceKeys: snapshot.renderables
+      .filter((renderable) => renderable.topology === 'face' && renderable.geometry.kind === 'planarFace')
+      .map((renderable) => getPrimitiveRefKey(renderable.target)),
+  }
 }

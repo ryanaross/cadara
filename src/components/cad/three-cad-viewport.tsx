@@ -2,7 +2,11 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
-import { getPrimitiveRefLabel, selectionFilterAllowsTarget, type ViewportInteractionEvent } from '@/domain/editor/schema'
+import {
+  getPrimitiveRefLabel,
+  selectionFilterAllowsTarget,
+  type ViewportInteractionEvent,
+} from '@/domain/editor/schema'
 import { type SketchPlaneKey } from '@/domain/modeling/schema'
 import type { RenderableEntityRecord } from '@/domain/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
@@ -55,17 +59,26 @@ interface ViewportRuntime {
   pointerDownTarget: EventTarget | null
 }
 
-export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewportProps) {
+export function ThreeCadViewport({
+  renderables,
+  onInteraction,
+}: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<ViewportRuntime | null>(null)
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
   const onInteractionRef = useRef(onInteraction)
   const {
-    state: { hoverTarget, selection, activeCommand, selectionFilter, sketchSession },
+    state: { hoverTarget, selection, activeCommand, selectionFilter, selectionCatalog, sketchSession },
   } = useEditorState()
+  const selectionRef = useRef(selection)
+  const selectionFilterRef = useRef(selectionFilter)
+  const selectionCatalogRef = useRef(selectionCatalog)
 
   onInteractionRef.current = onInteraction
+  selectionRef.current = selection
+  selectionFilterRef.current = selectionFilter
+  selectionCatalogRef.current = selectionCatalog
 
   useEffect(() => {
     const viewportElement = viewportRef.current
@@ -293,7 +306,19 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
 
       const pickResult = readPick(event)
 
-      if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
+      if (!pickResult) {
+        onInteractionRef.current({ type: 'clearHover' })
+        return
+      }
+
+      if (
+        !selectionFilterAllowsTarget(
+          selectionFilterRef.current,
+          selectionRef.current,
+          pickResult.target,
+          selectionCatalogRef.current,
+        )
+      ) {
         onInteractionRef.current({ type: 'clearHover' })
         return
       }
@@ -317,7 +342,18 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
 
       const pickResult = readPick(event)
 
-      if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
+      if (!pickResult) {
+        return
+      }
+
+      if (
+        !selectionFilterAllowsTarget(
+          selectionFilterRef.current,
+          selectionRef.current,
+          pickResult.target,
+          selectionCatalogRef.current,
+        )
+      ) {
         return
       }
 
@@ -360,7 +396,7 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
         renderSceneRef.current = null
       }
     }
-  }, [renderables, selectionFilter, sketchSession])
+  }, [renderables, sketchSession])
 
   useEffect(() => {
     if (!renderSceneRef.current) {

@@ -56,7 +56,7 @@ export function useFeatureEditing(
           {
             code: 'feature-preview-missing-profile',
             severity: 'warning' as const,
-            message: 'Select a sketch or sketch profile before previewing extrude.',
+            message: 'Select a sketch, sketch profile, or planar face before previewing extrude.',
             target: null,
             detail: null,
           },
