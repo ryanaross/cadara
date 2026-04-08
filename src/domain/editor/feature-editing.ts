@@ -5,6 +5,7 @@ import type {
   FeatureSnapshotRecord,
   ModelingDiagnostic,
   PreviewId,
+  ExtrudeFeatureParameterPayload,
 } from '@/domain/modeling/schema'
 
 export const EXTRUDE_FEATURE_TYPE = 'extrude' as const
@@ -34,20 +35,13 @@ export interface FeatureEditSessionState {
   diagnostics: ModelingDiagnostic[]
 }
 
-export interface ExtrudeFeatureParameterPayload extends Record<string, unknown> {
-  depth: number
-  direction: 'oneSided'
-  operation: FeatureBooleanOperation
-  profileTarget: PrimitiveRef
-}
-
 export function createDefaultExtrudeDraft(
   selectedTarget: PrimitiveRef | null,
 ): ExtrudeFeatureParameterDraft {
   return {
     profileTarget:
       selectedTarget &&
-      (selectedTarget.kind === 'sketch' || selectedTarget.kind === 'sketchPrimitive')
+      (selectedTarget.kind === 'sketch' || selectedTarget.kind === 'sketchEntity')
         ? selectedTarget
         : null,
     depth: 12,
@@ -99,15 +93,17 @@ export function hydrateExtrudeFeatureEditSession(
 export function createExtrudeDraftFromFeature(
   feature: FeatureSnapshotRecord,
 ): ExtrudeFeatureParameterDraft {
-  const payload = feature.parameterPayload
+  if (feature.featureType !== 'extrude') {
+    throw new Error('Extrude draft hydration requires an extrude feature payload.')
+  }
+
+  const payload = feature.parameterPayload as ExtrudeFeatureParameterPayload
   const profileTarget = payload.profileTarget
 
   return {
     profileTarget: isPrimitiveRef(profileTarget)
       ? profileTarget
-      : feature.consumedTargets.find(
-          (target) => target.kind === 'sketch' || target.kind === 'sketchPrimitive',
-        ) ?? null,
+      : feature.consumedTargets.find((target) => target.kind === 'sketch') ?? null,
     depth: typeof payload.depth === 'number' ? payload.depth : 12,
     direction: payload.direction === 'oneSided' ? 'oneSided' : 'oneSided',
     operation:

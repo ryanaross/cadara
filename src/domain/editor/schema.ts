@@ -2,27 +2,38 @@ import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
 import type { SketchSessionState } from '@/domain/editor/sketch-session'
 import type { FeatureEditSessionState } from '@/domain/editor/feature-editing'
+import type { DurableRef } from '@/contracts/shared/references'
 
-export type DocumentId = `doc_${string}`
-export type RevisionId = `rev_${string}`
-export type FeatureId = `feature_${string}`
-export type SketchId = `sketch_${string}`
-export type BodyId = `body_${string}`
-export type FaceId = `face_${string}`
-export type EdgeId = `edge_${string}`
-export type VertexId = `vertex_${string}`
+export type {
+  BodyId,
+  CommandSessionId,
+  ConstructionId,
+  ConstraintId,
+  DimensionId,
+  DocumentId,
+  EdgeId,
+  FaceId,
+  FeatureId,
+  FeatureInstanceId,
+  FeatureTreeNodeId,
+  LoopId,
+  ObjectTreeNodeId,
+  PickId,
+  PreviewId,
+  ReferenceId,
+  RenderableId,
+  RegionId,
+  RequestId,
+  RevisionId,
+  SketchEntityId,
+  SketchId,
+  SketchPointId,
+  SnapshotEntityId,
+  VertexId,
+} from '@/contracts/shared/ids'
+
 export type SketchPrimitiveId = `curve_${string}` | `point_${string}`
-export type ConstructionId = `construction_${string}`
-
-export type PrimitiveRef =
-  | { kind: 'body'; bodyId: BodyId }
-  | { kind: 'face'; bodyId: BodyId; faceId: FaceId }
-  | { kind: 'edge'; bodyId: BodyId; edgeId: EdgeId }
-  | { kind: 'vertex'; bodyId: BodyId; vertexId: VertexId }
-  | { kind: 'sketch'; sketchId: SketchId }
-  | { kind: 'sketchPrimitive'; sketchId: SketchId; primitiveId: SketchPrimitiveId }
-  | { kind: 'feature'; featureId: FeatureId }
-  | { kind: 'construction'; constructionId: ConstructionId }
+export type PrimitiveRef = DurableRef
 
 export type SelectionTarget = PrimitiveRef
 
@@ -33,7 +44,7 @@ export type SelectionSemantic =
   | 'vertex'
   | 'constructionPlane'
   | 'existingSketch'
-  | 'sketchPrimitive'
+  | 'sketchEntity'
   | 'planarFace'
   | 'planarReference'
 
@@ -107,7 +118,7 @@ export interface ViewportInteractionEvent {
 
 export const defaultSelectionFilter: SelectionFilter = {
   kind: 'all',
-  allowedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchPrimitive', 'feature', 'construction'],
+  allowedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchEntity', 'feature', 'construction'],
   label: 'All selectable geometry',
   requirements: [
     {
@@ -119,7 +130,7 @@ export const defaultSelectionFilter: SelectionFilter = {
           id: 'general-selection',
           label: 'General selection',
           description: 'Select any single durable target.',
-          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchPrimitive', 'feature', 'construction'],
+          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchEntity', 'feature', 'construction'],
           acceptedSemantics: [
             'body',
             'face',
@@ -127,7 +138,7 @@ export const defaultSelectionFilter: SelectionFilter = {
             'vertex',
             'constructionPlane',
             'existingSketch',
-            'sketchPrimitive',
+            'sketchEntity',
           ],
         },
       ],
@@ -137,7 +148,7 @@ export const defaultSelectionFilter: SelectionFilter = {
 
 export const sketchSelectionFilter: SelectionFilter = {
   kind: 'sketchSession',
-  allowedKinds: ['construction', 'sketch', 'sketchPrimitive'],
+  allowedKinds: ['construction', 'sketch', 'sketchEntity'],
   label: 'Sketch references',
   requirements: [
     {
@@ -149,8 +160,8 @@ export const sketchSelectionFilter: SelectionFilter = {
           id: 'sketch-reference',
           label: 'Sketch reference',
           description: 'Select the sketch plane, sketch, or sketch primitive.',
-          acceptedKinds: ['construction', 'sketch', 'sketchPrimitive'],
-          acceptedSemantics: ['constructionPlane', 'existingSketch', 'sketchPrimitive'],
+          acceptedKinds: ['construction', 'sketch', 'sketchEntity'],
+          acceptedSemantics: ['constructionPlane', 'existingSketch', 'sketchEntity'],
         },
       ],
     },
@@ -181,7 +192,7 @@ export const sketchStartSelectionFilter: SelectionFilter = {
 
 export const extrudeSelectionFilter: SelectionFilter = {
   kind: 'extrudeProfile',
-  allowedKinds: ['sketch', 'sketchPrimitive', 'face'],
+  allowedKinds: ['sketch', 'sketchEntity', 'face'],
   label: 'Extrude profiles or planar faces',
   requirements: [
     {
@@ -193,8 +204,8 @@ export const extrudeSelectionFilter: SelectionFilter = {
           id: 'extrude-seed',
           label: 'Extrude seed',
           description: 'Select one sketch, sketch profile, or planar face.',
-          acceptedKinds: ['sketch', 'sketchPrimitive', 'face'],
-          acceptedSemantics: ['existingSketch', 'sketchPrimitive', 'planarFace'],
+          acceptedKinds: ['sketch', 'sketchEntity', 'face'],
+          acceptedSemantics: ['existingSketch', 'sketchEntity', 'planarFace'],
         },
       ],
     },
@@ -288,14 +299,22 @@ export function getPrimitiveRefLabel(target: PrimitiveRef) {
       return `${target.bodyId}.${target.edgeId}`
     case 'vertex':
       return `${target.bodyId}.${target.vertexId}`
+    case 'loop':
+      return `${target.bodyId}.${target.loopId}`
     case 'sketch':
       return target.sketchId
-    case 'sketchPrimitive':
-      return `${target.sketchId}.${target.primitiveId}`
+    case 'sketchEntity':
+      return `${target.sketchId}.${target.entityId}`
+    case 'sketchPoint':
+      return `${target.sketchId}.${target.pointId}`
+    case 'sketchEntity':
+      return `${target.sketchId}.${target.entityId}`
     case 'feature':
       return target.featureId
     case 'construction':
       return target.constructionId
+    case 'region':
+      return `${target.sketchId}.${target.regionId}`
   }
 }
 
@@ -309,14 +328,22 @@ export function getPrimitiveRefKey(target: PrimitiveRef) {
       return `edge:${target.bodyId}:${target.edgeId}`
     case 'vertex':
       return `vertex:${target.bodyId}:${target.vertexId}`
+    case 'loop':
+      return `loop:${target.bodyId}:${target.loopId}`
     case 'sketch':
       return `sketch:${target.sketchId}`
-    case 'sketchPrimitive':
-      return `sketchPrimitive:${target.sketchId}:${target.primitiveId}`
+    case 'sketchEntity':
+      return `sketchEntity:${target.sketchId}:${target.entityId}`
+    case 'sketchPoint':
+      return `sketchPoint:${target.sketchId}:${target.pointId}`
+    case 'sketchEntity':
+      return `sketchEntity:${target.sketchId}:${target.entityId}`
     case 'feature':
       return `feature:${target.featureId}`
     case 'construction':
       return `construction:${target.constructionId}`
+    case 'region':
+      return `region:${target.sketchId}:${target.regionId}`
   }
 }
 
@@ -387,8 +414,8 @@ function getTargetSemantics(
         semantics.push('existingSketch')
       }
       break
-    case 'sketchPrimitive':
-      semantics.push('sketchPrimitive')
+    case 'sketchEntity':
+      semantics.push('sketchEntity')
       break
     default:
       break

@@ -8,18 +8,15 @@ import type {
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
   GetDocumentSnapshotRequest,
+  GetDocumentSnapshotResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
 } from '@/domain/modeling/schema'
 
-export interface KernelDocumentSnapshot {
-  snapshot: unknown
-}
-
 export interface ModelingKernelAdapter {
-  getDocumentSnapshot(request: GetDocumentSnapshotRequest): Promise<KernelDocumentSnapshot>
+  getDocumentSnapshot(request: GetDocumentSnapshotRequest): Promise<GetDocumentSnapshotResponse>
   commitSketch(request: CommitSketchRequest): Promise<CommitSketchResponse>
   createFeature(request: CreateFeatureRequest): Promise<CreateFeatureResponse>
   updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse>

@@ -1,4 +1,6 @@
-import type { PrimitiveRef, SketchId, SketchPrimitiveId } from '@/domain/editor/schema'
+import type { SketchId, SketchPrimitiveId } from '@/domain/editor/schema'
+import type { DurableRef, SketchEntityRef } from '@/contracts/shared/references'
+import type { PickId, RenderableId, SketchEntityId } from '@/contracts/shared/ids'
 import type {
   CommitSketchRequest,
   RenderableEntityRecord,
@@ -10,6 +12,17 @@ import type {
 } from '@/domain/modeling/schema'
 
 export type SketchToolId = 'line' | 'rectangle' | 'circle'
+
+function createSketchEntityRef(
+  sketchId: SketchId,
+  primitiveId: SketchPrimitiveId,
+): SketchEntityRef {
+  return {
+    kind: 'sketchEntity',
+    sketchId,
+    entityId: primitiveId.replace(/^curve_/, 'sketch_entity_').replace(/^point_/, 'sketch_entity_') as SketchEntityId,
+  }
+}
 
 export type SketchDraftEntity =
   | {
@@ -41,7 +54,7 @@ export interface SketchDraftCommitPrimitive {
 export interface SketchSessionState {
   sketchId: SketchId | null
   sketchLabel: string
-  planeTarget: PrimitiveRef
+  planeTarget: DurableRef
   planeKey: SketchPlaneKey
   entities: SketchDraftEntity[]
   acceptedPrimitives: SketchDraftCommitPrimitive[]
@@ -54,7 +67,7 @@ export interface SketchSessionState {
   validationMessage: string | null
 }
 
-export function derivePlaneKeyFromTarget(target: PrimitiveRef): SketchPlaneKey {
+export function derivePlaneKeyFromTarget(target: DurableRef): SketchPlaneKey {
   if (target.kind !== 'construction') {
     return 'xy'
   }
@@ -108,7 +121,7 @@ export function createSketchSessionFromSnapshot(
   }
 }
 
-export function createNewSketchSession(planeTarget: PrimitiveRef): SketchSessionState {
+export function createNewSketchSession(planeTarget: DurableRef): SketchSessionState {
   return {
     sketchId: null,
     sketchLabel: 'Sketch Draft',
@@ -176,7 +189,7 @@ function mapSnapshotPrimitiveToDraftEntity(primitive: SketchPrimitiveRecord): Sk
 function buildCommitRequest(input: {
   sketchId: SketchId | null
   sketchLabel: string
-  planeTarget: PrimitiveRef
+  planeTarget: DurableRef
   planeKey: SketchPlaneKey
   acceptedPrimitives: SketchDraftCommitPrimitive[]
 }): SketchSessionState['commitRequest'] {
@@ -536,17 +549,20 @@ function createRenderableForEntity(
     const target =
       entity.primitiveId === null
         ? session.planeTarget
-        : ({ kind: 'sketchPrimitive', sketchId: session.sketchId ?? ('sketch_draft' as SketchId), primitiveId: entity.primitiveId } as const)
+        : createSketchEntityRef(
+            session.sketchId ?? ('sketch_draft' as SketchId),
+            entity.primitiveId,
+          )
 
     return {
-      id: `sketch-render-line-${index}`,
+      id: `renderable_sketch_line_${index}` as RenderableId,
       label: entity.label,
       target,
       ownerBodyId: null,
       ownerFeatureId: null,
       topology: 'edge',
       pickBinding: {
-        pickId: `pick_sketch_line_${index}` as RenderableEntityRecord['pickBinding']['pickId'],
+        pickId: `pick_sketch_line_${index}` as PickId,
         target,
         topology: 'edge',
       },
@@ -571,17 +587,20 @@ function createRenderableForEntity(
   const target =
     entity.primitiveId === null
       ? session.planeTarget
-      : ({ kind: 'sketchPrimitive', sketchId: session.sketchId ?? ('sketch_draft' as SketchId), primitiveId: entity.primitiveId } as const)
+      : createSketchEntityRef(
+          session.sketchId ?? ('sketch_draft' as SketchId),
+          entity.primitiveId,
+        )
 
   return {
-    id: `sketch-render-circle-${index}`,
+    id: `renderable_sketch_circle_${index}` as RenderableId,
     label: entity.label,
     target,
     ownerBodyId: null,
     ownerFeatureId: null,
     topology: 'edge',
     pickBinding: {
-      pickId: `pick_sketch_circle_${index}` as RenderableEntityRecord['pickBinding']['pickId'],
+      pickId: `pick_sketch_circle_${index}` as PickId,
       target,
       topology: 'edge',
     },

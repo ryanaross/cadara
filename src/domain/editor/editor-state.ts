@@ -14,6 +14,7 @@ import {
   updateSketchPointer,
   type SketchSessionState,
 } from '@/domain/editor/sketch-session'
+import type { DurableRef } from '@/contracts/shared/references'
 import type {
   ActiveCommand,
   EditorState,
@@ -39,7 +40,7 @@ import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 
 export type EditorAction =
   | { type: 'activateCommand'; toolId: ToolId; mode: EditorState['mode'] }
-  | { type: 'startSketchSession'; planeTarget: PrimitiveRef }
+  | { type: 'startSketchSession'; planeTarget: DurableRef }
   | { type: 'hydrateSketchSession'; session: SketchSessionState }
   | { type: 'setSelectionCatalog'; catalog: SelectionTargetCatalog | null }
   | { type: 'setSelectionFilter'; filter: SelectionFilter | null }
@@ -476,7 +477,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
       const nextEditSession =
         state.activeEditSession?.featureType === 'extrude' &&
         (action.event.target.kind === 'sketch' ||
-          action.event.target.kind === 'sketchPrimitive' ||
+          action.event.target.kind === 'sketchEntity' ||
           action.event.target.kind === 'face')
           ? {
               ...state.activeEditSession,

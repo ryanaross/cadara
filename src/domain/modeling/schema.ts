@@ -1,27 +1,87 @@
 import type {
   BodyId,
   ConstructionId,
-  EdgeId,
   DocumentId,
+  EdgeId,
   FaceId,
   FeatureId,
-  PrimitiveRef,
+  FeatureTreeNodeId,
+  ObjectTreeNodeId,
+  PickId,
+  RenderableId,
   RevisionId,
+  SketchEntityId,
   SketchId,
-  SketchPrimitiveId,
+  SnapshotEntityId,
+  PreviewId,
+  ReferenceId,
   VertexId,
-} from '@/domain/editor/schema'
+} from '@/contracts/shared/ids'
+import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
+import type { DurableRef, SketchEntityRef } from '@/contracts/shared/references'
+import type {
+  ContractVersion,
+  FeatureTypeVersion,
+  SnapshotSchemaVersion,
+} from '@/contracts/shared/versioning'
 
-export type ContractVersion = 'modeling-contract/v1alpha1'
-export type SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
-export type FeatureTypeVersion = 'feature-type/v1alpha1'
-export type PreviewId = `preview_${string}`
-export type ReferenceId = `ref_${string}`
+export type { PreviewId, ReferenceId }
+export type PrimitiveRef = DurableRef
 export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
 export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
 
 export type SketchPoint = readonly [number, number]
 
+/**
+ * Transitional feature family identifiers supported by the current scaffold.
+ * This is intentionally narrow rather than an open `string`.
+ */
+export type LegacyFeatureType = 'extrude' | 'fillet'
+
+/**
+ * Transitional sketch primitive identifier used only inside sketch snapshot
+ * payloads while sketch persistence is still primitive-based.
+ */
+export type SketchPrimitiveId = `curve_${string}` | `point_${string}`
+
+/**
+ * Transitional extrude payload currently supported by the modeling boundary.
+ * `profileTarget` must identify a durable sketch or planar face seed owned by
+ * the same document revision as the containing request or snapshot.
+ */
+export interface ExtrudeFeatureParameterPayload {
+  depth: number
+  direction: 'oneSided'
+  operation: FeatureBooleanOperation
+  profileTarget: PrimitiveRef
+}
+
+/**
+ * Transitional fillet payload currently supported by the modeling boundary.
+ * `radius` is expressed in document modeling units.
+ */
+export interface FilletFeatureParameterPayload {
+  radius: number
+}
+
+/**
+ * Transitional feature payload union currently supported by the modeling
+ * boundary. The currently valid variants are fully enumerated here even though
+ * Phase 4 will later replace them with dedicated feature-family contracts.
+ */
+export type LegacyFeatureParameterPayload =
+  | ExtrudeFeatureParameterPayload
+  | FilletFeatureParameterPayload
+
+/**
+ * Machine-readable invalidation payload for destroyed or replaced references.
+ * Implementers must not silently remap invalid references.
+ * `reason` must be backend-defined and machine-readable.
+ * `target` and `sourceTarget` must identify the exact failed reference context.
+ * Allowed invalidation reasons are backend-defined stable codes such as missing
+ * topology, deleted sketch seed, or revision mismatch; callers must not parse
+ * human-readable messages for control flow.
+ */
 export interface InvalidReferenceDetailPayload {
   reason: string
   target: PrimitiveRef
@@ -30,6 +90,11 @@ export interface InvalidReferenceDetailPayload {
   sourceTarget: PrimitiveRef | null
 }
 
+/**
+ * Structured modeling diagnostic detail payload.
+ * Each variant is machine-readable and must preserve enough context for the
+ * caller to explain the failure without guessing.
+ */
 export type ModelingDiagnosticDetail =
   | {
       kind: 'invalidReference'
@@ -46,12 +111,16 @@ export type ModelingDiagnosticDetail =
       requestedRevisionId: RevisionId
       currentRevisionId: RevisionId
     }
-  | {
+    | {
       kind: 'rebuildFailure'
       affectedFeatureIds: FeatureId[]
       affectedTargets: PrimitiveRef[]
     }
 
+/**
+ * Revision acceptance state for a document mutation.
+ * Conflicts must report both the expected and actual revision IDs.
+ */
 export type MutationRevisionState =
   | {
       kind: 'accepted'
@@ -63,6 +132,11 @@ export type MutationRevisionState =
       actualRevisionId: RevisionId
     }
 
+/**
+ * Freshness state for preview evaluation results.
+ * Preview responses may be stale when the base revision no longer matches the
+ * current document revision.
+ */
 export type PreviewFreshness =
   | {
       kind: 'fresh'
@@ -74,6 +148,11 @@ export type PreviewFreshness =
       currentRevisionId: RevisionId
     }
 
+/**
+ * Legacy sketch primitive geometry payload.
+ * This is transitional until Phase 2 replaces primitive-centric sketch authoring
+ * with explicit sketch entities, constraints, and dimensions.
+ */
 export type SketchPrimitiveGeometry =
   | {
       kind: 'line'
@@ -94,6 +173,9 @@ export type SketchPrimitiveGeometry =
       boundaryPrimitiveIds: SketchPrimitiveId[]
     }
 
+/**
+ * Top-level diagnostic record returned by the modeling boundary.
+ */
 export interface ModelingDiagnostic {
   code: string
   severity: 'info' | 'warning' | 'error'
@@ -102,16 +184,19 @@ export interface ModelingDiagnostic {
   detail: ModelingDiagnosticDetail | null
 }
 
-export interface SnapshotOwnershipRecord {
-  ownerDocumentId: DocumentId
-  ownerRevisionId: RevisionId
-  ownerFeatureId: FeatureId | null
-  ownerSketchId: SketchId | null
-  ownerBodyId: BodyId | null
-}
+/**
+ * Ownership metadata for durable snapshot records.
+ * All durable records must resolve back to an owning document/revision, and to
+ * their owning feature/sketch/body when applicable.
+ */
+export type SnapshotOwnershipRecord = OwnershipRecord
 
+/**
+ * Presentational feature-tree node derived from durable snapshot state.
+ * `id` is a UI/view-model key only; durable identity is carried by `target`.
+ */
 export interface FeatureTreeNodeRecord {
-  id: string
+  id: FeatureTreeNodeId
   label: string
   description: string
   kind: 'plane' | 'sketch' | 'feature'
@@ -121,8 +206,12 @@ export interface FeatureTreeNodeRecord {
   sourceFeatureId: FeatureId | null
 }
 
+/**
+ * Presentational object-tree node derived from durable snapshot state.
+ * `id` is a UI/view-model key only; durable identity is carried by `target`.
+ */
 export interface ObjectTreeNodeRecord {
-  id: string
+  id: ObjectTreeNodeId
   label: string
   description: string
   kind: 'body' | 'construction'
@@ -131,6 +220,14 @@ export interface ObjectTreeNodeRecord {
   ownerFeatureId: FeatureId | null
 }
 
+/**
+ * Durable named reference record.
+ * Ownership fields must resolve the reference back to document/revision and any
+ * owning feature/sketch context.
+ * `target` must always be a canonical durable reference.
+ * Invalid references must never silently remap; they must instead populate
+ * `invalidation` with a machine-readable failure reason.
+ */
 export interface ReferenceRecord {
   id: ReferenceId
   label: string
@@ -140,15 +237,20 @@ export interface ReferenceRecord {
   invalidation: InvalidReferenceDetailPayload | null
 }
 
+/**
+ * Transient render export record for viewport rendering and picking.
+ * `id` and `pickBinding.pickId` are render/picking keys only; durable identity
+ * is carried by `target`.
+ */
 export interface RenderableEntityRecord {
-  id: string
+  id: RenderableId
   label: string
   target: PrimitiveRef
   ownerBodyId: BodyId | null
   ownerFeatureId: FeatureId | null
   topology: 'face' | 'edge' | 'vertex'
   pickBinding: {
-    pickId: `pick_${string}`
+    pickId: PickId
     target: PrimitiveRef
     topology: 'face' | 'edge' | 'vertex'
   }
@@ -170,14 +272,25 @@ export interface RenderableEntityRecord {
       }
 }
 
+/**
+ * Legacy sketch primitive record mirrored into the document snapshot.
+ * This remains transitional and is not the canonical long-term sketch contract.
+ */
 export interface SketchPrimitiveRecord {
   primitiveId: SketchPrimitiveId
+  entityId: SketchEntityId
   label: string
   kind: 'line' | 'circle' | 'arc' | 'point' | 'profile'
-  target: PrimitiveRef
+  target: SketchEntityRef
   geometry: SketchPrimitiveGeometry
 }
 
+/**
+ * Transitional authored sketch snapshot.
+ * The sketch record itself is durable, but its primitive payloads remain a
+ * scaffold-era representation until the dedicated sketch definition contract
+ * lands in Phase 2.
+ */
 export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   sketchId: SketchId
   label: string
@@ -187,28 +300,42 @@ export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   primitives: SketchPrimitiveRecord[]
 }
 
+/**
+ * Durable feature snapshot.
+ * `featureType` and `parameterPayload` are transitional, but their currently
+ * supported variants are explicitly declared in this contract.
+ */
 export interface FeatureSnapshotRecord extends SnapshotOwnershipRecord {
   featureId: FeatureId
   label: string
-  featureType: string
+  featureType: LegacyFeatureType
   featureTypeVersion: FeatureTypeVersion
-  parameterPayload: Record<string, unknown>
+  parameterPayload: LegacyFeatureParameterPayload
   consumedTargets: PrimitiveRef[]
   producedTargets: PrimitiveRef[]
 }
 
+/**
+ * Durable topology membership for a body snapshot.
+ */
 export interface BodyTopologySnapshotRecord {
   faceIds: FaceId[]
   edgeIds: EdgeId[]
   vertexIds: VertexId[]
 }
 
+/**
+ * Durable body snapshot record.
+ */
 export interface BodySnapshotRecord extends SnapshotOwnershipRecord {
   bodyId: BodyId
   label: string
   topology: BodyTopologySnapshotRecord
 }
 
+/**
+ * Durable construction snapshot record.
+ */
 export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
   constructionId: ConstructionId
   label: string
@@ -216,14 +343,21 @@ export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
   target: PrimitiveRef
 }
 
+/**
+ * Presentational entity graph record derived from durable snapshot state.
+ * `id` is a view-model key only; durable identity is carried by `target`.
+ */
 export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
-  id: string
+  id: SnapshotEntityId
   label: string
   target: PrimitiveRef
   relatedTargets: PrimitiveRef[]
   consumedByFeatureIds: FeatureId[]
 }
 
+/**
+ * Canonical document snapshot payload for the current modeling boundary.
+ */
 export interface DocumentSnapshot {
   contractVersion: ContractVersion
   schemaVersion: SnapshotSchemaVersion
@@ -241,18 +375,30 @@ export interface DocumentSnapshot {
   renderables: RenderableEntityRecord[]
 }
 
+/**
+ * Base request envelope for all modeling operations.
+ */
 export interface BaseModelingRequest {
   contractVersion: ContractVersion
 }
 
+/**
+ * Base request envelope scoped to a document.
+ */
 export interface BaseDocumentRequest extends BaseModelingRequest {
   documentId: DocumentId
 }
 
+/**
+ * Mutation request envelope scoped to a base revision.
+ */
 export interface DocumentMutationRequest extends BaseDocumentRequest {
   baseRevisionId: RevisionId
 }
 
+/**
+ * Common mutation result envelope.
+ */
 export interface ModelingOperationResult {
   contractVersion: ContractVersion
   documentId: DocumentId
@@ -264,32 +410,54 @@ export interface ModelingOperationResult {
 
 export type GetDocumentSnapshotRequest = BaseDocumentRequest
 
+/**
+ * Response envelope for a full document snapshot fetch.
+ */
 export interface GetDocumentSnapshotResponse {
   snapshot: DocumentSnapshot
 }
 
+/**
+ * Transitional feature-creation request.
+ * The currently valid payload variants are explicitly enumerated by
+ * `LegacyFeatureParameterPayload`.
+ */
 export interface CreateFeatureRequest extends DocumentMutationRequest {
-  featureType: string
+  featureType: LegacyFeatureType
   featureTypeVersion: FeatureTypeVersion
-  parameterPayload: Record<string, unknown>
+  parameterPayload: LegacyFeatureParameterPayload
   consumedTargets: PrimitiveRef[]
 }
 
+/**
+ * Feature creation response.
+ */
 export interface CreateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
 }
 
+/**
+ * Transitional feature-update request.
+ * The currently valid payload variants are explicitly enumerated by
+ * `LegacyFeatureParameterPayload`.
+ */
 export interface UpdateFeatureRequest extends DocumentMutationRequest {
   featureId: FeatureId
   featureTypeVersion: FeatureTypeVersion
-  parameterPayload: Record<string, unknown>
+  parameterPayload: LegacyFeatureParameterPayload
   consumedTargets: PrimitiveRef[]
 }
 
+/**
+ * Feature update response.
+ */
 export interface UpdateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
 }
 
+/**
+ * Transitional sketch primitive commit payload.
+ */
 export interface CommitSketchPrimitiveInput {
   primitiveId: SketchPrimitiveId
   label: string
@@ -297,6 +465,11 @@ export interface CommitSketchPrimitiveInput {
   geometry: SketchPrimitiveGeometry
 }
 
+/**
+ * Transitional sketch commit request.
+ * This remains primitive-based until Phase 2 introduces a real sketch
+ * definition contract.
+ */
 export interface CommitSketchRequest extends DocumentMutationRequest {
   sketchId: SketchId | null
   sketchLabel: string
@@ -306,26 +479,43 @@ export interface CommitSketchRequest extends DocumentMutationRequest {
   primitives: CommitSketchPrimitiveInput[]
 }
 
+/**
+ * Sketch commit response.
+ */
 export interface CommitSketchResponse extends ModelingOperationResult {
   sketchId: SketchId
 }
 
+/**
+ * Feature deletion request.
+ */
 export interface DeleteFeatureRequest extends DocumentMutationRequest {
   featureId: FeatureId
 }
 
+/**
+ * Feature deletion response.
+ */
 export interface DeleteFeatureResponse extends ModelingOperationResult {
   deletedFeatureId: FeatureId
 }
 
+/**
+ * Transitional preview request.
+ * The currently valid payload variants are explicitly enumerated by
+ * `LegacyFeatureParameterPayload`.
+ */
 export interface EvaluatePreviewRequest extends DocumentMutationRequest {
   previewId: PreviewId
-  featureType: string
+  featureType: LegacyFeatureType
   featureTypeVersion: FeatureTypeVersion
-  parameterPayload: Record<string, unknown>
+  parameterPayload: LegacyFeatureParameterPayload
   consumedTargets: PrimitiveRef[]
 }
 
+/**
+ * Preview evaluation response.
+ */
 export interface EvaluatePreviewResponse {
   contractVersion: ContractVersion
   documentId: DocumentId
@@ -336,10 +526,21 @@ export interface EvaluatePreviewResponse {
   diagnostics: ModelingDiagnostic[]
 }
 
+/**
+ * Reference resolution request.
+ */
 export interface ResolveReferenceRequest extends BaseDocumentRequest {
   target: PrimitiveRef
 }
 
+/**
+ * Resolved durable reference record.
+ * Ownership fields must resolve the reference back to document/revision and any
+ * owning feature/sketch/body context.
+ * `target` must always be a canonical durable reference.
+ * Implementers must not silently remap invalid references; unresolved or
+ * invalidated references must report the failure in `invalidation`.
+ */
 export interface ResolvedReferenceRecord {
   label: string
   target: PrimitiveRef
@@ -351,6 +552,9 @@ export interface ResolvedReferenceRecord {
   invalidation: InvalidReferenceDetailPayload | null
 }
 
+/**
+ * Reference resolution response.
+ */
 export interface ResolveReferenceResponse {
   contractVersion: ContractVersion
   resolution: ResolvedReferenceRecord

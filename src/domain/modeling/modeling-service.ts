@@ -6,24 +6,33 @@ import type {
   EdgeId,
   FaceId,
   FeatureId,
+  FeatureTreeNodeId,
+  ObjectTreeNodeId,
+  PickId,
   PrimitiveRef,
+  RenderableId,
   RevisionId,
   SketchId,
   SketchPrimitiveId,
+  SnapshotEntityId,
   VertexId,
 } from '@/domain/editor/schema'
 import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor/schema'
 import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
   BodySnapshotRecord,
+  CommitSketchResponse,
   CommitSketchRequest,
   ConstructionSnapshotRecord,
+  CreateFeatureResponse,
   CreateFeatureRequest,
+  DeleteFeatureResponse,
   DeleteFeatureRequest,
   DocumentSnapshot,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
   FeatureSnapshotRecord,
+  GetDocumentSnapshotResponse,
   PreviewId,
   GetDocumentSnapshotRequest,
   InvalidReferenceDetailPayload,
@@ -35,10 +44,15 @@ import type {
   ReferenceRecord,
   RenderableEntityRecord,
   ResolvedReferenceRecord,
+  ResolveReferenceRequest,
+  ResolveReferenceResponse,
   SketchSnapshotRecord,
   SnapshotEntityRecord,
+  UpdateFeatureResponse,
   UpdateFeatureRequest,
 } from '@/domain/modeling/schema'
+import type { DurableRef } from '@/contracts/shared/references'
+import type { SketchEntityId } from '@/contracts/shared/ids'
 
 export interface ModelingService {
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
@@ -191,12 +205,12 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
         return { kind: 'sketch', sketchId: value.sketchId as SketchId }
       }
       break
-    case 'sketchPrimitive':
-      if (isString(value.sketchId) && isString(value.primitiveId)) {
+    case 'sketchEntity':
+      if (isString(value.sketchId) && isString(value.entityId)) {
         return {
-          kind: 'sketchPrimitive',
+          kind: 'sketchEntity',
           sketchId: value.sketchId as SketchId,
-          primitiveId: value.primitiveId as SketchPrimitiveId,
+          entityId: value.entityId as SketchEntityId,
         }
       }
       break
@@ -213,6 +227,10 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
   }
 
   throw new Error('Invalid primitive reference payload.')
+}
+
+function assertDurableRef(value: unknown): DurableRef {
+  return assertPrimitiveRef(value)
 }
 
 function normalizeDiagnostics(value: unknown): ModelingDiagnostic[] {
@@ -354,11 +372,11 @@ function normalizeFeatureTree(value: unknown): DocumentSnapshot['featureTree'] {
     }
 
     return {
-      id: entry.id,
+      id: entry.id as FeatureTreeNodeId,
       label: entry.label,
       description: entry.description,
       kind: entry.kind,
-      target: assertPrimitiveRef(entry.target),
+      target: assertDurableRef(entry.target),
       ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
       ownerSketchId: entry.ownerSketchId === null ? null : assertSketchId(entry.ownerSketchId),
       sourceFeatureId: entry.sourceFeatureId === null ? null : assertFeatureId(entry.sourceFeatureId),
@@ -383,11 +401,11 @@ function normalizeObjects(value: unknown): ObjectTreeNodeRecord[] {
     }
 
     return {
-      id: entry.id,
+      id: entry.id as ObjectTreeNodeId,
       label: entry.label,
       description: entry.description,
       kind: entry.kind,
-      target: assertPrimitiveRef(entry.target),
+      target: assertDurableRef(entry.target),
       ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
       ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
     }
@@ -543,14 +561,14 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
     }
 
     return {
-      id: entry.id,
+      id: entry.id as RenderableId,
       label: entry.label,
       target,
       ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
       ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
       topology: entry.topology,
       pickBinding: {
-        pickId: entry.pickBinding.pickId as RenderableEntityRecord['pickBinding']['pickId'],
+        pickId: entry.pickBinding.pickId as PickId,
         target,
         topology: entry.pickBinding.topology,
       },
@@ -577,7 +595,7 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
       ...normalizeOwnership(entry),
       sketchId: assertSketchId(entry.sketchId),
       label: entry.label,
-      planeTarget: assertPrimitiveRef(entry.planeTarget),
+      planeTarget: assertDurableRef(entry.planeTarget),
       planeKey:
         entry.planeKey === 'xy' || entry.planeKey === 'yz' || entry.planeKey === 'xz'
           ? entry.planeKey
@@ -601,9 +619,17 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
 
         return {
           primitiveId: assertSketchPrimitiveId(primitive.primitiveId),
+          entityId:
+            typeof primitive.entityId === 'string'
+              ? (primitive.entityId as SketchSnapshotRecord['primitives'][number]['entityId'])
+              : (() => {
+                  throw new Error('Invalid sketch primitive entity ID payload.')
+                })(),
           label: primitive.label,
           kind: primitive.kind,
-          target: assertPrimitiveRef(primitive.target),
+          target: assertPrimitiveRef(
+            primitive.target,
+          ) as SketchSnapshotRecord['primitives'][number]['target'],
           geometry: primitive.geometry as SketchSnapshotRecord['primitives'][number]['geometry'],
         }
       }),
@@ -634,11 +660,11 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
       ...normalizeOwnership(entry),
       featureId: assertFeatureId(entry.featureId),
       label: entry.label,
-      featureType: entry.featureType,
+      featureType: entry.featureType as FeatureSnapshotRecord['featureType'],
       featureTypeVersion: entry.featureTypeVersion,
-      parameterPayload: entry.parameterPayload,
+      parameterPayload: entry.parameterPayload as unknown as FeatureSnapshotRecord['parameterPayload'],
       consumedTargets: entry.consumedTargets.map((target) => assertPrimitiveRef(target)),
-      producedTargets: entry.producedTargets.map((target) => assertPrimitiveRef(target)),
+      producedTargets: entry.producedTargets.map((target) => assertDurableRef(target)),
     }
   })
 }
@@ -712,7 +738,7 @@ function normalizeConstructions(value: unknown): ConstructionSnapshotRecord[] {
       constructionId: entry.constructionId as ConstructionSnapshotRecord['constructionId'],
       label: entry.label,
       constructionType: entry.constructionType,
-      target: assertPrimitiveRef(entry.target),
+      target: assertDurableRef(entry.target),
     }
   })
 }
@@ -735,7 +761,7 @@ function normalizeEntities(value: unknown): SnapshotEntityRecord[] {
 
     return {
       ...normalizeOwnership(entry),
-      id: entry.id,
+      id: entry.id as SnapshotEntityId,
       label: entry.label,
       target: assertPrimitiveRef(entry.target),
       relatedTargets: entry.relatedTargets.map((target) => assertPrimitiveRef(target)),
@@ -769,11 +795,7 @@ function normalizeResolution(value: unknown): ResolvedReferenceRecord {
   }
 }
 
-function normalizeSnapshot(snapshot: unknown): DocumentSnapshot {
-  if (!isRecord(snapshot)) {
-    throw new Error('Invalid snapshot payload.')
-  }
-
+function normalizeSnapshot(snapshot: GetDocumentSnapshotResponse['snapshot']): DocumentSnapshot {
   if (
     snapshot.contractVersion !== CONTRACT_VERSION ||
     snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
@@ -809,14 +831,10 @@ function buildDocumentRequest(documentId: DocumentSnapshot['documentId']): GetDo
 }
 
 function normalizeFeatureMutationResponse(
-  response: unknown,
+  response: CreateFeatureResponse | UpdateFeatureResponse,
   expectedDocumentId: DocumentId,
 ): ModelingFeatureMutationResult {
-  if (
-    !isRecord(response) ||
-    response.contractVersion !== CONTRACT_VERSION ||
-    !isString(response.documentId)
-  ) {
+  if (response.contractVersion !== CONTRACT_VERSION) {
     throw new Error('Invalid feature mutation response header.')
   }
 
@@ -834,14 +852,10 @@ function normalizeFeatureMutationResponse(
 }
 
 function normalizeDeleteFeatureResponse(
-  response: unknown,
+  response: DeleteFeatureResponse,
   expectedDocumentId: DocumentId,
 ): ModelingDeleteFeatureResult {
-  if (
-    !isRecord(response) ||
-    response.contractVersion !== CONTRACT_VERSION ||
-    !isString(response.documentId)
-  ) {
+  if (response.contractVersion !== CONTRACT_VERSION) {
     throw new Error('Invalid delete feature response header.')
   }
 
@@ -859,14 +873,10 @@ function normalizeDeleteFeatureResponse(
 }
 
 function normalizeCommitSketchResponse(
-  response: unknown,
+  response: CommitSketchResponse,
   expectedDocumentId: DocumentId,
 ): ModelingCommitSketchResult {
-  if (
-    !isRecord(response) ||
-    response.contractVersion !== CONTRACT_VERSION ||
-    !isString(response.documentId)
-  ) {
+  if (response.contractVersion !== CONTRACT_VERSION) {
     throw new Error('Invalid commit sketch response header.')
   }
 
@@ -884,15 +894,10 @@ function normalizeCommitSketchResponse(
 }
 
 function normalizePreviewResponse(
-  response: unknown,
+  response: EvaluatePreviewResponse,
   expectedDocumentId: DocumentId,
 ): ModelingPreviewResult {
-  if (
-    !isRecord(response) ||
-    response.contractVersion !== CONTRACT_VERSION ||
-    !isString(response.documentId) ||
-    !isString(response.previewId)
-  ) {
+  if (response.contractVersion !== CONTRACT_VERSION) {
     throw new Error('Invalid preview response header.')
   }
 
@@ -910,8 +915,10 @@ function normalizePreviewResponse(
   }
 }
 
-function normalizeResolvedReference(response: unknown): ModelingResolvedReferenceResult {
-  if (!isRecord(response) || response.contractVersion !== CONTRACT_VERSION) {
+function normalizeResolvedReference(
+  response: ResolveReferenceResponse,
+): ModelingResolvedReferenceResult {
+  if (response.contractVersion !== CONTRACT_VERSION) {
     throw new Error('Invalid reference resolution response header.')
   }
 
@@ -1002,11 +1009,11 @@ function normalizePreviewInput(
 function normalizeResolveReferenceInput(
   target: PrimitiveRef,
   documentId: DocumentId,
-): GetDocumentSnapshotRequest & { target: PrimitiveRef } {
+): ResolveReferenceRequest {
   return {
     contractVersion: CONTRACT_VERSION,
     documentId,
-    target: assertPrimitiveRef(target),
+    target: assertDurableRef(target),
   }
 }
 
