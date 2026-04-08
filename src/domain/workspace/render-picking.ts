@@ -5,7 +5,7 @@ import {
   primitiveRefEquals,
   type PrimitiveRef,
 } from '@/domain/editor/schema'
-import type { RenderableEntityRecord } from '@/domain/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/modeling/schema'
 
 export interface WorkspaceRenderScene {
   group: THREE.Group

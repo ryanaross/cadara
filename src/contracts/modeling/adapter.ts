@@ -15,7 +15,7 @@ import type {
   ResolveReferenceResponse,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 
 /**
  * Public modeling-kernel boundary for durable document queries and feature

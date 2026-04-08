@@ -8,14 +8,14 @@ import type {
   FeatureTreeNodeId,
   ObjectTreeNodeId,
   PickId,
-  RenderableId,
-  RevisionId,
-  SketchId,
-  SnapshotEntityId,
   PreviewId,
   ReferenceId,
   RegionId,
+  RenderableId,
   RequestId,
+  RevisionId,
+  SketchId,
+  SnapshotEntityId,
   VertexId,
 } from '@/contracts/shared/ids'
 import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
@@ -213,11 +213,22 @@ export type ModelingDiagnosticDetail =
       requestedRevisionId: RevisionId
       currentRevisionId: RevisionId
     }
-    | {
+  | {
       kind: 'rebuildFailure'
       affectedFeatureIds: FeatureId[]
       affectedTargets: PrimitiveRef[]
     }
+
+/**
+ * Top-level diagnostic record returned by the modeling boundary.
+ */
+export interface ModelingDiagnostic {
+  code: string
+  severity: 'info' | 'warning' | 'error'
+  message: string
+  target: PrimitiveRef | null
+  detail: ModelingDiagnosticDetail | null
+}
 
 /**
  * Revision acceptance state for a document mutation.
@@ -243,6 +254,34 @@ export type MutationRevisionState =
     }
 
 /**
+ * Per-request rebuild status returned by the kernel after a mutation attempt.
+ * `rebuilt` means regeneration finished against the returned revision.
+ * `skipped` means no rebuild ran because the mutation never committed.
+ * `failed` means the mutation was accepted but regeneration produced explicit
+ * machine-readable diagnostics and invalidations.
+ */
+export type RebuildResult =
+  | {
+      kind: 'rebuilt'
+      revisionId: RevisionId
+      invalidatedTargets: PrimitiveRef[]
+      diagnostics: ModelingDiagnostic[]
+    }
+  | {
+      kind: 'skipped'
+      reasonCode: 'revisionConflict' | 'validationRejected' | 'noOp'
+      invalidatedTargets: PrimitiveRef[]
+      diagnostics: ModelingDiagnostic[]
+    }
+  | {
+      kind: 'failed'
+      revisionId: RevisionId
+      reasonCode: string
+      invalidatedTargets: PrimitiveRef[]
+      diagnostics: ModelingDiagnostic[]
+    }
+
+/**
  * Freshness state for preview evaluation results.
  * Preview responses may be stale when the base revision no longer matches the
  * current document revision.
@@ -257,17 +296,6 @@ export type PreviewFreshness =
       requestedRevisionId: RevisionId
       currentRevisionId: RevisionId
     }
-
-/**
- * Top-level diagnostic record returned by the modeling boundary.
- */
-export interface ModelingDiagnostic {
-  code: string
-  severity: 'info' | 'warning' | 'error'
-  message: string
-  target: PrimitiveRef | null
-  detail: ModelingDiagnosticDetail | null
-}
 
 /**
  * Ownership metadata for durable snapshot records.
@@ -317,8 +345,11 @@ export interface ReferenceRecord {
   id: ReferenceId
   label: string
   target: PrimitiveRef
+  ownerDocumentId: DocumentId
+  ownerRevisionId: RevisionId
   ownerFeatureId: FeatureId | null
   ownerSketchId: SketchId | null
+  ownerBodyId: BodyId | null
   invalidation: InvalidReferenceDetailPayload | null
 }
 
@@ -478,6 +509,7 @@ export interface ModelingOperationResult {
   documentId: DocumentId
   revisionId: RevisionId
   revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -488,6 +520,7 @@ export type GetDocumentSnapshotRequest = BaseDocumentRequest
  * Response envelope for a full document snapshot fetch.
  */
 export interface GetDocumentSnapshotResponse {
+  contractVersion: ContractVersion
   snapshot: DocumentSnapshot
 }
 

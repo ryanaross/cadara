@@ -6,7 +6,7 @@ import type {
   SnapshotEntityId,
 } from '@/contracts/shared/ids'
 import type { DurableRef } from '@/contracts/shared/references'
-import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
+import type { ModelingKernelAdapter } from '@/contracts/modeling/adapter'
 import type {
   CreateFeatureRequest,
   DocumentSnapshot,
@@ -19,7 +19,7 @@ import type {
   ReorderFeatureRequest,
   ResolvedReferenceRecord,
   SnapshotEntityRecord,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 
 type Equals<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -76,7 +76,7 @@ type SharedIdsDoNotLeakSketchPrimitiveId = Assert<
 type KernelSnapshotBoundaryIsTyped = Assert<
   Equals<
     Awaited<ReturnType<ModelingKernelAdapter['getDocumentSnapshot']>>['snapshot'],
-    import('@/domain/modeling/schema').DocumentSnapshot
+    import('@/contracts/modeling/schema').DocumentSnapshot
   >
 >
 

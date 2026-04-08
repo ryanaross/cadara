@@ -7,7 +7,7 @@ import {
   getPrimitiveRefLabel,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import type { DocumentSnapshot, ModelingDiagnostic, ReferenceRecord } from '@/domain/modeling/schema'
+import type { DocumentSnapshot, ModelingDiagnostic, ReferenceRecord } from '@/contracts/modeling/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 interface FeatureSidebarProps {

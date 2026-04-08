@@ -5,7 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import type { RenderableEntityRecord } from '@/domain/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
   buildWorkspaceRenderScene,
@@ -424,7 +424,9 @@ function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
     return
   }
 
-  renderScene.group.children.forEach((object) => {
+  renderScene.group.parent?.remove(renderScene.group)
+
+  for (const object of [...renderScene.group.children]) {
     renderScene.group.remove(object)
 
     if (object instanceof THREE.Mesh) {
@@ -446,5 +448,5 @@ function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
         object.material.dispose()
       }
     }
-  })
+  }
 }

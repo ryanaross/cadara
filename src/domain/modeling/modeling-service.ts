@@ -1,4 +1,4 @@
-import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
+import type { ModelingKernelAdapter } from '@/contracts/modeling/adapter'
 import type {
   BodyId,
   ConstructionId,
@@ -45,6 +45,7 @@ import type {
   ObjectTreeNodeRecord,
   PreviewId,
   PreviewFreshness,
+  RebuildResult,
   ReferenceRecord,
   RenderableEntityRecord,
   ResolvedReferenceRecord,
@@ -59,7 +60,7 @@ import type {
   PlaneFeatureParameters,
   RevolveAxisRef,
   RevolveFeatureParameters,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 import type {
   ConstraintStatusRecord,
   ConstraintDefinition,
@@ -126,6 +127,7 @@ export interface ModelingFeatureMutationResult {
   revisionId: DocumentSnapshot['revisionId']
   featureId: FeatureId
   revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -134,6 +136,7 @@ export interface ModelingDeleteFeatureResult {
   revisionId: DocumentSnapshot['revisionId']
   deletedFeatureId: FeatureId
   revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -143,6 +146,7 @@ export interface ModelingReorderFeatureResult {
   featureId: FeatureId
   beforeFeatureId: FeatureId | null
   revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -151,6 +155,7 @@ export interface ModelingCommitSketchResult {
   revisionId: DocumentSnapshot['revisionId']
   sketchId: SketchId
   revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -650,6 +655,55 @@ function normalizePreviewFreshness(value: unknown): PreviewFreshness {
   }
 }
 
+function normalizeRebuildResult(value: unknown): RebuildResult {
+  if (!isRecord(value) || !isString(value.kind) || !Array.isArray(value.diagnostics)) {
+    throw new Error('Invalid rebuild result payload.')
+  }
+
+  switch (value.kind) {
+    case 'rebuilt':
+      if (!isString(value.revisionId) || !Array.isArray(value.invalidatedTargets)) {
+        throw new Error('Invalid rebuilt result payload.')
+      }
+
+      return {
+        kind: 'rebuilt',
+        revisionId: assertRevisionId(value.revisionId),
+        invalidatedTargets: normalizeChangedTargets(value.invalidatedTargets),
+        diagnostics: normalizeDiagnostics(value.diagnostics),
+      }
+    case 'skipped':
+      if (
+        value.reasonCode !== 'revisionConflict' &&
+        value.reasonCode !== 'validationRejected' &&
+        value.reasonCode !== 'noOp'
+      ) {
+        throw new Error('Invalid skipped rebuild result payload.')
+      }
+
+      return {
+        kind: 'skipped',
+        reasonCode: value.reasonCode,
+        invalidatedTargets: [],
+        diagnostics: normalizeDiagnostics(value.diagnostics),
+      }
+    case 'failed':
+      if (!isString(value.revisionId) || !isString(value.reasonCode) || !Array.isArray(value.invalidatedTargets)) {
+        throw new Error('Invalid failed rebuild result payload.')
+      }
+
+      return {
+        kind: 'failed',
+        revisionId: assertRevisionId(value.revisionId),
+        reasonCode: value.reasonCode,
+        invalidatedTargets: normalizeChangedTargets(value.invalidatedTargets),
+        diagnostics: normalizeDiagnostics(value.diagnostics),
+      }
+    default:
+      throw new Error('Unsupported rebuild result payload.')
+  }
+}
+
 function normalizeFeatureTree(value: unknown): DocumentSnapshot['featureTree'] {
   if (!Array.isArray(value)) {
     throw new Error('Invalid feature tree payload.')
@@ -740,8 +794,11 @@ function normalizeReferences(value: unknown): ReferenceRecord[] {
       id: entry.id as ReferenceRecord['id'],
       label: entry.label,
       target: assertPrimitiveRef(entry.target),
+      ownerDocumentId: assertDocumentId(entry.ownerDocumentId),
+      ownerRevisionId: assertRevisionId(entry.ownerRevisionId),
       ownerFeatureId: entry.ownerFeatureId as FeatureId | null,
       ownerSketchId: entry.ownerSketchId === null ? null : assertSketchId(entry.ownerSketchId),
+      ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
       invalidation: entry.invalidation === null ? null : normalizeInvalidReferenceDetail(entry.invalidation),
     }
   })
@@ -1607,34 +1664,6 @@ function normalizeResolution(value: unknown): ResolvedReferenceRecord {
   }
 }
 
-function normalizeSnapshot(snapshot: GetDocumentSnapshotResponse['snapshot']): DocumentSnapshot {
-  if (
-    snapshot.contractVersion !== CONTRACT_VERSION ||
-    snapshot.schemaVersion !== SNAPSHOT_SCHEMA_VERSION ||
-    !isString(snapshot.documentId) ||
-    !isString(snapshot.revisionId)
-  ) {
-    throw new Error('Snapshot header is invalid.')
-  }
-
-  return {
-    contractVersion: CONTRACT_VERSION,
-    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
-    documentId: snapshot.documentId as DocumentSnapshot['documentId'],
-    revisionId: snapshot.revisionId as DocumentSnapshot['revisionId'],
-    featureTree: normalizeFeatureTree(snapshot.featureTree),
-    objects: normalizeObjects(snapshot.objects),
-    features: normalizeFeatures(snapshot.features),
-    sketches: normalizeSketches(snapshot.sketches),
-    bodies: normalizeBodies(snapshot.bodies),
-    constructions: normalizeConstructions(snapshot.constructions),
-    entities: normalizeEntities(snapshot.entities),
-    references: normalizeReferences(snapshot.references),
-    diagnostics: normalizeDiagnostics(snapshot.diagnostics),
-    renderables: normalizeRenderables(snapshot.renderables),
-  }
-}
-
 function buildDocumentRequest(documentId: DocumentSnapshot['documentId']): GetDocumentSnapshotRequest {
   return {
     contractVersion: CONTRACT_VERSION,
@@ -1642,123 +1671,128 @@ function buildDocumentRequest(documentId: DocumentSnapshot['documentId']): GetDo
   }
 }
 
-function normalizeFeatureMutationResponse(
+function assertKernelContractVersion(contractVersion: GetDocumentSnapshotResponse['snapshot']['contractVersion']) {
+  if (contractVersion !== CONTRACT_VERSION) {
+    throw new Error('Kernel contract version does not match the active modeling service.')
+  }
+}
+
+function assertSnapshotSchemaVersion(schemaVersion: DocumentSnapshot['schemaVersion']) {
+  if (schemaVersion !== SNAPSHOT_SCHEMA_VERSION) {
+    throw new Error('Snapshot schema version does not match the active modeling service.')
+  }
+}
+
+function assertKernelDocumentIdMatches(
+  responseDocumentId: DocumentId,
+  expectedDocumentId: DocumentId,
+  operationLabel: string,
+) {
+  if (responseDocumentId !== expectedDocumentId) {
+    throw new Error(`${operationLabel} response document ID does not match the active document.`)
+  }
+}
+
+function validateSnapshotResponse(
+  response: GetDocumentSnapshotResponse,
+  expectedDocumentId: DocumentId,
+): DocumentSnapshot {
+  assertKernelContractVersion(response.snapshot.contractVersion)
+  assertSnapshotSchemaVersion(response.snapshot.schemaVersion)
+  assertKernelDocumentIdMatches(response.snapshot.documentId, expectedDocumentId, 'Snapshot')
+  return response.snapshot
+}
+
+function mapFeatureMutationResponse(
   response: CreateFeatureResponse | UpdateFeatureResponse,
   expectedDocumentId: DocumentId,
 ): ModelingFeatureMutationResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid feature mutation response header.')
-  }
-
-  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
-    throw new Error('Feature mutation response document ID does not match the active document.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Feature mutation')
   return {
-    revisionId: assertRevisionId(response.revisionId),
-    featureId: assertFeatureId(response.featureId),
-    revisionState: normalizeRevisionState(response.revisionState),
-    changedTargets: normalizeChangedTargets(response.changedTargets),
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    revisionId: response.revisionId,
+    featureId: response.featureId,
+    revisionState: response.revisionState,
+    rebuildResult: response.rebuildResult,
+    changedTargets: response.changedTargets,
+    diagnostics: response.diagnostics,
   }
 }
 
-function normalizeDeleteFeatureResponse(
+function mapDeleteFeatureResponse(
   response: DeleteFeatureResponse,
   expectedDocumentId: DocumentId,
 ): ModelingDeleteFeatureResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid delete feature response header.')
-  }
-
-  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
-    throw new Error('Delete feature response document ID does not match the active document.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Delete feature')
   return {
-    revisionId: assertRevisionId(response.revisionId),
-    deletedFeatureId: assertFeatureId(response.deletedFeatureId),
-    revisionState: normalizeRevisionState(response.revisionState),
-    changedTargets: normalizeChangedTargets(response.changedTargets),
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    revisionId: response.revisionId,
+    deletedFeatureId: response.deletedFeatureId,
+    revisionState: response.revisionState,
+    rebuildResult: response.rebuildResult,
+    changedTargets: response.changedTargets,
+    diagnostics: response.diagnostics,
   }
 }
 
-function normalizeCommitSketchResponse(
+function mapCommitSketchResponse(
   response: CommitSketchResponse,
   expectedDocumentId: DocumentId,
 ): ModelingCommitSketchResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid commit sketch response header.')
-  }
-
-  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
-    throw new Error('Commit sketch response document ID does not match the active document.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Commit sketch')
   return {
-    revisionId: assertRevisionId(response.revisionId),
-    sketchId: assertSketchId(response.sketchId),
-    revisionState: normalizeRevisionState(response.revisionState),
-    changedTargets: normalizeChangedTargets(response.changedTargets),
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    revisionId: response.revisionId,
+    sketchId: response.sketchId,
+    revisionState: response.revisionState,
+    rebuildResult: response.rebuildResult,
+    changedTargets: response.changedTargets,
+    diagnostics: response.diagnostics,
   }
 }
 
-function normalizePreviewResponse(
+function mapPreviewResponse(
   response: EvaluatePreviewResponse,
   expectedDocumentId: DocumentId,
 ): ModelingPreviewResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid preview response header.')
-  }
-
-  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
-    throw new Error('Preview response document ID does not match the active document.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Preview')
   return {
-    revisionId: assertRevisionId(response.revisionId),
-    previewId: response.previewId as PreviewId,
-    renderables: normalizeRenderables(response.renderables),
-    freshness: normalizePreviewFreshness(response.freshness),
-    stale: normalizePreviewFreshness(response.freshness).kind === 'stale',
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    revisionId: response.revisionId,
+    previewId: response.previewId,
+    renderables: response.renderables,
+    freshness: response.freshness,
+    stale: response.freshness.kind === 'stale',
+    diagnostics: response.diagnostics,
   }
 }
 
-function normalizeReorderFeatureResponse(
+function mapReorderFeatureResponse(
   response: ReorderFeatureResponse,
   expectedDocumentId: DocumentId,
 ): ModelingReorderFeatureResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid reorder feature response header.')
-  }
-
-  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
-    throw new Error('Reorder feature response document ID does not match the active document.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Reorder feature')
   return {
-    revisionId: assertRevisionId(response.revisionId),
-    featureId: assertFeatureId(response.featureId),
-    beforeFeatureId: response.beforeFeatureId === null ? null : assertFeatureId(response.beforeFeatureId),
-    revisionState: normalizeRevisionState(response.revisionState),
-    changedTargets: normalizeChangedTargets(response.changedTargets),
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    revisionId: response.revisionId,
+    featureId: response.featureId,
+    beforeFeatureId: response.beforeFeatureId,
+    revisionState: response.revisionState,
+    rebuildResult: response.rebuildResult,
+    changedTargets: response.changedTargets,
+    diagnostics: response.diagnostics,
   }
 }
 
-function normalizeResolvedReference(
+function mapResolvedReferenceResponse(
   response: ResolveReferenceResponse,
+  expectedDocumentId: DocumentId,
 ): ModelingResolvedReferenceResult {
-  if (response.contractVersion !== CONTRACT_VERSION) {
-    throw new Error('Invalid reference resolution response header.')
-  }
-
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.resolution.ownerDocumentId, expectedDocumentId, 'Resolve reference')
   return {
-    resolution: normalizeResolution(response.resolution),
-    diagnostics: normalizeDiagnostics(response.diagnostics),
+    resolution: response.resolution,
+    diagnostics: response.diagnostics,
   }
 }
 
@@ -1877,46 +1911,46 @@ export function createModelingService(
     sketchSolver,
     async getCurrentDocumentSnapshot() {
       const response = await adapter.getDocumentSnapshot(buildDocumentRequest(currentDocumentId))
-      return normalizeSnapshot(response.snapshot)
+      return validateSnapshotResponse(response, currentDocumentId)
     },
     async commitSketch(input) {
       const response = await adapter.commitSketch(
         normalizeCommitSketchInput(input, currentDocumentId),
       )
 
-      return normalizeCommitSketchResponse(response, currentDocumentId)
+      return mapCommitSketchResponse(response, currentDocumentId)
     },
     async createFeature(input) {
       const response = await adapter.createFeature(normalizeCreateFeatureInput(input, currentDocumentId))
 
-      return normalizeFeatureMutationResponse(response, currentDocumentId)
+      return mapFeatureMutationResponse(response, currentDocumentId)
     },
     async updateFeature(input) {
       const response = await adapter.updateFeature(normalizeUpdateFeatureInput(input, currentDocumentId))
 
-      return normalizeFeatureMutationResponse(response, currentDocumentId)
+      return mapFeatureMutationResponse(response, currentDocumentId)
     },
     async deleteFeature(input) {
       const response = await adapter.deleteFeature(normalizeDeleteFeatureInput(input, currentDocumentId))
 
-      return normalizeDeleteFeatureResponse(response, currentDocumentId)
+      return mapDeleteFeatureResponse(response, currentDocumentId)
     },
     async reorderFeature(input) {
       const response = await adapter.reorderFeature(normalizeReorderFeatureInput(input, currentDocumentId))
 
-      return normalizeReorderFeatureResponse(response, currentDocumentId)
+      return mapReorderFeatureResponse(response, currentDocumentId)
     },
     async evaluatePreview(input) {
       const response = await adapter.evaluatePreview(normalizePreviewInput(input, currentDocumentId))
 
-      return normalizePreviewResponse(response, currentDocumentId)
+      return mapPreviewResponse(response, currentDocumentId)
     },
     async resolveReference(target) {
       const response = await adapter.resolveReference(
         normalizeResolveReferenceInput(target, currentDocumentId),
       )
 
-      const normalized = normalizeResolvedReference(response)
+      const normalized = mapResolvedReferenceResponse(response, currentDocumentId)
       return {
         ...normalized,
         resolution: {
@@ -1927,6 +1961,27 @@ export function createModelingService(
     },
   }
 }
+
+/**
+ * Optional runtime validators for typed modeling payloads.
+ * The kernel boundary is statically authoritative; these helpers exist only for
+ * callers that want defensive runtime checks around external adapter payloads.
+ */
+export const modelingRuntimeValidators = {
+  revisionState: normalizeRevisionState,
+  previewFreshness: normalizePreviewFreshness,
+  rebuildResult: normalizeRebuildResult,
+  featureTree: normalizeFeatureTree,
+  objects: normalizeObjects,
+  references: normalizeReferences,
+  renderables: normalizeRenderables,
+  sketches: normalizeSketches,
+  features: normalizeFeatures,
+  bodies: normalizeBodies,
+  constructions: normalizeConstructions,
+  entities: normalizeEntities,
+  resolution: normalizeResolution,
+} as const
 
 export function createSketchSolverService(
   adapter: SketchSolverBoundary,

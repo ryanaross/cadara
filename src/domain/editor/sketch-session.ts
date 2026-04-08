@@ -23,7 +23,7 @@ import type {
   SketchPlaneKey,
   SketchPoint,
   SketchSnapshotRecord,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 
 export type SketchToolId = 'line' | 'rectangle' | 'circle'
 

@@ -1,7 +1,7 @@
 import { Check, CircleSlash, Layers3 } from 'lucide-react'
 
-import type { FeatureSnapshotRecord, ModelingDiagnostic } from '@/domain/modeling/schema'
-import type { FeatureBooleanOperation } from '@/domain/modeling/schema'
+import type { FeatureSnapshotRecord, ModelingDiagnostic } from '@/contracts/modeling/schema'
+import type { FeatureBooleanOperation } from '@/contracts/modeling/schema'
 import { getPrimitiveRefLabel } from '@/domain/editor/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 

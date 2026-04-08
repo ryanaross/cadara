@@ -8,7 +8,7 @@ import {
   type EditorEvent,
 } from './state-machine'
 import type { SelectionTargetCatalog } from '@/domain/editor/schema'
-import type { DocumentSnapshot } from '@/domain/modeling/schema'
+import type { DocumentSnapshot } from '@/contracts/modeling/schema'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {

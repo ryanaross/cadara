@@ -5,7 +5,7 @@ import {
   getSketchSessionRenderables,
   type SketchSessionState,
 } from '@/domain/editor/sketch-session'
-import type { DocumentSnapshot } from '@/domain/modeling/schema'
+import type { DocumentSnapshot } from '@/contracts/modeling/schema'
 import type {
   ModelingCommitSketchResult,
   ModelingService,

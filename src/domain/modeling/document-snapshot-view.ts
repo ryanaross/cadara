@@ -4,7 +4,7 @@ import type {
   DocumentSnapshot,
   FeatureSnapshotRecord,
   SnapshotEntityRecord,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 
 export interface DocumentSelectionDetail {

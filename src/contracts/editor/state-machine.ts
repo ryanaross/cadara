@@ -42,7 +42,7 @@ import type {
   DocumentSnapshot,
   ModelingDiagnostic,
   RenderableEntityRecord,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 import type {
   CommandSessionId,
   DocumentId,

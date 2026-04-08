@@ -10,13 +10,14 @@ import type {
   PickId,
   RegionId,
   RenderableId,
+  RevisionId,
   SketchId,
   SketchEntityId,
   SketchPointId,
   SnapshotEntityId,
 } from '@/contracts/shared/ids'
 import { getPrimitiveRefKey } from '@/domain/editor/schema'
-import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
+import type { ModelingKernelAdapter } from '@/contracts/modeling/adapter'
 import type {
   CommitSketchRequest,
   CommitSketchResponse,
@@ -38,7 +39,8 @@ import type {
   SnapshotEntityRecord,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
+import type { DurableRef } from '@/contracts/shared/references'
 import type { ModelingCommitSketchCorrelation } from '@/domain/modeling/modeling-service'
 import {
   DEFAULT_MOCK_SKETCH_PLANE_FRAME,
@@ -52,6 +54,57 @@ const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
 const CURRENT_REVISION_ID = 'rev_0002' as const
 const SKETCH_ID = 'sketch_primary' as const
+
+function createRebuildResult(
+  input:
+    | {
+        kind: 'rebuilt'
+        revisionId: RevisionId
+        diagnostics?: CreateFeatureResponse['diagnostics']
+        invalidatedTargets?: CreateFeatureResponse['changedTargets']
+      }
+    | {
+        kind: 'skipped'
+        reasonCode: 'revisionConflict' | 'validationRejected' | 'noOp'
+        diagnostics?: CreateFeatureResponse['diagnostics']
+      }
+    | {
+        kind: 'failed'
+        revisionId: RevisionId
+        reasonCode: string
+        diagnostics?: CreateFeatureResponse['diagnostics']
+        invalidatedTargets?: CreateFeatureResponse['changedTargets']
+      },
+) {
+  switch (input.kind) {
+    case 'rebuilt':
+      return {
+        kind: 'rebuilt' as const,
+        revisionId: input.revisionId,
+        invalidatedTargets: input.invalidatedTargets ?? [],
+        diagnostics: input.diagnostics ?? [],
+      }
+    case 'skipped':
+      return {
+        kind: 'skipped' as const,
+        reasonCode: input.reasonCode,
+        invalidatedTargets: [],
+        diagnostics: input.diagnostics ?? [],
+      }
+    case 'failed':
+      return {
+        kind: 'failed' as const,
+        revisionId: input.revisionId,
+        reasonCode: input.reasonCode,
+        invalidatedTargets: input.invalidatedTargets ?? [],
+        diagnostics: input.diagnostics ?? [],
+      }
+  }
+}
+
+function createSketchTarget(sketchId: SketchId): DurableRef {
+  return { kind: 'sketch', sketchId }
+}
 
 function getFeatureDefinitionLabel(definition: FeatureDefinition) {
   return definition.kind
@@ -1034,8 +1087,11 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         id: 'ref_feature_extrude_region' as const,
         label: 'Extrude region',
         target: primaryRegion.target,
+        ownerDocumentId: DOCUMENT_ID,
+        ownerRevisionId: REVISION_ID,
         ownerFeatureId: 'feature_extrude-1',
         ownerSketchId: SKETCH_ID,
+        ownerBodyId: null,
         invalidation: null,
       },
     ],
@@ -1108,6 +1164,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
 
   async getDocumentSnapshot(_request: GetDocumentSnapshotRequest): Promise<GetDocumentSnapshotResponse> {
     return {
+      contractVersion: CONTRACT_VERSION,
       snapshot: await this.getSnapshot(),
     }
   }
@@ -1116,6 +1173,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
     const snapshot = await this.getSnapshot()
 
     if (hasRevisionConflict(request.baseRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
@@ -1126,8 +1184,13 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           expectedRevisionId: request.baseRevisionId,
           actualRevisionId: REVISION_ID,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
         changedTargets: [],
-        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+        diagnostics,
       }
     }
 
@@ -1144,10 +1207,25 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           baseRevisionId: request.baseRevisionId,
           reasonCode: validation.reasonCode,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics: validation.diagnostics,
+        }),
         changedTargets: [],
         diagnostics: validation.diagnostics,
       }
     }
+
+    const diagnostics = [
+      {
+        code: 'mock-create-feature',
+        severity: 'info' as const,
+        message: 'Mock kernel accepted the feature create request without mutating committed state.',
+        target: getFeatureDefinitionChangedTargets(request.definition)[0] ?? null,
+        detail: null,
+      },
+    ]
 
     return {
       contractVersion: CONTRACT_VERSION,
@@ -1158,16 +1236,13 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
+      rebuildResult: createRebuildResult({
+        kind: 'rebuilt',
+        revisionId: request.baseRevisionId,
+        diagnostics,
+      }),
       changedTargets: getFeatureDefinitionChangedTargets(request.definition),
-      diagnostics: [
-        {
-          code: 'mock-create-feature',
-          severity: 'info',
-          message: 'Mock kernel accepted the feature create request without mutating committed state.',
-          target: getFeatureDefinitionChangedTargets(request.definition)[0] ?? null,
-          detail: null,
-        },
-      ],
+      diagnostics,
     }
   }
 
@@ -1180,6 +1255,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
     })
 
     if (hasRevisionConflict(request.baseRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
@@ -1190,8 +1266,13 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           expectedRevisionId: request.baseRevisionId,
           actualRevisionId: REVISION_ID,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
         changedTargets: [],
-        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+        diagnostics,
       }
     }
 
@@ -1246,6 +1327,20 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       definition: request.definition,
     })
 
+    const diagnostics = [
+      ...projection.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
+      ...validation.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
+      ...solved.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
+      ...regions.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
+      {
+        code: 'mock-commit-sketch',
+        severity: 'info' as const,
+        message: 'Mock kernel accepted the sketch definition commit request without mutating the document.',
+        target: createSketchTarget(sketchId),
+        detail: null,
+      },
+    ]
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
@@ -1255,25 +1350,18 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
+      rebuildResult: createRebuildResult({
+        kind: 'rebuilt',
+        revisionId: request.baseRevisionId,
+        diagnostics,
+      }),
       changedTargets: [
-        { kind: 'sketch', sketchId },
+        createSketchTarget(sketchId),
         ...solved.derivedRegions.map((region) => region.target),
         ...request.definition.entities.map((entity) => entity.target),
         ...request.definition.points.map((point) => point.target),
       ],
-      diagnostics: [
-        ...projection.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
-        ...validation.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
-        ...solved.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
-        ...regions.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
-        {
-          code: 'mock-commit-sketch',
-          severity: 'info',
-          message: 'Mock kernel accepted the sketch definition commit request without mutating the document.',
-          target: { kind: 'sketch', sketchId },
-          detail: null,
-        },
-      ],
+      diagnostics,
     }
   }
 
@@ -1281,6 +1369,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
     const snapshot = await this.getSnapshot()
 
     if (hasRevisionConflict(request.baseRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
@@ -1291,8 +1380,13 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           expectedRevisionId: request.baseRevisionId,
           actualRevisionId: REVISION_ID,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
         changedTargets: [],
-        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+        diagnostics,
       }
     }
 
@@ -1309,10 +1403,17 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           baseRevisionId: request.baseRevisionId,
           reasonCode: validation.reasonCode,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics: validation.diagnostics,
+        }),
         changedTargets: [],
         diagnostics: validation.diagnostics,
       }
     }
+
+    const diagnostics: UpdateFeatureResponse['diagnostics'] = []
 
     return {
       contractVersion: CONTRACT_VERSION,
@@ -1323,13 +1424,19 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
+      rebuildResult: createRebuildResult({
+        kind: 'rebuilt',
+        revisionId: request.baseRevisionId,
+        diagnostics,
+      }),
       changedTargets: getFeatureDefinitionChangedTargets(request.definition),
-      diagnostics: [],
+      diagnostics,
     }
   }
 
   async deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse> {
     if (hasRevisionConflict(request.baseRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
@@ -1340,10 +1447,17 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           expectedRevisionId: request.baseRevisionId,
           actualRevisionId: REVISION_ID,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
         changedTargets: [],
-        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+        diagnostics,
       }
     }
+
+    const diagnostics: DeleteFeatureResponse['diagnostics'] = []
 
     return {
       contractVersion: CONTRACT_VERSION,
@@ -1354,13 +1468,19 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
+      rebuildResult: createRebuildResult({
+        kind: 'rebuilt',
+        revisionId: request.baseRevisionId,
+        diagnostics,
+      }),
       changedTargets: [{ kind: 'feature', featureId: request.featureId }],
-      diagnostics: [],
+      diagnostics,
     }
   }
 
   async reorderFeature(request: ReorderFeatureRequest): Promise<ReorderFeatureResponse> {
     if (hasRevisionConflict(request.baseRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
@@ -1372,10 +1492,17 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           expectedRevisionId: request.baseRevisionId,
           actualRevisionId: REVISION_ID,
         },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
         changedTargets: [],
-        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+        diagnostics,
       }
     }
+
+    const diagnostics: ReorderFeatureResponse['diagnostics'] = []
 
     return {
       contractVersion: CONTRACT_VERSION,
@@ -1387,8 +1514,13 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
+      rebuildResult: createRebuildResult({
+        kind: 'rebuilt',
+        revisionId: request.baseRevisionId,
+        diagnostics,
+      }),
       changedTargets: [{ kind: 'feature', featureId: request.featureId }],
-      diagnostics: [],
+      diagnostics,
     }
   }
 

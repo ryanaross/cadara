@@ -8,7 +8,7 @@ import type {
   FeatureSnapshotRecord,
   ModelingDiagnostic,
   PreviewId,
-} from '@/domain/modeling/schema'
+} from '@/contracts/modeling/schema'
 
 export const EXTRUDE_FEATURE_TYPE = 'extrude' as const
 export const FEATURE_TYPE_VERSION = 'feature-type/v1alpha1' as const
