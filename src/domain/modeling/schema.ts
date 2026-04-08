@@ -14,6 +14,7 @@ import type {
   SnapshotEntityId,
   PreviewId,
   ReferenceId,
+  RegionId,
   RequestId,
   VertexId,
 } from '@/contracts/shared/ids'
@@ -33,39 +34,146 @@ export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
 export type SketchPoint = SketchPoint2D
 
 /**
- * Transitional feature family identifiers supported by the current scaffold.
- * This is intentionally narrow rather than an open `string`.
+ * Canonical feature families currently exposed by the kernel contract.
+ * This union is closed so callers cannot invent feature types ad hoc.
  */
-export type LegacyFeatureType = 'extrude' | 'fillet'
+export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve'
 
 /**
- * Transitional extrude payload currently supported by the modeling boundary.
- * `profileTarget` must identify a durable derived region, durable sketch, or planar face
- * seed owned by the same document revision as the containing request or snapshot.
+ * Durable reference accepted as an extrude profile seed.
+ * `region` means one explicit solver- or kernel-derived closed profile.
+ * `face` means one explicit planar face owned by the current document revision.
+ * Whole-sketch references are intentionally excluded so profile ownership is
+ * never inferred from hidden loop-selection conventions.
  */
-export interface ExtrudeFeatureParameterPayload {
+export type ExtrudeProfileRef =
+  | { kind: 'region'; sketchId: SketchId; regionId: RegionId }
+  | { kind: 'face'; bodyId: BodyId; faceId: FaceId }
+
+/**
+ * Fully typed extrude parameters.
+ * `profile` is the single authoritative seed reference; callers must not repeat
+ * the same meaning in side-band generic arrays.
+ * `depth` is expressed in document modeling units and must be strictly positive.
+ */
+export interface ExtrudeFeatureParameters {
+  /** Single authoritative profile seed for the extrude operation. */
+  profile: ExtrudeProfileRef
+  /** Positive extrusion distance in document modeling units. */
   depth: number
+  /** Direction policy for this schema version. */
   direction: 'oneSided'
+  /** Boolean behavior applied to the extrude result. */
   operation: FeatureBooleanOperation
-  profileTarget: PrimitiveRef
 }
 
 /**
- * Transitional fillet payload currently supported by the modeling boundary.
- * `radius` is expressed in document modeling units.
+ * Fillet edge reference accepted by the kernel contract.
  */
-export interface FilletFeatureParameterPayload {
+export interface FilletEdgeRef {
+  /** Durable edge reference; this variant is fixed for fillet target lists. */
+  kind: 'edge'
+  bodyId: BodyId
+  edgeId: EdgeId
+}
+
+/**
+ * Fully typed fillet parameters.
+ * `edgeTargets` lists the exact durable edges to round.
+ * `radius` is expressed in document modeling units and must be strictly positive.
+ */
+export interface FilletFeatureParameters {
+  /** Exact durable edges to round; order has no semantic meaning. */
+  edgeTargets: readonly FilletEdgeRef[]
+  /** Positive fillet radius in document modeling units. */
   radius: number
 }
 
 /**
- * Transitional feature payload union currently supported by the modeling
- * boundary. The currently valid variants are fully enumerated here even though
- * Phase 4 will later replace them with dedicated feature-family contracts.
+ * Construction-plane reference accepted by plane features.
  */
-export type LegacyFeatureParameterPayload =
-  | ExtrudeFeatureParameterPayload
-  | FilletFeatureParameterPayload
+export interface PlaneReferenceTarget {
+  /** Single coplanar seed reference used to create the construction plane. */
+  target: { kind: 'construction'; constructionId: ConstructionId } | { kind: 'face'; bodyId: BodyId; faceId: FaceId }
+}
+
+/**
+ * Fully typed plane parameters.
+ * This placeholder contract intentionally supports only a single coplanar seed so
+ * later extensions can add offset/angle variants without weakening current typing.
+ */
+export interface PlaneFeatureParameters {
+  /** Plane creation mode for this schema version. */
+  mode: 'coplanar'
+  /** Single coplanar reference used to define the resulting plane. */
+  reference: PlaneReferenceTarget
+}
+
+/**
+ * Placeholder revolve profile reference.
+ * This exists because the toolbar already exposes revolve and the plan allows a
+ * placeholder if the feature is planned soon.
+ */
+export type RevolveProfileRef = ExtrudeProfileRef
+
+/**
+ * Placeholder revolve axis reference.
+ * Axis ownership must remain durable and explicit.
+ */
+export type RevolveAxisRef =
+  | { kind: 'edge'; bodyId: BodyId; edgeId: EdgeId }
+  | { kind: 'construction'; constructionId: ConstructionId }
+
+/**
+ * Placeholder revolve parameters.
+ * The kernel may reject these requests as unsupported, but the request shape is
+ * already specific enough for an implementer to build against without guessing.
+ */
+export interface RevolveFeatureParameters {
+  /** Explicit closed profile seed to revolve. */
+  profile: RevolveProfileRef
+  /** Explicit axis reference used by the revolve. */
+  axis: RevolveAxisRef
+  /** Rotation angle in document modeling units. */
+  angle: number
+  /** Boolean behavior applied to the revolve result. */
+  operation: FeatureBooleanOperation
+}
+
+/**
+ * Canonical typed feature definitions used across requests and snapshots.
+ * Each variant owns its required references and parameters directly.
+ */
+export type FeatureDefinition =
+  | {
+      /** Stable discriminant for extrude features. */
+      kind: 'extrude'
+      /** Per-variant schema version owned by the extrude contract family. */
+      featureTypeVersion: FeatureTypeVersion
+      /** Exact rebuild inputs owned by this extrude feature instance. */
+      parameters: ExtrudeFeatureParameters
+    }
+  | {
+      /** Stable discriminant for fillet features. */
+      kind: 'fillet'
+      /** Per-variant schema version owned by the fillet contract family. */
+      featureTypeVersion: FeatureTypeVersion
+      parameters: FilletFeatureParameters
+    }
+  | {
+      /** Stable discriminant for plane features. */
+      kind: 'plane'
+      /** Per-variant schema version owned by the plane contract family. */
+      featureTypeVersion: FeatureTypeVersion
+      parameters: PlaneFeatureParameters
+    }
+  | {
+      /** Stable discriminant for revolve features. */
+      kind: 'revolve'
+      /** Per-variant schema version owned by the revolve contract family. */
+      featureTypeVersion: FeatureTypeVersion
+      parameters: RevolveFeatureParameters
+    }
 
 /**
  * Machine-readable invalidation payload for destroyed or replaced references.
@@ -113,7 +221,10 @@ export type ModelingDiagnosticDetail =
 
 /**
  * Revision acceptance state for a document mutation.
- * Conflicts must report both the expected and actual revision IDs.
+ * `accepted` means the mutation was committed against `baseRevisionId`.
+ * `conflict` means the base revision was stale before validation completed.
+ * `rejected` means the request was evaluated against the requested revision but
+ * failed contract validation or capability checks and therefore did not commit.
  */
 export type MutationRevisionState =
   | {
@@ -124,6 +235,11 @@ export type MutationRevisionState =
       kind: 'conflict'
       expectedRevisionId: RevisionId
       actualRevisionId: RevisionId
+    }
+  | {
+      kind: 'rejected'
+      baseRevisionId: RevisionId
+      reasonCode: string
     }
 
 /**
@@ -251,17 +367,26 @@ export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
 
 /**
  * Durable feature snapshot.
- * `featureType` and `parameterPayload` are transitional, but their currently
- * supported variants are explicitly declared in this contract.
+ * The embedded `definition` is authoritative and must contain every required
+ * reference and parameter needed to rebuild the feature.
  */
-export interface FeatureSnapshotRecord extends SnapshotOwnershipRecord {
+export interface FeatureSnapshotRecordBase extends SnapshotOwnershipRecord {
+  /** Durable feature identity. */
   featureId: FeatureId
+  /** Human-readable feature label owned by the modeling system. */
   label: string
-  featureType: LegacyFeatureType
-  featureTypeVersion: FeatureTypeVersion
-  parameterPayload: LegacyFeatureParameterPayload
-  consumedTargets: PrimitiveRef[]
+  /**
+   * Durable targets created or materially re-owned by the rebuilt feature.
+   * Unaffected targets must remain absent rather than inferred by callers.
+   * Destroyed or replaced durable targets must be surfaced through invalidation
+   * diagnostics rather than by silently removing them from this list.
+   */
   producedTargets: PrimitiveRef[]
+}
+
+export type FeatureSnapshotRecord = FeatureSnapshotRecordBase & {
+  /** Authoritative typed feature definition used to rebuild this feature. */
+  definition: FeatureDefinition
 }
 
 /**
@@ -367,41 +492,72 @@ export interface GetDocumentSnapshotResponse {
 }
 
 /**
- * Transitional feature-creation request.
- * The currently valid payload variants are explicitly enumerated by
- * `LegacyFeatureParameterPayload`.
+ * Base typed feature mutation request.
+ * `definition` is the only authoritative feature payload.
+ * Invalid or unsupported definitions must return `revisionState.kind === "rejected"`
+ * with machine-readable diagnostics and no committed mutation.
  */
-export interface CreateFeatureRequest extends DocumentMutationRequest {
-  featureType: LegacyFeatureType
-  featureTypeVersion: FeatureTypeVersion
-  parameterPayload: LegacyFeatureParameterPayload
-  consumedTargets: PrimitiveRef[]
+export interface FeatureMutationRequest extends DocumentMutationRequest {
+  /**
+   * Exact feature definition owned by the request.
+   * The kernel must reject invalid references or unsupported parameter
+   * combinations explicitly rather than inferring omitted intent.
+   */
+  definition: FeatureDefinition
 }
 
 /**
  * Feature creation response.
+ * `revisionState.kind === "accepted"` means the feature was committed.
+ * `revisionState.kind === "rejected"` means the request was evaluated but the
+ * definition could not be committed.
  */
 export interface CreateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
 }
 
 /**
- * Transitional feature-update request.
- * The currently valid payload variants are explicitly enumerated by
- * `LegacyFeatureParameterPayload`.
+ * Feature creation request.
  */
-export interface UpdateFeatureRequest extends DocumentMutationRequest {
+export interface CreateFeatureRequest extends FeatureMutationRequest {}
+
+/**
+ * Feature update request.
+ */
+export interface UpdateFeatureRequest extends FeatureMutationRequest {
+  /** Durable feature identity to replace in-place. */
   featureId: FeatureId
-  featureTypeVersion: FeatureTypeVersion
-  parameterPayload: LegacyFeatureParameterPayload
-  consumedTargets: PrimitiveRef[]
 }
 
 /**
  * Feature update response.
+ * Rejected updates must preserve durable identity and report why the update did
+ * not commit.
  */
 export interface UpdateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
+}
+
+/**
+ * Feature reorder request.
+ * `beforeFeatureId` inserts the moved feature before another durable feature.
+ * Null appends the feature to the end of the feature list.
+ */
+export interface ReorderFeatureRequest extends DocumentMutationRequest {
+  /** Durable feature identity being moved in the feature list. */
+  featureId: FeatureId
+  /** Null appends to the tail; otherwise insert immediately before this feature. */
+  beforeFeatureId: FeatureId | null
+}
+
+/**
+ * Feature reorder response.
+ */
+export interface ReorderFeatureResponse extends ModelingOperationResult {
+  /** Durable feature identity that was reordered. */
+  featureId: FeatureId
+  /** Final insertion anchor accepted by the kernel for this reorder request. */
+  beforeFeatureId: FeatureId | null
 }
 
 export interface CommitSketchRequest extends DocumentMutationRequest {
@@ -447,16 +603,15 @@ export interface DeleteFeatureResponse extends ModelingOperationResult {
 }
 
 /**
- * Transitional preview request.
- * The currently valid payload variants are explicitly enumerated by
- * `LegacyFeatureParameterPayload`.
+ * Typed feature preview request.
+ * The previewed feature definition is explicit and must not depend on out-of-band
+ * generic target arrays.
  */
 export interface EvaluatePreviewRequest extends DocumentMutationRequest {
+  /** Editor-owned preview identity used to correlate stale responses. */
   previewId: PreviewId
-  featureType: LegacyFeatureType
-  featureTypeVersion: FeatureTypeVersion
-  parameterPayload: LegacyFeatureParameterPayload
-  consumedTargets: PrimitiveRef[]
+  /** Exact typed feature definition to preview against `baseRevisionId`. */
+  definition: FeatureDefinition
 }
 
 /**

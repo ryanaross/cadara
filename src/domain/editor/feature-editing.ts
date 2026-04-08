@@ -1,18 +1,20 @@
 import type { FeatureId, PrimitiveRef, RevisionId } from '@/domain/editor/schema'
 import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
+  ExtrudeFeatureParameters,
+  ExtrudeProfileRef,
+  FeatureDefinition,
   FeatureBooleanOperation,
   FeatureSnapshotRecord,
   ModelingDiagnostic,
   PreviewId,
-  ExtrudeFeatureParameterPayload,
 } from '@/domain/modeling/schema'
 
 export const EXTRUDE_FEATURE_TYPE = 'extrude' as const
 export const FEATURE_TYPE_VERSION = 'feature-type/v1alpha1' as const
 
 export interface ExtrudeFeatureParameterDraft {
-  profileTarget: PrimitiveRef | null
+  profileTarget: ExtrudeProfileRef | null
   depth: number
   direction: 'oneSided'
   operation: FeatureBooleanOperation
@@ -22,12 +24,12 @@ export interface FeatureEditDraftMap {
   extrude: ExtrudeFeatureParameterDraft
 }
 
-export interface FeatureEditSessionState {
+export interface ExtrudeFeatureEditSessionState {
   mode: 'create' | 'edit'
-  featureType: keyof FeatureEditDraftMap
+  featureType: 'extrude'
   featureTypeVersion: typeof FEATURE_TYPE_VERSION
   featureId: FeatureId | null
-  draft: FeatureEditDraftMap[keyof FeatureEditDraftMap]
+  draft: ExtrudeFeatureParameterDraft
   previewId: PreviewId
   status: 'idle' | 'previewing' | 'previewReady' | 'submitting'
   lastPreviewRevisionId: RevisionId | null
@@ -35,15 +37,13 @@ export interface FeatureEditSessionState {
   diagnostics: ModelingDiagnostic[]
 }
 
+export type FeatureEditSessionState = ExtrudeFeatureEditSessionState
+
 export function createDefaultExtrudeDraft(
   selectedTarget: PrimitiveRef | null,
 ): ExtrudeFeatureParameterDraft {
   return {
-    profileTarget:
-      selectedTarget &&
-      (selectedTarget.kind === 'sketch' || selectedTarget.kind === 'region')
-        ? selectedTarget
-        : null,
+    profileTarget: toExtrudeProfileRef(selectedTarget),
     depth: 12,
     direction: 'oneSided',
     operation: 'newBody',
@@ -76,7 +76,7 @@ export function createExtrudeFeatureEditSession(input: {
 export function hydrateExtrudeFeatureEditSession(
   feature: FeatureSnapshotRecord,
 ): FeatureEditSessionState | null {
-  if (feature.featureType !== EXTRUDE_FEATURE_TYPE) {
+  if (feature.definition.kind !== EXTRUDE_FEATURE_TYPE) {
     return null
   }
 
@@ -93,47 +93,58 @@ export function hydrateExtrudeFeatureEditSession(
 export function createExtrudeDraftFromFeature(
   feature: FeatureSnapshotRecord,
 ): ExtrudeFeatureParameterDraft {
-  if (feature.featureType !== 'extrude') {
+  if (feature.definition.kind !== 'extrude') {
     throw new Error('Extrude draft hydration requires an extrude feature payload.')
   }
 
-  const payload = feature.parameterPayload as ExtrudeFeatureParameterPayload
-  const profileTarget = payload.profileTarget
+  const payload = feature.definition.parameters
 
   return {
-    profileTarget: isPrimitiveRef(profileTarget)
-      && (profileTarget.kind === 'sketch' || profileTarget.kind === 'region' || profileTarget.kind === 'face')
-      ? profileTarget
-      : feature.consumedTargets.find((target) => target.kind === 'sketch') ?? null,
-    depth: typeof payload.depth === 'number' ? payload.depth : 12,
-    direction: payload.direction === 'oneSided' ? 'oneSided' : 'oneSided',
-    operation:
-      payload.operation === 'newBody' ||
-      payload.operation === 'add' ||
-      payload.operation === 'remove'
-        ? payload.operation
-        : 'newBody',
+    profileTarget: assertExtrudeProfileRef(payload.profile),
+    depth: payload.depth,
+    direction: payload.direction,
+    operation: payload.operation,
   }
 }
 
-export function buildExtrudeConsumedTargets(
-  draft: ExtrudeFeatureParameterDraft,
-): PrimitiveRef[] {
-  return draft.profileTarget ? [draft.profileTarget] : []
+function assertExtrudeProfileRef(value: PrimitiveRef): ExtrudeProfileRef {
+  switch (value.kind) {
+    case 'region':
+    case 'face':
+      return value
+    default:
+      throw new Error('Extrude draft references must resolve to region or face targets.')
+  }
 }
 
-export function buildExtrudeParameterPayload(
+export function buildExtrudeFeatureParameters(
   draft: ExtrudeFeatureParameterDraft,
-): ExtrudeFeatureParameterPayload | null {
+): ExtrudeFeatureParameters | null {
   if (!draft.profileTarget) {
     return null
   }
 
   return {
+    profile: draft.profileTarget,
     depth: draft.depth,
     direction: draft.direction,
     operation: draft.operation,
-    profileTarget: draft.profileTarget,
+  }
+}
+
+export function buildExtrudeFeatureDefinition(
+  draft: ExtrudeFeatureParameterDraft,
+): Extract<FeatureDefinition, { kind: 'extrude' }> | null {
+  const parameters = buildExtrudeFeatureParameters(draft)
+
+  if (!parameters) {
+    return null
+  }
+
+  return {
+    kind: 'extrude',
+    featureTypeVersion: FEATURE_TYPE_VERSION,
+    parameters,
   }
 }
 
@@ -161,4 +172,19 @@ function isPrimitiveRef(value: unknown): value is PrimitiveRef {
     'kind' in value &&
     typeof (value as { kind: unknown }).kind === 'string'
   )
+}
+
+function toExtrudeProfileRef(value: PrimitiveRef | null): ExtrudeProfileRef | null {
+  if (!value || !isPrimitiveRef(value)) {
+    return null
+  }
+
+  switch (value.kind) {
+    case 'region':
+      return value
+    case 'face':
+      return value
+    default:
+      return null
+  }
 }

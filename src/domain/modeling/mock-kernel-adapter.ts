@@ -3,6 +3,7 @@ import type { SketchSolverAdapter } from '@/contracts/solver/adapter'
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 import type {
   ConstraintId,
+  FaceId,
   DimensionId,
   FeatureTreeNodeId,
   ObjectTreeNodeId,
@@ -26,10 +27,14 @@ import type {
   DocumentSnapshot,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
+  FeatureDefinition,
   GetDocumentSnapshotRequest,
   GetDocumentSnapshotResponse,
+  ReorderFeatureRequest,
+  ReorderFeatureResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
+  RenderableEntityRecord,
   SnapshotEntityRecord,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
@@ -47,6 +52,252 @@ const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
 const CURRENT_REVISION_ID = 'rev_0002' as const
 const SKETCH_ID = 'sketch_primary' as const
+
+function getFeatureDefinitionLabel(definition: FeatureDefinition) {
+  return definition.kind
+}
+
+function getFeatureDefinitionChangedTargets(definition: FeatureDefinition) {
+  switch (definition.kind) {
+    case 'extrude':
+      return [definition.parameters.profile]
+    case 'fillet':
+      return [...definition.parameters.edgeTargets]
+    case 'plane':
+      return [definition.parameters.reference.target]
+    case 'revolve':
+      return [definition.parameters.profile, definition.parameters.axis]
+  }
+}
+
+function createUnsupportedFeatureDiagnostic(
+  target: FeatureDefinition,
+  message: string,
+) {
+  return {
+    code: `mock-unsupported-${target.kind}`,
+    severity: 'error' as const,
+    message,
+    target: null,
+    detail: null,
+  }
+}
+
+function createInvalidFeatureDiagnostic(
+  definition: FeatureDefinition,
+  target: NonNullable<ReturnType<typeof getFeatureDefinitionChangedTargets>[number]>,
+  message: string,
+) {
+  return {
+    code: `mock-invalid-${definition.kind}`,
+    severity: 'error' as const,
+    message,
+    target: null,
+    detail: {
+      kind: 'invalidReference' as const,
+      reference: {
+        reason: `mock-${definition.kind}-invalid-input`,
+        target: getFeatureDefinitionChangedTargets(definition)[0] ?? target,
+        ownerFeatureId: null,
+        ownerSketchId: null,
+        sourceTarget: null,
+      },
+    },
+  }
+}
+
+function isSupportedPlanarFace(faceId: FaceId) {
+  return faceId === 'face_top'
+}
+
+function hasRegionTarget(snapshot: DocumentSnapshot, target: Extract<FeatureDefinition, { kind: 'extrude' }>['parameters']['profile']) {
+  return target.kind === 'region'
+    && snapshot.sketches.some((sketch) =>
+      sketch.sketchId === target.sketchId && sketch.sketch.regions.some((region) => region.regionId === target.regionId),
+    )
+}
+
+function hasFaceTarget(snapshot: DocumentSnapshot, bodyId: string, faceId: FaceId) {
+  return snapshot.bodies.some((body) => body.bodyId === bodyId && body.topology.faceIds.includes(faceId))
+}
+
+function hasEdgeTarget(snapshot: DocumentSnapshot, bodyId: string, edgeId: string) {
+  return snapshot.bodies.some((body) => body.bodyId === bodyId && body.topology.edgeIds.includes(edgeId as typeof body.topology.edgeIds[number]))
+}
+
+function hasConstructionTarget(snapshot: DocumentSnapshot, constructionId: string) {
+  return snapshot.constructions.some((construction) => construction.constructionId === constructionId)
+}
+
+function createPreviewRenderableSet(targetKey: string): RenderableEntityRecord[] {
+  return [
+    {
+      id: `renderable_${targetKey}_face` as RenderableId,
+      label: 'Preview top face',
+      target: { kind: 'face', bodyId: 'body_preview', faceId: 'face_preview-top' },
+      ownerBodyId: 'body_preview',
+      ownerFeatureId: null,
+      topology: 'face',
+      pickBinding: {
+        pickId: `pick_${targetKey}_face` as PickId,
+        target: { kind: 'face', bodyId: 'body_preview', faceId: 'face_preview-top' },
+        topology: 'face',
+      },
+      geometry: {
+        kind: 'planarFace',
+        center: [0, 0, 12],
+        size: [8, 6],
+        normalAxis: 'z',
+      },
+    },
+    {
+      id: `renderable_${targetKey}_edge` as RenderableId,
+      label: 'Preview profile edge',
+      target: { kind: 'edge', bodyId: 'body_preview', edgeId: 'edge_preview-0' },
+      ownerBodyId: 'body_preview',
+      ownerFeatureId: null,
+      topology: 'edge',
+      pickBinding: {
+        pickId: `pick_${targetKey}_edge` as PickId,
+        target: { kind: 'edge', bodyId: 'body_preview', edgeId: 'edge_preview-0' },
+        topology: 'edge',
+      },
+      geometry: {
+        kind: 'polyline',
+        points: [[-4, -3, 12], [4, -3, 12]],
+      },
+    },
+  ]
+}
+
+function validateFeatureDefinitionAgainstSnapshot(
+  definition: FeatureDefinition,
+  snapshot: DocumentSnapshot,
+) {
+  switch (definition.kind) {
+    case 'extrude': {
+      if (definition.parameters.depth <= 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-extrude',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(definition, definition.parameters.profile, 'Extrude depth must be positive.'),
+          ],
+        }
+      }
+
+      if (
+        (definition.parameters.profile.kind === 'region' && !hasRegionTarget(snapshot, definition.parameters.profile)) ||
+        (definition.parameters.profile.kind === 'face' && !hasFaceTarget(snapshot, definition.parameters.profile.bodyId, definition.parameters.profile.faceId))
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-extrude',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.profile,
+              'Extrude profile targets must resolve to a live durable region or face in the current snapshot.',
+            ),
+          ],
+        }
+      }
+
+      if (definition.parameters.profile.kind === 'face' && !isSupportedPlanarFace(definition.parameters.profile.faceId)) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-extrude',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.profile,
+              'Mock kernel only accepts planar top faces as extrude profile seeds.',
+            ),
+          ],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
+    case 'fillet':
+      if (definition.parameters.radius <= 0 || definition.parameters.edgeTargets.length === 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-fillet',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.edgeTargets[0] ?? { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+              'Fillet requires a positive radius and at least one durable edge target.',
+            ),
+          ],
+        }
+      }
+
+      if (definition.parameters.edgeTargets.some((target) => !hasEdgeTarget(snapshot, target.bodyId, target.edgeId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-fillet',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.edgeTargets[0]!,
+              'Fillet edge targets must resolve to live durable edges in the current snapshot.',
+            ),
+          ],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    case 'plane':
+      if (
+        (definition.parameters.reference.target.kind === 'construction' && !hasConstructionTarget(snapshot, definition.parameters.reference.target.constructionId)) ||
+        (definition.parameters.reference.target.kind === 'face' && !hasFaceTarget(snapshot, definition.parameters.reference.target.bodyId, definition.parameters.reference.target.faceId))
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-plane',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.reference.target,
+              'Plane references must resolve to a live construction plane or planar face in the current snapshot.',
+            ),
+          ],
+        }
+      }
+
+      return {
+        accepted: false as const,
+        reasonCode: 'mock-unsupported-plane',
+        diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement plane creation yet.')],
+      }
+    case 'revolve':
+      return {
+        accepted: false as const,
+        reasonCode: 'mock-unsupported-revolve',
+        diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement revolve creation yet.')],
+      }
+  }
+}
+
+function buildPreviewRenderables(definition: FeatureDefinition, snapshot: DocumentSnapshot) {
+  if (definition.kind !== 'extrude') {
+    return []
+  }
+
+  const profile = definition.parameters.profile
+
+  if (profile.kind === 'face') {
+    return hasFaceTarget(snapshot, profile.bodyId, profile.faceId)
+      ? createPreviewRenderableSet(getPrimitiveRefKey(profile))
+      : []
+  }
+
+  return hasRegionTarget(snapshot, profile)
+    ? createPreviewRenderableSet(getPrimitiveRefKey(profile))
+    : []
+}
 
 function hasRevisionConflict(baseRevisionId: string) {
   return baseRevisionId !== REVISION_ID
@@ -486,6 +737,126 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       ],
       consumedByFeatureIds: ['feature_fillet-1'],
     }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_face_top' as SnapshotEntityId,
+      label: 'Top face',
+      target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }, { kind: 'feature', featureId: 'feature_extrude-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_face_bottom' as SnapshotEntityId,
+      label: 'Bottom face',
+      target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }, { kind: 'feature', featureId: 'feature_extrude-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_fillet-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_face_side_front' as SnapshotEntityId,
+      label: 'Front side face',
+      target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }, { kind: 'feature', featureId: 'feature_fillet-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_fillet-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_face_side_right' as SnapshotEntityId,
+      label: 'Right side face',
+      target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }, { kind: 'feature', featureId: 'feature_fillet-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_fillet-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_edge_outer_0' as SnapshotEntityId,
+      label: 'Outer edge',
+      target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }, { kind: 'feature', featureId: 'feature_fillet-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_edge_outer_1' as SnapshotEntityId,
+      label: 'Outer edge 1',
+      target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_edge_outer_2' as SnapshotEntityId,
+      label: 'Outer edge 2',
+      target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-2' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_edge_outer_3' as SnapshotEntityId,
+      label: 'Outer edge 3',
+      target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-3' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_vertex_front_right' as SnapshotEntityId,
+      label: 'Front right vertex',
+      target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_vertex_front_left' as SnapshotEntityId,
+      label: 'Front left vertex',
+      target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-left' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_vertex_back_right' as SnapshotEntityId,
+      label: 'Back right vertex',
+      target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-right' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
+    entity({
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      id: 'snapshot_entity_vertex_back_left' as SnapshotEntityId,
+      label: 'Back left vertex',
+      target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_back-left' },
+      relatedTargets: [{ kind: 'body', bodyId: 'body_part-1' }],
+      consumedByFeatureIds: [],
+    }),
   ]
 
   return {
@@ -554,18 +925,16 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         ownerBodyId: null,
         featureId: 'feature_extrude-1',
         label: 'Extrude 1',
-        featureType: 'extrude',
-        featureTypeVersion: 'feature-type/v1alpha1',
-        parameterPayload: {
-          depth: 12,
-          direction: 'oneSided',
-          operation: 'newBody',
-          profileTarget: primaryRegion.target,
+        definition: {
+          kind: 'extrude',
+          featureTypeVersion: 'feature-type/v1alpha1',
+          parameters: {
+            depth: 12,
+            direction: 'oneSided',
+            operation: 'newBody',
+            profile: primaryRegion.target,
+          },
         },
-        consumedTargets: [
-          { kind: 'sketch', sketchId: SKETCH_ID },
-          primaryRegion.target,
-        ],
         producedTargets: [
           { kind: 'body', bodyId: 'body_part-1' },
           { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
@@ -580,12 +949,14 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         ownerBodyId: 'body_part-1',
         featureId: 'feature_fillet-1',
         label: 'Fillet 1',
-        featureType: 'fillet',
-        featureTypeVersion: 'feature-type/v1alpha1',
-        parameterPayload: {
-          radius: 1.5,
+        definition: {
+          kind: 'fillet',
+          featureTypeVersion: 'feature-type/v1alpha1',
+          parameters: {
+            radius: 1.5,
+            edgeTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
+          },
         },
-        consumedTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
         producedTargets: [
           { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
           { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
@@ -742,12 +1113,14 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
   }
 
   async createFeature(request: CreateFeatureRequest): Promise<CreateFeatureResponse> {
+    const snapshot = await this.getSnapshot()
+
     if (hasRevisionConflict(request.baseRevisionId)) {
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
         revisionId: REVISION_ID,
-        featureId: `feature_${request.featureType}-preview`,
+        featureId: `feature_${getFeatureDefinitionLabel(request.definition)}-preview`,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
@@ -758,22 +1131,40 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
+    const validation = validateFeatureDefinitionAgainstSnapshot(request.definition, snapshot)
+
+    if (!validation.accepted) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: request.baseRevisionId,
+        featureId: `feature_${getFeatureDefinitionLabel(request.definition)}-preview`,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: validation.reasonCode,
+        },
+        changedTargets: [],
+        diagnostics: validation.diagnostics,
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
       revisionId: request.baseRevisionId,
-      featureId: `feature_${request.featureType}-preview`,
+      featureId: `feature_${getFeatureDefinitionLabel(request.definition)}-preview`,
       revisionState: {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
-      changedTargets: request.consumedTargets,
+      changedTargets: getFeatureDefinitionChangedTargets(request.definition),
       diagnostics: [
         {
           code: 'mock-create-feature',
           severity: 'info',
           message: 'Mock kernel accepted the feature create request without mutating committed state.',
-          target: request.consumedTargets[0] ?? null,
+          target: getFeatureDefinitionChangedTargets(request.definition)[0] ?? null,
           detail: null,
         },
       ],
@@ -887,6 +1278,8 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
   }
 
   async updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse> {
+    const snapshot = await this.getSnapshot()
+
     if (hasRevisionConflict(request.baseRevisionId)) {
       return {
         contractVersion: CONTRACT_VERSION,
@@ -903,6 +1296,24 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
+    const validation = validateFeatureDefinitionAgainstSnapshot(request.definition, snapshot)
+
+    if (!validation.accepted) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: request.baseRevisionId,
+        featureId: request.featureId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: validation.reasonCode,
+        },
+        changedTargets: [],
+        diagnostics: validation.diagnostics,
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
@@ -912,7 +1323,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         kind: 'accepted',
         baseRevisionId: request.baseRevisionId,
       },
-      changedTargets: request.consumedTargets,
+      changedTargets: getFeatureDefinitionChangedTargets(request.definition),
       diagnostics: [],
     }
   }
@@ -948,8 +1359,42 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
     }
   }
 
+  async reorderFeature(request: ReorderFeatureRequest): Promise<ReorderFeatureResponse> {
+    if (hasRevisionConflict(request.baseRevisionId)) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: REVISION_ID,
+        featureId: request.featureId,
+        beforeFeatureId: request.beforeFeatureId,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: REVISION_ID,
+        },
+        changedTargets: [],
+        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+      }
+    }
+
+    return {
+      contractVersion: CONTRACT_VERSION,
+      documentId: request.documentId,
+      revisionId: request.baseRevisionId,
+      featureId: request.featureId,
+      beforeFeatureId: request.beforeFeatureId,
+      revisionState: {
+        kind: 'accepted',
+        baseRevisionId: request.baseRevisionId,
+      },
+      changedTargets: [{ kind: 'feature', featureId: request.featureId }],
+      diagnostics: [],
+    }
+  }
+
   async evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse> {
     const snapshot = await this.getSnapshot()
+    const validation = validateFeatureDefinitionAgainstSnapshot(request.definition, snapshot)
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
@@ -962,8 +1407,8 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
             requestedRevisionId: request.baseRevisionId,
             currentRevisionId: CURRENT_REVISION_ID,
           },
-      renderables: snapshot.renderables,
-      diagnostics: [],
+      renderables: validation.accepted ? buildPreviewRenderables(request.definition, snapshot) : [],
+      diagnostics: validation.diagnostics,
     }
   }
 

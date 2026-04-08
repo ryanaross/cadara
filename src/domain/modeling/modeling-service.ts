@@ -30,25 +30,35 @@ import type {
   DocumentSnapshot,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
+  ExtrudeFeatureParameters,
+  ExtrudeProfileRef,
+  FeatureDefinition,
   FeatureSnapshotRecord,
+  FilletEdgeRef,
+  FilletFeatureParameters,
   GetDocumentSnapshotResponse,
-  PreviewId,
   GetDocumentSnapshotRequest,
   InvalidReferenceDetailPayload,
   ModelingDiagnostic,
   ModelingDiagnosticDetail,
   MutationRevisionState,
   ObjectTreeNodeRecord,
+  PreviewId,
   PreviewFreshness,
   ReferenceRecord,
   RenderableEntityRecord,
   ResolvedReferenceRecord,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
+  ReorderFeatureRequest,
+  ReorderFeatureResponse,
   SketchSnapshotRecord,
   SnapshotEntityRecord,
   UpdateFeatureResponse,
   UpdateFeatureRequest,
+  PlaneFeatureParameters,
+  RevolveAxisRef,
+  RevolveFeatureParameters,
 } from '@/domain/modeling/schema'
 import type {
   ConstraintStatusRecord,
@@ -83,6 +93,7 @@ export interface ModelingService {
   createFeature(input: ModelingCreateFeatureInput): Promise<ModelingFeatureMutationResult>
   updateFeature(input: ModelingUpdateFeatureInput): Promise<ModelingFeatureMutationResult>
   deleteFeature(input: ModelingDeleteFeatureInput): Promise<ModelingDeleteFeatureResult>
+  reorderFeature(input: ModelingReorderFeatureInput): Promise<ModelingReorderFeatureResult>
   evaluatePreview(input: ModelingEvaluatePreviewInput): Promise<ModelingPreviewResult>
   resolveReference(target: PrimitiveRef): Promise<ModelingResolvedReferenceResult>
 }
@@ -127,6 +138,15 @@ export interface ModelingDeleteFeatureResult {
   diagnostics: ModelingDiagnostic[]
 }
 
+export interface ModelingReorderFeatureResult {
+  revisionId: DocumentSnapshot['revisionId']
+  featureId: FeatureId
+  beforeFeatureId: FeatureId | null
+  revisionState: MutationRevisionState
+  changedTargets: PrimitiveRef[]
+  diagnostics: ModelingDiagnostic[]
+}
+
 export interface ModelingCommitSketchResult {
   revisionId: DocumentSnapshot['revisionId']
   sketchId: SketchId
@@ -138,6 +158,7 @@ export interface ModelingCommitSketchResult {
 export type ModelingCreateFeatureInput = Omit<CreateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingUpdateFeatureInput = Omit<UpdateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingDeleteFeatureInput = Omit<DeleteFeatureRequest, 'contractVersion' | 'documentId'>
+export type ModelingReorderFeatureInput = Omit<ReorderFeatureRequest, 'contractVersion' | 'documentId'>
 export interface ModelingCommitSketchCorrelation {
   requestId: RequestId
   projectionRequestId: RequestId
@@ -350,6 +371,153 @@ function assertDurableRef(value: unknown): DurableRef {
   return assertPrimitiveRef(value)
 }
 
+function assertExtrudeProfileRef(value: unknown): ExtrudeProfileRef {
+  const target = assertPrimitiveRef(value)
+
+  switch (target.kind) {
+    case 'region':
+    case 'face':
+      return target
+    default:
+      throw new Error('Invalid extrude profile reference payload.')
+  }
+}
+
+function assertFilletEdgeRef(value: unknown): FilletEdgeRef {
+  const target = assertPrimitiveRef(value)
+
+  if (target.kind !== 'edge') {
+    throw new Error('Invalid fillet edge reference payload.')
+  }
+
+  return target
+}
+
+function assertRevolveAxisRef(value: unknown): RevolveAxisRef {
+  const target = assertPrimitiveRef(value)
+
+  if (target.kind !== 'edge' && target.kind !== 'construction') {
+    throw new Error('Invalid revolve axis reference payload.')
+  }
+
+  return target
+}
+
+function normalizeExtrudeFeatureParameters(value: unknown): ExtrudeFeatureParameters {
+  if (!isRecord(value) || typeof value.depth !== 'number') {
+    throw new Error('Invalid extrude feature parameters payload.')
+  }
+
+  if (value.depth <= 0) {
+    throw new Error('Extrude depth must be positive.')
+  }
+
+  if (value.direction !== 'oneSided') {
+    throw new Error('Invalid extrude direction payload.')
+  }
+
+  if (value.operation !== 'newBody' && value.operation !== 'add' && value.operation !== 'remove') {
+    throw new Error('Invalid extrude operation payload.')
+  }
+
+  return {
+    profile: assertExtrudeProfileRef(value.profile),
+    depth: value.depth,
+    direction: value.direction,
+    operation: value.operation,
+  }
+}
+
+function normalizeFilletFeatureParameters(value: unknown): FilletFeatureParameters {
+  if (!isRecord(value) || typeof value.radius !== 'number' || !Array.isArray(value.edgeTargets)) {
+    throw new Error('Invalid fillet feature parameters payload.')
+  }
+
+  if (value.radius <= 0) {
+    throw new Error('Fillet radius must be positive.')
+  }
+
+  if (value.edgeTargets.length === 0) {
+    throw new Error('Fillet requests must include at least one durable edge target.')
+  }
+
+  return {
+    edgeTargets: value.edgeTargets.map((target) => assertFilletEdgeRef(target)),
+    radius: value.radius,
+  }
+}
+
+function normalizePlaneFeatureParameters(value: unknown): PlaneFeatureParameters {
+  if (!isRecord(value) || value.mode !== 'coplanar' || !isRecord(value.reference)) {
+    throw new Error('Invalid plane feature parameters payload.')
+  }
+
+  const target = assertPrimitiveRef(value.reference.target)
+
+  if (target.kind !== 'construction' && target.kind !== 'face') {
+    throw new Error('Plane coplanar references must target a construction plane or planar face.')
+  }
+
+  return {
+    mode: 'coplanar',
+    reference: {
+      target,
+    },
+  }
+}
+
+function normalizeRevolveFeatureParameters(value: unknown): RevolveFeatureParameters {
+  if (!isRecord(value) || typeof value.angle !== 'number') {
+    throw new Error('Invalid revolve feature parameters payload.')
+  }
+
+  if (value.operation !== 'newBody' && value.operation !== 'add' && value.operation !== 'remove') {
+    throw new Error('Invalid revolve operation payload.')
+  }
+
+  return {
+    profile: assertExtrudeProfileRef(value.profile),
+    axis: assertRevolveAxisRef(value.axis),
+    angle: value.angle,
+    operation: value.operation,
+  }
+}
+
+function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
+  if (!isRecord(value) || !isString(value.kind) || value.featureTypeVersion !== 'feature-type/v1alpha1') {
+    throw new Error('Invalid feature definition payload.')
+  }
+
+  switch (value.kind) {
+    case 'extrude':
+      return {
+        kind: 'extrude',
+        featureTypeVersion: value.featureTypeVersion,
+        parameters: normalizeExtrudeFeatureParameters(value.parameters),
+      }
+    case 'fillet':
+      return {
+        kind: 'fillet',
+        featureTypeVersion: value.featureTypeVersion,
+        parameters: normalizeFilletFeatureParameters(value.parameters),
+      }
+    case 'plane':
+      return {
+        kind: 'plane',
+        featureTypeVersion: value.featureTypeVersion,
+        parameters: normalizePlaneFeatureParameters(value.parameters),
+      }
+    case 'revolve':
+      return {
+        kind: 'revolve',
+        featureTypeVersion: value.featureTypeVersion,
+        parameters: normalizeRevolveFeatureParameters(value.parameters),
+      }
+    default:
+      throw new Error('Invalid feature definition kind.')
+  }
+}
+
 function normalizeDiagnostics(value: unknown): ModelingDiagnostic[] {
   if (!Array.isArray(value)) {
     throw new Error('Invalid diagnostics payload.')
@@ -444,6 +612,16 @@ function normalizeRevisionState(value: unknown): MutationRevisionState {
         kind: 'conflict',
         expectedRevisionId: assertRevisionId(value.expectedRevisionId),
         actualRevisionId: assertRevisionId(value.actualRevisionId),
+      }
+    case 'rejected':
+      if (!isString(value.reasonCode)) {
+        throw new Error('Invalid rejected revision state payload.')
+      }
+
+      return {
+        kind: 'rejected',
+        baseRevisionId: assertRevisionId(value.baseRevisionId),
+        reasonCode: value.reasonCode,
       }
     default:
       throw new Error('Invalid revision state kind.')
@@ -1287,10 +1465,7 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
       !isRecord(entry) ||
       !isString(entry.featureId) ||
       !isString(entry.label) ||
-      !isString(entry.featureType) ||
-      entry.featureTypeVersion !== 'feature-type/v1alpha1' ||
-      !isRecord(entry.parameterPayload) ||
-      !Array.isArray(entry.consumedTargets) ||
+      !isRecord(entry.definition) ||
       !Array.isArray(entry.producedTargets)
     ) {
       throw new Error('Invalid feature snapshot record.')
@@ -1300,10 +1475,7 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
       ...normalizeOwnership(entry),
       featureId: assertFeatureId(entry.featureId),
       label: entry.label,
-      featureType: entry.featureType as FeatureSnapshotRecord['featureType'],
-      featureTypeVersion: entry.featureTypeVersion,
-      parameterPayload: entry.parameterPayload as unknown as FeatureSnapshotRecord['parameterPayload'],
-      consumedTargets: entry.consumedTargets.map((target) => assertPrimitiveRef(target)),
+      definition: normalizeFeatureDefinition(entry.definition),
       producedTargets: entry.producedTargets.map((target) => assertDurableRef(target)),
     }
   })
@@ -1555,6 +1727,28 @@ function normalizePreviewResponse(
   }
 }
 
+function normalizeReorderFeatureResponse(
+  response: ReorderFeatureResponse,
+  expectedDocumentId: DocumentId,
+): ModelingReorderFeatureResult {
+  if (response.contractVersion !== CONTRACT_VERSION) {
+    throw new Error('Invalid reorder feature response header.')
+  }
+
+  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
+    throw new Error('Reorder feature response document ID does not match the active document.')
+  }
+
+  return {
+    revisionId: assertRevisionId(response.revisionId),
+    featureId: assertFeatureId(response.featureId),
+    beforeFeatureId: response.beforeFeatureId === null ? null : assertFeatureId(response.beforeFeatureId),
+    revisionState: normalizeRevisionState(response.revisionState),
+    changedTargets: normalizeChangedTargets(response.changedTargets),
+    diagnostics: normalizeDiagnostics(response.diagnostics),
+  }
+}
+
 function normalizeResolvedReference(
   response: ResolveReferenceResponse,
 ): ModelingResolvedReferenceResult {
@@ -1570,15 +1764,8 @@ function normalizeResolvedReference(
 
 function assertMutationBase(input: {
   baseRevisionId: RevisionId
-  consumedTargets?: PrimitiveRef[]
 }) {
   assertRevisionId(input.baseRevisionId)
-
-  if (input.consumedTargets) {
-    input.consumedTargets.forEach((target) => {
-      assertPrimitiveRef(target)
-    })
-  }
 }
 
 function normalizeCreateFeatureInput(
@@ -1624,6 +1811,19 @@ function normalizeDeleteFeatureInput(
   input: ModelingDeleteFeatureInput,
   documentId: DocumentId,
 ): DeleteFeatureRequest {
+  assertMutationBase(input)
+
+  return {
+    ...input,
+    contractVersion: CONTRACT_VERSION,
+    documentId,
+  }
+}
+
+function normalizeReorderFeatureInput(
+  input: ModelingReorderFeatureInput,
+  documentId: DocumentId,
+): ReorderFeatureRequest {
   assertMutationBase(input)
 
   return {
@@ -1700,6 +1900,11 @@ export function createModelingService(
       const response = await adapter.deleteFeature(normalizeDeleteFeatureInput(input, currentDocumentId))
 
       return normalizeDeleteFeatureResponse(response, currentDocumentId)
+    },
+    async reorderFeature(input) {
+      const response = await adapter.reorderFeature(normalizeReorderFeatureInput(input, currentDocumentId))
+
+      return normalizeReorderFeatureResponse(response, currentDocumentId)
     },
     async evaluatePreview(input) {
       const response = await adapter.evaluatePreview(normalizePreviewInput(input, currentDocumentId))

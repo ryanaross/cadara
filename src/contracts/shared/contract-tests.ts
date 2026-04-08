@@ -10,13 +10,13 @@ import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
 import type {
   CreateFeatureRequest,
   DocumentSnapshot,
+  FeatureDefinition,
   FeatureTreeNodeRecord,
-  LegacyFeatureParameterPayload,
-  LegacyFeatureType,
   ModelingDiagnostic,
   ObjectTreeNodeRecord,
   ReferenceRecord,
   RenderableEntityRecord,
+  ReorderFeatureRequest,
   ResolvedReferenceRecord,
   SnapshotEntityRecord,
 } from '@/domain/modeling/schema'
@@ -80,10 +80,16 @@ type KernelSnapshotBoundaryIsTyped = Assert<
   >
 >
 
-type LegacyFeatureTypeIsScoped = Assert<Equals<LegacyFeatureType, 'extrude' | 'fillet'>>
+type FeatureDefinitionIsClosedUnion = Assert<
+  Equals<FeatureDefinition['kind'], 'extrude' | 'fillet' | 'plane' | 'revolve'>
+>
 
-type CreateFeaturePayloadUsesScopedLegacyType = Assert<
-  Equals<CreateFeatureRequest['parameterPayload'], LegacyFeatureParameterPayload>
+type CreateFeatureUsesTypedDefinition = Assert<
+  Equals<CreateFeatureRequest['definition'], FeatureDefinition>
+>
+
+type ReorderFeatureRequestIsTyped = Assert<
+  Equals<ReorderFeatureRequest['beforeFeatureId'], import('@/contracts/shared/ids').FeatureId | null>
 >
 
 type DiagnosticsUseCanonicalRefs = Assert<
@@ -115,11 +121,12 @@ export const CONTRACT_TYPE_TESTS: readonly [
   PickIdsAreTyped,
   SharedIdsDoNotLeakSketchPrimitiveId,
   KernelSnapshotBoundaryIsTyped,
-  LegacyFeatureTypeIsScoped,
-  CreateFeaturePayloadUsesScopedLegacyType,
+  FeatureDefinitionIsClosedUnion,
+  CreateFeatureUsesTypedDefinition,
+  ReorderFeatureRequestIsTyped,
   DiagnosticsUseCanonicalRefs,
   ReferencesUseCanonicalRefs,
   ResolutionUsesCanonicalRefs,
   SnapshotEntitiesUseCanonicalRefs,
   SnapshotReferencesAreModelingOwned,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]

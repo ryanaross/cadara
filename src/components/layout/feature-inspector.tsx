@@ -119,7 +119,7 @@ export function FeatureInspector({
                 : 'No profile selected'}
             </p>
             <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">
-              Accepted targets: sketch, derived sketch region, or planar face.
+              Accepted targets: one derived sketch region or one planar face.
             </p>
           </div>
         </section>

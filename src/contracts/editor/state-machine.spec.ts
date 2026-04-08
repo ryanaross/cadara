@@ -24,6 +24,14 @@ function createSelectionCatalog(): SelectionTargetCatalog {
   }
 }
 
+function createRegionSelectionCatalog(): SelectionTargetCatalog {
+  return {
+    existingSketchKeys: ['sketch:sketch_a', 'region:sketch_a:region_profile_a'],
+    constructionPlaneKeys: ['construction:construction_plane-xy'],
+    planarFaceKeys: ['face:body_a:face_top'],
+  }
+}
+
 function createSnapshot(): DocumentSnapshot {
   return {
     contractVersion: 'modeling-contract/v1alpha1',
@@ -106,8 +114,8 @@ function testFeaturePreviewIgnoresStaleResponseIds() {
         documentId: 'doc_workspace',
         revisionId: 'rev_1',
       },
-      selectionCatalog: createSelectionCatalog(),
-      selection: [{ kind: 'sketch', sketchId: 'sketch_a' }],
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'region', sketchId: 'sketch_a', regionId: 'region_profile_a' }],
     },
     {
       type: 'tool.activated',

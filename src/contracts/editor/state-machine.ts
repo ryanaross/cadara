@@ -1,8 +1,7 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
 import {
-  buildExtrudeConsumedTargets,
-  buildExtrudeParameterPayload,
+  buildExtrudeFeatureDefinition,
   createExtrudeFeatureEditSession,
   hydrateExtrudeFeatureEditSession,
   targetMatchesExtrudeProfile,
@@ -764,7 +763,7 @@ function createPreviewMissingProfileDiagnostics(): ModelingDiagnostic[] {
     {
       code: 'feature-preview-missing-profile',
       severity: 'warning',
-      message: 'Select a sketch, derived sketch region, or planar face before previewing extrude.',
+      message: 'Select a derived sketch region or planar face before previewing extrude.',
       target: null,
       detail: null,
     },
@@ -822,9 +821,9 @@ function emitFeaturePreview(state: FeatureEditorState): EditorTransitionResult {
     }
   }
 
-  const payload = buildExtrudeParameterPayload(state.session.draft)
+  const definition = buildExtrudeFeatureDefinition(state.session.draft)
 
-  if (!payload) {
+  if (!definition) {
     return {
       state: {
         ...state,
@@ -845,9 +844,6 @@ function emitFeaturePreview(state: FeatureEditorState): EditorTransitionResult {
     status: 'previewing',
     diagnostics: [],
   }
-
-  void payload
-  void buildExtrudeConsumedTargets(state.session.draft)
 
   return {
     state: {
@@ -888,9 +884,9 @@ function emitFeatureCommit(state: FeatureEditorState): EditorTransitionResult {
     }
   }
 
-  const payload = buildExtrudeParameterPayload(state.session.draft)
+  const definition = buildExtrudeFeatureDefinition(state.session.draft)
 
-  if (!payload) {
+  if (!definition) {
     return {
       state: {
         ...state,
@@ -909,9 +905,6 @@ function emitFeatureCommit(state: FeatureEditorState): EditorTransitionResult {
     ...state.session,
     status: 'submitting',
   }
-
-  void payload
-  void buildExtrudeConsumedTargets(state.session.draft)
 
   return {
     state: {
@@ -1214,8 +1207,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         const session = createExtrudeFeatureEditSession({
           selectedTarget:
             selectedTarget &&
-            (selectedTarget.kind === 'sketch' ||
-              selectedTarget.kind === 'sketchEntity' ||
+            (selectedTarget.kind === 'region' ||
               selectedTarget.kind === 'face')
               ? selectedTarget
               : null,
@@ -1355,8 +1347,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       if (state.kind === 'editingFeature') {
         const nextSelection = [event.target]
         const nextSession: FeatureEditSessionState =
-          event.target.kind === 'sketch' ||
-          event.target.kind === 'sketchEntity' ||
+          event.target.kind === 'region' ||
           event.target.kind === 'face'
             ? {
                 ...state.session,
@@ -2199,16 +2190,18 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
     } | null
   }) => Promise<{
     revisionId: RevisionId
-    revisionState: { kind: 'accepted' } | { kind: 'conflict'; actualRevisionId: RevisionId }
+    revisionState:
+      | { kind: 'accepted' }
+      | { kind: 'conflict'; actualRevisionId: RevisionId }
+      | { kind: 'rejected'; reasonCode: string }
     diagnostics: ModelingDiagnostic[]
   }>
   evaluatePreview: (input: {
     baseRevisionId: RevisionId
     previewId: FeatureEditSessionState['previewId']
-    featureType: FeatureEditSessionState['featureType']
-    featureTypeVersion: FeatureEditSessionState['featureTypeVersion']
-    parameterPayload: NonNullable<ReturnType<typeof buildExtrudeParameterPayload>>
-    consumedTargets: PrimitiveRef[]
+    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
+      ? NonNullable<TDefinition>
+      : never
   }) => Promise<{
     revisionId: RevisionId
     stale: boolean
@@ -2217,26 +2210,31 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
   }>
   createFeature: (input: {
     baseRevisionId: RevisionId
-    featureTypeVersion: FeatureEditSessionState['featureTypeVersion']
-    parameterPayload: NonNullable<ReturnType<typeof buildExtrudeParameterPayload>>
-    consumedTargets: PrimitiveRef[]
-    featureType: FeatureEditSessionState['featureType']
+    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
+      ? NonNullable<TDefinition>
+      : never
   }) => Promise<{
     revisionId: RevisionId
     featureId: FeatureId
-    revisionState: { kind: 'accepted' } | { kind: 'conflict'; actualRevisionId: RevisionId }
+    revisionState:
+      | { kind: 'accepted' }
+      | { kind: 'conflict'; actualRevisionId: RevisionId }
+      | { kind: 'rejected'; reasonCode: string }
     diagnostics: ModelingDiagnostic[]
   }>
   updateFeature: (input: {
     baseRevisionId: RevisionId
-    featureTypeVersion: FeatureEditSessionState['featureTypeVersion']
-    parameterPayload: NonNullable<ReturnType<typeof buildExtrudeParameterPayload>>
-    consumedTargets: PrimitiveRef[]
+    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
+      ? NonNullable<TDefinition>
+      : never
     featureId: FeatureId
   }) => Promise<{
     revisionId: RevisionId
     featureId: FeatureId
-    revisionState: { kind: 'accepted' } | { kind: 'conflict'; actualRevisionId: RevisionId }
+    revisionState:
+      | { kind: 'accepted' }
+      | { kind: 'conflict'; actualRevisionId: RevisionId }
+      | { kind: 'rejected'; reasonCode: string }
     diagnostics: ModelingDiagnostic[]
   }>
 }): EditorEffectRuntime {
@@ -2269,19 +2267,16 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
       }
     },
     async evaluatePreview(input) {
-      const parameterPayload = buildExtrudeParameterPayload(input.featureSession.draft)
+      const definition = buildExtrudeFeatureDefinition(input.featureSession.draft)
 
-      if (!parameterPayload) {
+      if (!definition) {
         throw new Error('Feature preview failed because the extrude profile target is missing.')
       }
 
       const result = await modelingService.evaluatePreview({
         baseRevisionId: input.baseRevisionId,
         previewId: input.featureSession.previewId,
-        featureType: input.featureSession.featureType,
-        featureTypeVersion: input.featureSession.featureTypeVersion,
-        parameterPayload,
-        consumedTargets: buildExtrudeConsumedTargets(input.featureSession.draft),
+        definition,
       })
 
       return {
@@ -2292,17 +2287,15 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
       }
     },
     async commitFeature(input) {
-      const parameterPayload = buildExtrudeParameterPayload(input.featureSession.draft)
+      const definition = buildExtrudeFeatureDefinition(input.featureSession.draft)
 
-      if (!parameterPayload) {
+      if (!definition) {
         throw new Error('Feature commit failed because the extrude profile target is missing.')
       }
 
       const baseInput = {
         baseRevisionId: input.baseRevisionId,
-        featureTypeVersion: input.featureSession.featureTypeVersion,
-        parameterPayload,
-        consumedTargets: buildExtrudeConsumedTargets(input.featureSession.draft),
+        definition,
       }
 
       const result =
@@ -2313,7 +2306,6 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
             })
           : await modelingService.createFeature({
               ...baseInput,
-              featureType: input.featureSession.featureType,
             })
 
       return {

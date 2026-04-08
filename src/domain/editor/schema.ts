@@ -163,20 +163,20 @@ export const sketchStartSelectionFilter: SelectionFilter = {
 
 export const extrudeSelectionFilter: SelectionFilter = {
   kind: 'extrudeProfile',
-  allowedKinds: ['sketch', 'region', 'face'],
-  label: 'Extrude regions or planar faces',
+  allowedKinds: ['region', 'face'],
+  label: 'Extrude profiles or planar faces',
   requirements: [
     {
       id: 'extrude-profile',
       label: 'Extrude seed',
-      description: 'Extrude accepts an existing sketch, a derived sketch region, or a planar face.',
+      description: 'Extrude accepts one explicit derived sketch region or one planar face.',
       slots: [
         {
           id: 'extrude-seed',
           label: 'Extrude seed',
-          description: 'Select one sketch, derived sketch region, or planar face.',
-          acceptedKinds: ['sketch', 'region', 'face'],
-          acceptedSemantics: ['existingSketch', 'planarFace'],
+          description: 'Select one derived sketch region or one planar face.',
+          acceptedKinds: ['region', 'face'],
+          acceptedSemantics: ['planarFace'],
         },
       ],
     },
@@ -213,33 +213,12 @@ export const planeSelectionFilter: SelectionFilter = {
     {
       id: 'plane-planar-reference',
       label: 'Single planar reference',
-      description: 'Plane creation accepts one planar face or one construction plane.',
+      description: 'Plane creation accepts one planar face or one construction plane in the current contract.',
       slots: [
         {
           id: 'plane-reference-primary',
           label: 'Primary planar reference',
           description: 'Select a construction plane or planar face.',
-          acceptedKinds: ['construction', 'face'],
-          acceptedSemantics: ['planarReference'],
-        },
-      ],
-    },
-    {
-      id: 'plane-reference-pair',
-      label: 'Reference pair',
-      description: 'Plane creation also accepts two distinct planar references in sequence.',
-      slots: [
-        {
-          id: 'plane-reference-first',
-          label: 'First planar reference',
-          description: 'Select the first construction plane or planar face.',
-          acceptedKinds: ['construction', 'face'],
-          acceptedSemantics: ['planarReference'],
-        },
-        {
-          id: 'plane-reference-second',
-          label: 'Second planar reference',
-          description: 'Select a second distinct construction plane or planar face.',
           acceptedKinds: ['construction', 'face'],
           acceptedSemantics: ['planarReference'],
         },
