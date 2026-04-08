@@ -28,25 +28,20 @@ export function FeatureSidebar({ mode }: FeatureSidebarProps) {
           </p>
         </header>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-2 px-3 py-3">
+          <div className="space-y-1 px-3 py-3">
             {featureTreeItems.map((item) => {
               const Icon = treeIconMap[item.kind]
               return (
                 <button
                   key={item.id}
                   type="button"
-                  className="flex w-full items-center gap-3 rounded-lg border border-transparent bg-[var(--cad-surface-muted)] px-3 py-2 text-left transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)]"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)]"
                 >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cad-border)] bg-[var(--cad-surface)] text-[var(--cad-accent)]">
-                    <Icon className="h-4 w-4" />
+                  <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
+                    <Icon className="h-3.5 w-3.5" />
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-[var(--cad-foreground)]">
-                      {item.label}
-                    </span>
-                    <span className="block truncate text-xs text-[var(--cad-muted-foreground)]">
-                      {item.description}
-                    </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--cad-foreground)]">
+                    {item.label}
                   </span>
                 </button>
               )
@@ -62,24 +57,19 @@ export function FeatureSidebar({ mode }: FeatureSidebarProps) {
           </p>
         </header>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-2 px-3 py-3">
+          <div className="space-y-1 px-3 py-3">
             {partStudioObjects.map((item) => (
               <div
                 key={item.id}
-                className="rounded-lg border border-[var(--cad-border)] bg-[var(--cad-surface-muted)] px-3 py-3"
+                className="rounded-md px-2 py-1.5 transition hover:bg-[var(--cad-surface-elevated)]"
               >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--cad-border)] bg-[var(--cad-surface)] text-[var(--cad-accent)]">
-                    <Box className="h-4 w-4" />
+                <div className="flex items-center gap-2">
+                  <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
+                    <Box className="h-3.5 w-3.5" />
                   </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">
-                      {item.label}
-                    </p>
-                    <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
-                      {item.description}
-                    </p>
-                  </div>
+                  <p className="min-w-0 truncate text-sm font-medium text-[var(--cad-foreground)]">
+                    {item.label}
+                  </p>
                 </div>
               </div>
             ))}

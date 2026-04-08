@@ -111,20 +111,20 @@ export function WorkspaceToolbar({ mode, onModeChange }: WorkspaceToolbarProps) 
   }
 
   return (
-    <header className="border-b border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(23,28,36,0.97),_rgba(13,18,24,0.99))] px-4 py-3 shadow-[0_12px_24px_rgba(0,0,0,0.18)]">
+    <header className="border-b border-[var(--cad-border)] bg-[var(--cad-surface-muted)] px-4 py-1.5">
       <div className="flex items-center gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          {visibleSections.map((section) => (
+          {visibleSections.map((section, index) => (
             <div
               key={section.id}
-              className="flex items-center gap-1.5"
+              className="flex items-center gap-3"
             >
-              <span className="hidden text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)] xl:inline">
-                {section.label}
-              </span>
-              <div className="flex items-center gap-1 rounded-xl border border-[var(--cad-border)] bg-[rgba(20,25,32,0.78)] p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+              <div className="flex items-center gap-1">
                 {section.toolIds.map((toolId) => renderTool(getToolById(toolId)))}
               </div>
+              {index < visibleSections.length - 1 ? (
+                <div className="h-8 w-px bg-[var(--cad-border-strong)]" aria-hidden="true" />
+              ) : null}
             </div>
           ))}
         </div>
