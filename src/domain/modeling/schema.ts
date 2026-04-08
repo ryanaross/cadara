@@ -17,6 +17,29 @@ export type SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
 export type FeatureTypeVersion = 'feature-type/v1alpha1'
 export type PreviewId = `preview_${string}`
 export type ReferenceId = `ref_${string}`
+export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
+
+export type SketchPoint = readonly [number, number]
+
+export type SketchPrimitiveGeometry =
+  | {
+      kind: 'line'
+      start: SketchPoint
+      end: SketchPoint
+    }
+  | {
+      kind: 'circle'
+      center: SketchPoint
+      radius: number
+    }
+  | {
+      kind: 'point'
+      position: SketchPoint
+    }
+  | {
+      kind: 'profile'
+      boundaryPrimitiveIds: SketchPrimitiveId[]
+    }
 
 export interface ModelingDiagnostic {
   code: string
@@ -98,12 +121,14 @@ export interface SketchPrimitiveRecord {
   label: string
   kind: 'line' | 'circle' | 'arc' | 'point' | 'profile'
   target: PrimitiveRef
+  geometry: SketchPrimitiveGeometry
 }
 
 export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   sketchId: SketchId
   label: string
   planeTarget: PrimitiveRef
+  planeKey: SketchPlaneKey
   primitiveIds: SketchPrimitiveId[]
   primitives: SketchPrimitiveRecord[]
 }
@@ -207,6 +232,26 @@ export interface UpdateFeatureRequest extends DocumentMutationRequest {
 
 export interface UpdateFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
+}
+
+export interface CommitSketchPrimitiveInput {
+  primitiveId: SketchPrimitiveId
+  label: string
+  kind: 'line' | 'circle' | 'point' | 'profile'
+  geometry: SketchPrimitiveGeometry
+}
+
+export interface CommitSketchRequest extends DocumentMutationRequest {
+  sketchId: SketchId | null
+  sketchLabel: string
+  planeTarget: PrimitiveRef
+  planeKey: SketchPlaneKey
+  primitiveIds: SketchPrimitiveId[]
+  primitives: CommitSketchPrimitiveInput[]
+}
+
+export interface CommitSketchResponse extends ModelingOperationResult {
+  sketchId: SketchId
 }
 
 export interface DeleteFeatureRequest extends DocumentMutationRequest {

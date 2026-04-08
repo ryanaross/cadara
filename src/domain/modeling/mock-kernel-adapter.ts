@@ -2,6 +2,8 @@ import type { PrimitiveRef } from '@/domain/editor/schema'
 import { getPrimitiveRefKey, getPrimitiveRefLabel } from '@/domain/editor/schema'
 import type { ModelingKernelAdapter } from '@/domain/modeling/kernel-adapter'
 import type {
+  CommitSketchRequest,
+  CommitSketchResponse,
   CreateFeatureRequest,
   CreateFeatureResponse,
   DeleteFeatureRequest,
@@ -523,6 +525,7 @@ const mockSnapshot: DocumentSnapshot = {
       sketchId: 'sketch_primary',
       label: 'Sketch 1',
       planeTarget: { kind: 'construction', constructionId: 'construction_plane-xy' },
+      planeKey: 'xy',
       primitiveIds: ['curve_rect-bottom', 'curve_rect-right', 'curve_profile-outer', 'point_origin'],
       primitives: [
         {
@@ -530,24 +533,42 @@ const mockSnapshot: DocumentSnapshot = {
           label: 'Bottom edge',
           kind: 'line',
           target: { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'curve_rect-bottom' },
+          geometry: {
+            kind: 'line',
+            start: [-4, -3],
+            end: [4, -3],
+          },
         },
         {
           primitiveId: 'curve_rect-right',
           label: 'Right edge',
           kind: 'line',
           target: { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'curve_rect-right' },
+          geometry: {
+            kind: 'line',
+            start: [4, -3],
+            end: [4, 3],
+          },
         },
         {
           primitiveId: 'curve_profile-outer',
           label: 'Outer profile',
           kind: 'profile',
           target: { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'curve_profile-outer' },
+          geometry: {
+            kind: 'profile',
+            boundaryPrimitiveIds: ['curve_rect-bottom', 'curve_rect-right'],
+          },
         },
         {
           primitiveId: 'point_origin',
           label: 'Origin point',
           kind: 'point',
           target: { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'point_origin' },
+          geometry: {
+            kind: 'point',
+            position: [0, 0],
+          },
         },
       ],
     },
@@ -723,6 +744,33 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           severity: 'info',
           message: 'Mock kernel accepted the feature request without mutating the document.',
           target: request.consumedTargets[0] ?? null,
+        },
+      ],
+    }
+  }
+
+  async commitSketch(request: CommitSketchRequest): Promise<CommitSketchResponse> {
+    const sketchId = request.sketchId ?? 'sketch_primary'
+
+    return {
+      contractVersion: CONTRACT_VERSION,
+      documentId: request.documentId,
+      revisionId: request.baseRevisionId,
+      sketchId,
+      changedTargets: [
+        { kind: 'sketch', sketchId },
+        ...request.primitiveIds.map((primitiveId) => ({
+          kind: 'sketchPrimitive' as const,
+          sketchId,
+          primitiveId,
+        })),
+      ],
+      diagnostics: [
+        {
+          code: 'mock-commit-sketch',
+          severity: 'info',
+          message: 'Mock kernel accepted the sketch commit request without mutating the document.',
+          target: { kind: 'sketch', sketchId },
         },
       ],
     }

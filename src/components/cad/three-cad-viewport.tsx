@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import { getPrimitiveRefLabel, selectionFilterAllowsTarget, type ViewportInteractionEvent } from '@/domain/editor/schema'
+import { type SketchPlaneKey } from '@/domain/modeling/schema'
 import type { RenderableEntityRecord } from '@/domain/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
@@ -48,6 +49,8 @@ interface ViewportRuntime {
   gizmoCube: THREE.Mesh
   raycaster: THREE.Raycaster
   pointer: THREE.Vector2
+  sketchPlane: THREE.Plane
+  sketchHitPoint: THREE.Vector3
   animationFrameId: number
 }
 
@@ -58,7 +61,7 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
   const onInteractionRef = useRef(onInteraction)
   const {
-    state: { hoverTarget, selection, activeCommand, selectionFilter },
+    state: { hoverTarget, selection, activeCommand, selectionFilter, sketchSession },
   } = useEditorState()
 
   onInteractionRef.current = onInteraction
@@ -129,6 +132,8 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       gizmoCube,
       raycaster: new THREE.Raycaster(),
       pointer: new THREE.Vector2(),
+      sketchPlane: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+      sketchHitPoint: new THREE.Vector3(),
       animationFrameId: 0,
     }
 
@@ -259,7 +264,31 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       )
     }
 
+    const readPlanePoint = (event: PointerEvent) => {
+      const rect = runtime.renderer.domElement.getBoundingClientRect()
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+
+      const planeNormal = getPlaneNormal(sketchSession?.planeKey ?? 'xy')
+      runtime.sketchPlane.set(planeNormal, 0)
+
+      return runtime.raycaster.ray.intersectPlane(runtime.sketchPlane, runtime.sketchHitPoint)
+        ? ([runtime.sketchHitPoint.x, runtime.sketchHitPoint.y, runtime.sketchHitPoint.z] as const)
+        : null
+    }
+
     const handlePointerMove = (event: PointerEvent) => {
+      const planePoint = readPlanePoint(event)
+
+      if (planePoint) {
+        onInteractionRef.current({ type: 'canvasMove', worldPosition: planePoint })
+      }
+
+      if (sketchSession) {
+        return
+      }
+
       const pickResult = readPick(event)
 
       if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
@@ -279,6 +308,16 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
         return
       }
 
+      const planePoint = readPlanePoint(event)
+
+      if (planePoint) {
+        onInteractionRef.current({ type: 'canvasPointerDown', worldPosition: planePoint })
+      }
+
+      if (sketchSession) {
+        return
+      }
+
       const pickResult = readPick(event)
 
       if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
@@ -288,22 +327,36 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       onInteractionRef.current({ type: 'select', target: pickResult.target })
     }
 
+    const handlePointerUp = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        return
+      }
+
+      const planePoint = readPlanePoint(event)
+
+      if (planePoint) {
+        onInteractionRef.current({ type: 'canvasPointerUp', worldPosition: planePoint })
+      }
+    }
+
     runtime.renderer.domElement.addEventListener('pointermove', handlePointerMove)
     runtime.renderer.domElement.addEventListener('pointerleave', handlePointerLeave)
     runtime.renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+    runtime.renderer.domElement.addEventListener('pointerup', handlePointerUp)
     updateWorkspaceHighlight(renderScene.targetToObjects, selection, hoverTarget)
 
     return () => {
       runtime.renderer.domElement.removeEventListener('pointermove', handlePointerMove)
       runtime.renderer.domElement.removeEventListener('pointerleave', handlePointerLeave)
       runtime.renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
+      runtime.renderer.domElement.removeEventListener('pointerup', handlePointerUp)
 
       if (renderSceneRef.current === renderScene) {
         disposeRenderScene(renderScene)
         renderSceneRef.current = null
       }
     }
-  }, [renderables, selectionFilter])
+  }, [renderables, selectionFilter, sketchSession])
 
   useEffect(() => {
     if (!renderSceneRef.current) {
@@ -342,6 +395,18 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       </div>
     </div>
   )
+}
+
+function getPlaneNormal(planeKey: SketchPlaneKey) {
+  if (planeKey === 'yz') {
+    return new THREE.Vector3(1, 0, 0)
+  }
+
+  if (planeKey === 'xz') {
+    return new THREE.Vector3(0, 1, 0)
+  }
+
+  return new THREE.Vector3(0, 0, 1)
 }
 
 function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {

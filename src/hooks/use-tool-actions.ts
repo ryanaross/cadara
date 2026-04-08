@@ -28,7 +28,7 @@ export function useToolActions() {
 
   return {
     triggerTool(toolId: ToolId, metadata: ToolTriggerMetadata) {
-      const nextMode = toolId === 'sketch' ? 'sketch' : toolId === 'finishSketch' ? 'part' : mode
+      const nextMode = toolId === 'sketch' ? 'sketch' : mode
 
       dispatch({
         type: 'activateCommand',

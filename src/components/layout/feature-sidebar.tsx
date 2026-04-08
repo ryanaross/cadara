@@ -36,7 +36,7 @@ function formatReferenceOwner(snapshot: DocumentSnapshot, featureId: string | nu
 
 export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps) {
   const {
-    state: { selection, selectionFilter, preview, activeEditSession, mode },
+    state: { selection, selectionFilter, preview, activeEditSession, mode, sketchSession },
   } = useEditorState()
 
   const selectedLabels = selection.map((target) => getPrimitiveRefLabel(target))
@@ -201,6 +201,14 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           Selection:{' '}
           <span className="text-[var(--cad-foreground)]">
             {selectedLabels.length > 0 ? selectedLabels.join(', ') : 'Nothing selected'}
+          </span>
+        </p>
+        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+          Sketch draft:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {sketchSession?.commitRequest
+              ? sketchSession.commitRequest.primitiveIds.join(', ')
+              : 'No accepted primitives'}
           </span>
         </p>
       </section>

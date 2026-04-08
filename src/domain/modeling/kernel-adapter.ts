@@ -1,4 +1,6 @@
 import type {
+  CommitSketchRequest,
+  CommitSketchResponse,
   CreateFeatureRequest,
   CreateFeatureResponse,
   DeleteFeatureRequest,
@@ -18,6 +20,7 @@ export interface KernelDocumentSnapshot {
 
 export interface ModelingKernelAdapter {
   getDocumentSnapshot(request: GetDocumentSnapshotRequest): Promise<KernelDocumentSnapshot>
+  commitSketch(request: CommitSketchRequest): Promise<CommitSketchResponse>
   createFeature(request: CreateFeatureRequest): Promise<CreateFeatureResponse>
   updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse>
   deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse>

@@ -1,5 +1,6 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
+import type { SketchSessionState } from '@/domain/editor/sketch-session'
 
 export type DocumentId = `doc_${string}`
 export type RevisionId = `rev_${string}`
@@ -55,11 +56,13 @@ export interface EditorState {
   hoverTarget: SelectionTarget | null
   preview: CommandPreview | null
   activeEditSession: FeatureEditSession | null
+  sketchSession: SketchSessionState | null
 }
 
 export interface ViewportInteractionEvent {
-  type: 'hover' | 'select' | 'clearHover'
+  type: 'hover' | 'select' | 'clearHover' | 'canvasMove' | 'canvasPointerDown' | 'canvasPointerUp'
   target?: PrimitiveRef
+  worldPosition?: readonly [number, number, number]
 }
 
 export const defaultSelectionFilter: SelectionFilter = {
@@ -75,6 +78,7 @@ export const initialEditorState: EditorState = {
   hoverTarget: null,
   preview: null,
   activeEditSession: null,
+  sketchSession: null,
 }
 
 export function getPrimitiveRefLabel(target: PrimitiveRef) {

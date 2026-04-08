@@ -16,6 +16,7 @@ import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor
 import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
   BodySnapshotRecord,
+  CommitSketchRequest,
   ConstructionSnapshotRecord,
   CreateFeatureRequest,
   DeleteFeatureRequest,
@@ -37,6 +38,7 @@ import type {
 
 export interface ModelingService {
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
+  commitSketch(input: ModelingCommitSketchInput): Promise<ModelingCommitSketchResult>
   createFeature(input: ModelingCreateFeatureInput): Promise<ModelingFeatureMutationResult>
   updateFeature(input: ModelingUpdateFeatureInput): Promise<ModelingFeatureMutationResult>
   deleteFeature(input: ModelingDeleteFeatureInput): Promise<ModelingDeleteFeatureResult>
@@ -62,9 +64,17 @@ export interface ModelingDeleteFeatureResult {
   diagnostics: ModelingDiagnostic[]
 }
 
+export interface ModelingCommitSketchResult {
+  revisionId: DocumentSnapshot['revisionId']
+  sketchId: SketchId
+  changedTargets: PrimitiveRef[]
+  diagnostics: ModelingDiagnostic[]
+}
+
 export type ModelingCreateFeatureInput = Omit<CreateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingUpdateFeatureInput = Omit<UpdateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingDeleteFeatureInput = Omit<DeleteFeatureRequest, 'contractVersion' | 'documentId'>
+export type ModelingCommitSketchInput = Omit<CommitSketchRequest, 'contractVersion' | 'documentId'>
 export type ModelingEvaluatePreviewInput = Omit<
   EvaluatePreviewRequest,
   'contractVersion' | 'documentId'
@@ -468,6 +478,12 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
       sketchId: assertSketchId(entry.sketchId),
       label: entry.label,
       planeTarget: assertPrimitiveRef(entry.planeTarget),
+      planeKey:
+        entry.planeKey === 'xy' || entry.planeKey === 'yz' || entry.planeKey === 'xz'
+          ? entry.planeKey
+          : (() => {
+              throw new Error('Invalid sketch plane key payload.')
+            })(),
       primitiveIds: entry.primitiveIds.map((primitiveId) => assertSketchPrimitiveId(primitiveId)),
       primitives: entry.primitives.map((primitive) => {
         if (
@@ -488,6 +504,7 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
           label: primitive.label,
           kind: primitive.kind,
           target: assertPrimitiveRef(primitive.target),
+          geometry: primitive.geometry as SketchSnapshotRecord['primitives'][number]['geometry'],
         }
       }),
     }
@@ -744,6 +761,30 @@ function normalizeDeleteFeatureResponse(
   }
 }
 
+function normalizeCommitSketchResponse(
+  response: unknown,
+  expectedDocumentId: DocumentId,
+): ModelingCommitSketchResult {
+  if (
+    !isRecord(response) ||
+    response.contractVersion !== CONTRACT_VERSION ||
+    !isString(response.documentId)
+  ) {
+    throw new Error('Invalid commit sketch response header.')
+  }
+
+  if (assertDocumentId(response.documentId) !== expectedDocumentId) {
+    throw new Error('Commit sketch response document ID does not match the active document.')
+  }
+
+  return {
+    revisionId: assertRevisionId(response.revisionId),
+    sketchId: assertSketchId(response.sketchId),
+    changedTargets: normalizeChangedTargets(response.changedTargets),
+    diagnostics: normalizeDiagnostics(response.diagnostics),
+  }
+}
+
 function normalizePreviewResponse(
   response: unknown,
   expectedDocumentId: DocumentId,
@@ -797,6 +838,19 @@ function normalizeCreateFeatureInput(
   input: ModelingCreateFeatureInput,
   documentId: DocumentId,
 ): CreateFeatureRequest {
+  assertMutationBase(input)
+
+  return {
+    ...input,
+    contractVersion: CONTRACT_VERSION,
+    documentId,
+  }
+}
+
+function normalizeCommitSketchInput(
+  input: ModelingCommitSketchInput,
+  documentId: DocumentId,
+): CommitSketchRequest {
   assertMutationBase(input)
 
   return {
@@ -874,6 +928,13 @@ export function createModelingService(
     async getCurrentDocumentSnapshot() {
       const response = await adapter.getDocumentSnapshot(buildDocumentRequest(currentDocumentId))
       return normalizeSnapshot(response.snapshot)
+    },
+    async commitSketch(input) {
+      const response = await adapter.commitSketch(
+        normalizeCommitSketchInput(input, currentDocumentId),
+      )
+
+      return normalizeCommitSketchResponse(response, currentDocumentId)
     },
     async createFeature(input) {
       const response = await adapter.createFeature(normalizeCreateFeatureInput(input, currentDocumentId))
