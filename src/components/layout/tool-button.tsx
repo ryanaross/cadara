@@ -7,35 +7,26 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import type { RegisteredToolDefinition } from '@/domain/tools/tool-registry'
-import type { ToolbarMode } from '@/domain/tools/schema'
 import { useToolActions } from '@/hooks/use-tool-actions'
 
 interface ToolButtonProps {
   tool: RegisteredToolDefinition
   icon: LucideIcon
-  onModeChange: (mode: ToolbarMode) => void
   inline?: boolean
   onTrigger?: () => void
+  active?: boolean
 }
 
 export function ToolButton({
   tool,
   icon: Icon,
-  onModeChange,
   inline = false,
   onTrigger,
+  active = false,
 }: ToolButtonProps) {
   const { triggerTool } = useToolActions()
 
   const handleClick = () => {
-    if (tool.id === 'sketch') {
-      onModeChange('sketch')
-    }
-
-    if (tool.id === 'finishSketch') {
-      onModeChange('part')
-    }
-
     triggerTool(tool.id, {
       source: inline ? 'search' : 'toolbar',
     })
@@ -46,7 +37,9 @@ export function ToolButton({
     <button
       type="button"
       onClick={handleClick}
-      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)]"
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+        active ? 'bg-[var(--cad-surface-elevated)]' : ''
+      }`}
     >
       <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--cad-border)] bg-[var(--cad-surface)] text-[var(--cad-foreground)]">
         <Icon className="h-4 w-4" />
@@ -64,8 +57,13 @@ export function ToolButton({
     <button
       type="button"
       onClick={handleClick}
-      className="flex h-10 w-10 items-center justify-center rounded-lg border border-transparent bg-transparent text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)]"
+      className={`flex h-10 w-10 items-center justify-center rounded-lg border bg-transparent text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)] ${
+        active
+          ? 'border-[var(--cad-border-strong)] bg-[var(--cad-surface-elevated)]'
+          : 'border-transparent'
+      }`}
       aria-label={tool.tooltip}
+      aria-pressed={active}
     >
       <Icon className="h-4 w-4" />
     </button>

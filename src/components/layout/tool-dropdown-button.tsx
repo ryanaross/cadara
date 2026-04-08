@@ -22,6 +22,7 @@ interface ToolDropdownButtonProps {
   icon: LucideIcon
   variantTools: RegisteredToolDefinition[]
   iconMap: Record<ToolIconId, LucideIcon>
+  active?: boolean
 }
 
 export function ToolDropdownButton({
@@ -29,6 +30,7 @@ export function ToolDropdownButton({
   icon: Icon,
   variantTools,
   iconMap,
+  active = false,
 }: ToolDropdownButtonProps) {
   const { triggerTool } = useToolActions()
 
@@ -40,8 +42,13 @@ export function ToolDropdownButton({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="flex h-10 items-center gap-1 rounded-lg border border-transparent px-2.5 text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)]"
+                className={`flex h-10 items-center gap-1 rounded-lg border px-2.5 text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)] ${
+                  active
+                    ? 'border-[var(--cad-border-strong)] bg-[var(--cad-surface-elevated)]'
+                    : 'border-transparent'
+                }`}
                 aria-label={tool.tooltip}
+                aria-pressed={active}
               >
                 <Icon className="h-4 w-4" />
                 <ChevronDown className="h-3.5 w-3.5 text-[var(--cad-muted)]" />

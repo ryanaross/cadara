@@ -2,8 +2,16 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
+import type { ViewportInteractionEvent } from '@/domain/editor/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
+import {
+  getPrimitiveRefKey,
+  getPrimitiveRefLabel,
+  selectionFilterAllowsTarget,
+} from '@/domain/editor/schema'
+import { viewportSelectionTargets } from '@/domain/editor/mock-document'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
+import { useEditorState } from '@/hooks/use-editor-state'
 
 const GIZMO_DIRECTIONS = {
   front: new THREE.Vector3(0, -1, 0),
@@ -23,9 +31,16 @@ const FACE_INDEX_TO_DIRECTION = {
   5: GIZMO_DIRECTIONS.back,
 } as const
 
-export function ThreeCadViewport() {
+interface ThreeCadViewportProps {
+  onInteraction: (event: ViewportInteractionEvent) => void
+}
+
+export function ThreeCadViewport({ onInteraction }: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
+  const {
+    state: { hoverTarget, selection, activeCommand, selectionFilter },
+  } = useEditorState()
 
   useEffect(() => {
     const viewportElement = viewportRef.current
@@ -178,6 +193,49 @@ export function ThreeCadViewport() {
         ref={viewportRef}
         className="h-full w-full"
       />
+      <div className="absolute left-4 top-4 z-10 flex gap-2">
+        {viewportSelectionTargets.map((target) => {
+          const isSelected = selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
+          const isHovered = hoverTarget !== null && getPrimitiveRefKey(hoverTarget) === getPrimitiveRefKey(target)
+          const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
+
+          return (
+            <button
+              key={getPrimitiveRefKey(target)}
+              type="button"
+              onMouseEnter={() => {
+                if (!isAllowed) {
+                  return
+                }
+                onInteraction({ type: 'hover', target })
+              }}
+              onMouseLeave={() => onInteraction({ type: 'clearHover' })}
+              onClick={() => {
+                if (!isAllowed) {
+                  return
+                }
+                onInteraction({ type: 'select', target })
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-[var(--cad-panel-shadow)] transition ${
+                isSelected || isHovered
+                  ? 'border-[var(--cad-accent)] bg-[rgba(42,84,145,0.92)] text-white'
+                  : 'border-[var(--cad-border)] bg-[rgba(7,11,17,0.84)] text-[var(--cad-muted-foreground)]'
+              } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
+              aria-disabled={!isAllowed}
+            >
+              {getPrimitiveRefLabel(target)}
+            </button>
+          )
+        })}
+      </div>
+      <div className="pointer-events-none absolute left-4 top-18 rounded-xl border border-[var(--cad-border)] bg-[rgba(7,11,17,0.84)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
+        <div>
+          Viewport event surface: <span className="text-[var(--cad-foreground)]">{activeCommand?.toolId ?? 'navigation'}</span>
+        </div>
+        <div>
+          Hover: <span className="text-[var(--cad-foreground)]">{hoverTarget ? getPrimitiveRefLabel(hoverTarget) : 'none'}</span>
+        </div>
+      </div>
       <div className="pointer-events-none absolute right-4 top-4 flex flex-col items-end gap-2">
         <div className="rounded-md border border-[var(--cad-border)] bg-[rgba(10,14,20,0.88)] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.24em] text-[var(--cad-muted)] shadow-[var(--cad-panel-shadow)]">
           View Cube

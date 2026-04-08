@@ -40,7 +40,8 @@ import {
   type RegisteredToolDefinition,
   searchToolDefinitions,
 } from '@/domain/tools/tool-registry'
-import type { ToolIconId, ToolbarMode } from '@/domain/tools/schema'
+import type { ToolIconId } from '@/domain/tools/schema'
+import { useEditorState } from '@/hooks/use-editor-state'
 
 const iconMap: Record<ToolIconId, typeof Undo2> = {
   undo: Undo2,
@@ -74,18 +75,20 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
   history: History,
 }
 
-interface WorkspaceToolbarProps {
-  mode: ToolbarMode
-  onModeChange: (mode: ToolbarMode) => void
-}
-
-export function WorkspaceToolbar({ mode, onModeChange }: WorkspaceToolbarProps) {
+export function WorkspaceToolbar() {
   const [searchQuery, setSearchQuery] = useState('')
+  const {
+    state: { activeCommand, mode },
+  } = useEditorState()
   const visibleSections = useMemo(() => getToolbarSectionsForMode(mode), [mode])
   const searchResults = useMemo(() => searchToolDefinitions(searchQuery), [searchQuery])
 
   const renderTool = (tool: RegisteredToolDefinition) => {
     const Icon = iconMap[tool.icon]
+    const isActive =
+      activeCommand?.toolId === tool.id ||
+      (isDropdownTool(tool) &&
+        tool.dropdown.variantIds.some((variantId) => variantId === activeCommand?.toolId))
 
     if (isDropdownTool(tool)) {
       const variantTools = tool.dropdown.variantIds.map((toolId) => getToolById(toolId))
@@ -96,18 +99,12 @@ export function WorkspaceToolbar({ mode, onModeChange }: WorkspaceToolbarProps) 
           icon={Icon}
           variantTools={variantTools}
           iconMap={iconMap}
+          active={isActive}
         />
       )
     }
 
-    return (
-      <ToolButton
-        key={tool.id}
-        tool={tool}
-        icon={Icon}
-        onModeChange={onModeChange}
-      />
-    )
+    return <ToolButton key={tool.id} tool={tool} icon={Icon} active={isActive} />
   }
 
   return (
@@ -148,8 +145,8 @@ export function WorkspaceToolbar({ mode, onModeChange }: WorkspaceToolbarProps) 
                         key={`search-${tool.id}`}
                         tool={tool}
                         icon={Icon}
-                        onModeChange={onModeChange}
                         inline
+                        active={activeCommand?.toolId === tool.id}
                         onTrigger={() => setSearchQuery('')}
                       />
                     )

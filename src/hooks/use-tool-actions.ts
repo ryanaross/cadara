@@ -3,6 +3,7 @@ import { useContext } from 'react'
 import { ToolActionContext } from '@/hooks/tool-action-context'
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolTriggerMetadata } from '@/domain/tools/schema'
+import { useEditorState } from '@/hooks/use-editor-state'
 
 export function useToolActionBus() {
   const context = useContext(ToolActionContext)
@@ -16,6 +17,10 @@ export function useToolActionBus() {
 
 export function useToolActions() {
   const context = useContext(ToolActionContext)
+  const {
+    state: { mode },
+    dispatch,
+  } = useEditorState()
 
   if (!context) {
     throw new Error('useToolActions must be used inside ToolActionProvider.')
@@ -23,7 +28,15 @@ export function useToolActions() {
 
   return {
     triggerTool(toolId: ToolId, metadata: ToolTriggerMetadata) {
-      context.actionBus.triggerTool(toolId, context.mode, metadata)
+      const nextMode = toolId === 'sketch' ? 'sketch' : toolId === 'finishSketch' ? 'part' : mode
+
+      dispatch({
+        type: 'activateCommand',
+        toolId,
+        mode: nextMode,
+      })
+
+      context.actionBus.triggerTool(toolId, nextMode, metadata)
     },
   }
 }
