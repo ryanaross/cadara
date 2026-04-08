@@ -642,6 +642,17 @@ const mockSnapshot: DocumentSnapshot = {
       ownerBodyId: 'body_part-1',
       ownerFeatureId: 'feature_extrude-1',
       topology: 'face',
+      pickBinding: {
+        pickId: 'pick_body_part-1_face_top',
+        target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+        topology: 'face',
+      },
+      geometry: {
+        kind: 'planarFace',
+        center: [0, 0, 3],
+        size: [8, 6],
+        normalAxis: 'z',
+      },
     },
     {
       id: 'render_edge_outer_0',
@@ -650,6 +661,19 @@ const mockSnapshot: DocumentSnapshot = {
       ownerBodyId: 'body_part-1',
       ownerFeatureId: 'feature_fillet-1',
       topology: 'edge',
+      pickBinding: {
+        pickId: 'pick_body_part-1_edge_outer_0',
+        target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+        topology: 'edge',
+      },
+      geometry: {
+        kind: 'polyline',
+        points: [
+          [-4, -3, 3],
+          [0, -3, 3],
+          [4, -3, 3],
+        ],
+      },
     },
     {
       id: 'render_vertex_front_right',
@@ -658,6 +682,16 @@ const mockSnapshot: DocumentSnapshot = {
       ownerBodyId: 'body_part-1',
       ownerFeatureId: 'feature_extrude-1',
       topology: 'vertex',
+      pickBinding: {
+        pickId: 'pick_body_part-1_vertex_front_right',
+        target: { kind: 'vertex', bodyId: 'body_part-1', vertexId: 'vertex_front-right' },
+        topology: 'vertex',
+      },
+      geometry: {
+        kind: 'pointMarker',
+        position: [4, -3, 3],
+        radius: 0.22,
+      },
     },
   ],
 }

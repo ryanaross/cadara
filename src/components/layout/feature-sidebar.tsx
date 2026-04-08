@@ -79,23 +79,20 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                     }
                     onSelectTarget(target)
                   }}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+                  className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
                     isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
                   } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
                   aria-disabled={!isAllowed}
                   title={!isAllowed ? 'Filtered out by the current command' : undefined}
                 >
-                  <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
+                  <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[var(--cad-accent)]">
                     <Icon className="h-3.5 w-3.5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-[var(--cad-foreground)]">
+                    <span className="block truncate text-[13px] font-medium leading-5 text-[var(--cad-foreground)]">
                       {item.label}
                     </span>
-                    <span className="block truncate text-xs text-[var(--cad-muted-foreground)]">
-                      {item.description}
-                    </span>
-                    <span className="block truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
+                    <span className="block truncate text-[10px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
                       Owner {formatReferenceOwner(snapshot!, item.ownerFeatureId, item.ownerSketchId)}
                     </span>
                   </span>
@@ -131,14 +128,14 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                       }
                       onSelectTarget(target)
                     }}
-                    className={`w-full rounded-md px-2 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+                    className={`w-full rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
                       isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
                     } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
                     aria-disabled={!isAllowed}
                     title={!isAllowed ? 'Filtered out by the current command' : undefined}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[var(--cad-accent)]">
                         {item.kind === 'body' ? (
                           <Box className="h-3.5 w-3.5" />
                         ) : (
@@ -146,11 +143,8 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                         )}
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">
+                        <p className="truncate text-[13px] font-medium leading-5 text-[var(--cad-foreground)]">
                           {item.label}
-                        </p>
-                        <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
-                          {item.description}
                         </p>
                       </div>
                     </div>

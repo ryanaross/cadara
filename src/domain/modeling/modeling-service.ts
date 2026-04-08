@@ -13,6 +13,7 @@ import type {
   VertexId,
 } from '@/domain/editor/schema'
 import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor/schema'
+import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
   BodySnapshotRecord,
   ConstructionSnapshotRecord,
@@ -333,18 +334,117 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       !isRecord(entry) ||
       !isString(entry.id) ||
       !isString(entry.label) ||
-      (entry.topology !== 'face' && entry.topology !== 'edge' && entry.topology !== 'vertex')
+      (entry.topology !== 'face' && entry.topology !== 'edge' && entry.topology !== 'vertex') ||
+      !isRecord(entry.pickBinding) ||
+      !isString(entry.pickBinding.pickId) ||
+      (entry.pickBinding.topology !== 'face' &&
+        entry.pickBinding.topology !== 'edge' &&
+        entry.pickBinding.topology !== 'vertex') ||
+      !isRecord(entry.geometry) ||
+      !isString(entry.geometry.kind)
     ) {
       throw new Error('Invalid renderable record.')
+    }
+
+    const geometry: RenderableEntityRecord['geometry'] = (() => {
+      switch (entry.geometry.kind) {
+        case 'planarFace': {
+          if (
+            !Array.isArray(entry.geometry.center) ||
+            entry.geometry.center.length !== 3 ||
+            !Array.isArray(entry.geometry.size) ||
+            entry.geometry.size.length !== 2 ||
+            (entry.geometry.normalAxis !== 'x' &&
+              entry.geometry.normalAxis !== 'y' &&
+              entry.geometry.normalAxis !== 'z')
+          ) {
+            throw new Error('Invalid planar face geometry payload.')
+          }
+
+          return {
+            kind: 'planarFace' as const,
+            center: entry.geometry.center.map((component) => {
+              if (typeof component !== 'number') {
+                throw new Error('Invalid planar face center payload.')
+              }
+
+              return component
+            }) as [number, number, number],
+            size: entry.geometry.size.map((component) => {
+              if (typeof component !== 'number') {
+                throw new Error('Invalid planar face size payload.')
+              }
+
+              return component
+            }) as [number, number],
+            normalAxis: entry.geometry.normalAxis as 'x' | 'y' | 'z',
+          }
+        }
+        case 'polyline': {
+          if (!Array.isArray(entry.geometry.points)) {
+            throw new Error('Invalid polyline geometry payload.')
+          }
+
+          return {
+            kind: 'polyline' as const,
+            points: entry.geometry.points.map((point) => {
+              if (
+                !Array.isArray(point) ||
+                point.length !== 3 ||
+                point.some((component) => typeof component !== 'number')
+              ) {
+                throw new Error('Invalid polyline point payload.')
+              }
+
+              return point as [number, number, number]
+            }),
+          }
+        }
+        case 'pointMarker': {
+          if (
+            !Array.isArray(entry.geometry.position) ||
+            entry.geometry.position.length !== 3 ||
+            entry.geometry.position.some((component) => typeof component !== 'number') ||
+            typeof entry.geometry.radius !== 'number'
+          ) {
+            throw new Error('Invalid point marker geometry payload.')
+          }
+
+          return {
+            kind: 'pointMarker' as const,
+            position: entry.geometry.position as [number, number, number],
+            radius: entry.geometry.radius,
+          }
+        }
+        default:
+          throw new Error('Invalid renderable geometry kind.')
+      }
+    })()
+
+    const target = assertPrimitiveRef(entry.target)
+    const pickTarget = assertPrimitiveRef(entry.pickBinding.target)
+
+    if (!primitiveRefEquals(target, pickTarget)) {
+      throw new Error('Renderable pick target must match renderable target.')
+    }
+
+    if (entry.topology !== entry.pickBinding.topology) {
+      throw new Error('Renderable pick topology must match renderable topology.')
     }
 
     return {
       id: entry.id,
       label: entry.label,
-      target: assertPrimitiveRef(entry.target),
+      target,
       ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
       ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
       topology: entry.topology,
+      pickBinding: {
+        pickId: entry.pickBinding.pickId as RenderableEntityRecord['pickBinding']['pickId'],
+        target,
+        topology: entry.pickBinding.topology,
+      },
+      geometry,
     }
   })
 }

@@ -2,14 +2,15 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
-import type { ViewportInteractionEvent } from '@/domain/editor/schema'
+import { getPrimitiveRefLabel, selectionFilterAllowsTarget, type ViewportInteractionEvent } from '@/domain/editor/schema'
 import type { RenderableEntityRecord } from '@/domain/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
-  getPrimitiveRefKey,
-  getPrimitiveRefLabel,
-  selectionFilterAllowsTarget,
-} from '@/domain/editor/schema'
+  buildWorkspaceRenderScene,
+  resolvePickTarget,
+  updateWorkspaceHighlight,
+  type WorkspaceRenderScene,
+} from '@/domain/workspace/render-picking'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
 import { useEditorState } from '@/hooks/use-editor-state'
 
@@ -36,12 +37,31 @@ interface ThreeCadViewportProps {
   onInteraction: (event: ViewportInteractionEvent) => void
 }
 
+interface ViewportRuntime {
+  scene: THREE.Scene
+  camera: THREE.PerspectiveCamera
+  renderer: THREE.WebGLRenderer
+  controls: OrbitControls
+  gizmoScene: THREE.Scene
+  gizmoCamera: THREE.PerspectiveCamera
+  gizmoRenderer: THREE.WebGLRenderer
+  gizmoCube: THREE.Mesh
+  raycaster: THREE.Raycaster
+  pointer: THREE.Vector2
+  animationFrameId: number
+}
+
 export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
+  const runtimeRef = useRef<ViewportRuntime | null>(null)
+  const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
+  const onInteractionRef = useRef(onInteraction)
   const {
     state: { hoverTarget, selection, activeCommand, selectionFilter },
   } = useEditorState()
+
+  onInteractionRef.current = onInteraction
 
   useEffect(() => {
     const viewportElement = viewportRef.current
@@ -98,8 +118,21 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
     gizmoDirectionalLight.position.set(3, 4, 6)
     gizmoScene.add(gizmoDirectionalLight)
 
-    const raycaster = new THREE.Raycaster()
-    const pointer = new THREE.Vector2()
+    const runtime: ViewportRuntime = {
+      scene,
+      camera,
+      renderer,
+      controls,
+      gizmoScene,
+      gizmoCamera,
+      gizmoRenderer,
+      gizmoCube,
+      raycaster: new THREE.Raycaster(),
+      pointer: new THREE.Vector2(),
+      animationFrameId: 0,
+    }
+
+    runtimeRef.current = runtime
 
     const resize = () => {
       const { clientWidth, clientHeight } = viewportElement
@@ -115,11 +148,11 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
 
     const handleGizmoPointerDown = (event: PointerEvent) => {
       const rect = gizmoRenderer.domElement.getBoundingClientRect()
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
 
-      raycaster.setFromCamera(pointer, gizmoCamera)
-      const [intersection] = raycaster.intersectObject(gizmoCube)
+      runtime.raycaster.setFromCamera(runtime.pointer, gizmoCamera)
+      const [intersection] = runtime.raycaster.intersectObject(gizmoCube)
 
       if (!intersection?.face) {
         return
@@ -142,32 +175,45 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
     }
 
     const animate = () => {
-      controls.update()
+      const nextRuntime = runtimeRef.current
 
-      const orbitOffset = camera.position.clone().sub(controls.target).normalize()
-      gizmoCamera.position.copy(orbitOffset.multiplyScalar(4))
-      gizmoCamera.up.copy(camera.up)
-      gizmoCamera.lookAt(0, 0, 0)
+      if (!nextRuntime) {
+        return
+      }
 
-      renderer.render(scene, camera)
-      gizmoRenderer.render(gizmoScene, gizmoCamera)
-      animationFrameId = window.requestAnimationFrame(animate)
+      nextRuntime.controls.update()
+
+      const orbitOffset = nextRuntime.camera.position
+        .clone()
+        .sub(nextRuntime.controls.target)
+        .normalize()
+      nextRuntime.gizmoCamera.position.copy(orbitOffset.multiplyScalar(4))
+      nextRuntime.gizmoCamera.up.copy(nextRuntime.camera.up)
+      nextRuntime.gizmoCamera.lookAt(0, 0, 0)
+
+      nextRuntime.renderer.render(nextRuntime.scene, nextRuntime.camera)
+      nextRuntime.gizmoRenderer.render(nextRuntime.gizmoScene, nextRuntime.gizmoCamera)
+      nextRuntime.animationFrameId = window.requestAnimationFrame(animate)
     }
 
     const onContextMenu = (event: Event) => event.preventDefault()
 
-    let animationFrameId = window.requestAnimationFrame(animate)
-
     resize()
+    runtime.animationFrameId = window.requestAnimationFrame(animate)
+
     window.addEventListener('resize', resize)
     renderer.domElement.addEventListener('contextmenu', onContextMenu)
     gizmoRenderer.domElement.addEventListener('pointerdown', handleGizmoPointerDown)
 
     return () => {
-      window.cancelAnimationFrame(animationFrameId)
+      window.cancelAnimationFrame(runtime.animationFrameId)
       window.removeEventListener('resize', resize)
       renderer.domElement.removeEventListener('contextmenu', onContextMenu)
       gizmoRenderer.domElement.removeEventListener('pointerdown', handleGizmoPointerDown)
+
+      disposeRenderScene(renderSceneRef.current)
+      renderSceneRef.current = null
+      runtimeRef.current = null
 
       controls.dispose()
       renderer.dispose()
@@ -188,54 +234,101 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
     }
   }, [])
 
+  useEffect(() => {
+    const runtime = runtimeRef.current
+
+    if (!runtime) {
+      return
+    }
+
+    disposeRenderScene(renderSceneRef.current)
+
+    const renderScene = buildWorkspaceRenderScene(renderables)
+    renderSceneRef.current = renderScene
+    runtime.scene.add(renderScene.group)
+
+    const readPick = (event: PointerEvent) => {
+      const rect = runtime.renderer.domElement.getBoundingClientRect()
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+      return resolvePickTarget(
+        runtime.raycaster.intersectObjects(renderScene.pickables, false),
+        renderScene.pickIdToRenderable,
+      )
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const pickResult = readPick(event)
+
+      if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
+        onInteractionRef.current({ type: 'clearHover' })
+        return
+      }
+
+      onInteractionRef.current({ type: 'hover', target: pickResult.target })
+    }
+
+    const handlePointerLeave = () => {
+      onInteractionRef.current({ type: 'clearHover' })
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        return
+      }
+
+      const pickResult = readPick(event)
+
+      if (!pickResult || !selectionFilterAllowsTarget(selectionFilter, pickResult.target)) {
+        return
+      }
+
+      onInteractionRef.current({ type: 'select', target: pickResult.target })
+    }
+
+    runtime.renderer.domElement.addEventListener('pointermove', handlePointerMove)
+    runtime.renderer.domElement.addEventListener('pointerleave', handlePointerLeave)
+    runtime.renderer.domElement.addEventListener('pointerdown', handlePointerDown)
+    updateWorkspaceHighlight(renderScene.targetToObjects, selection, hoverTarget)
+
+    return () => {
+      runtime.renderer.domElement.removeEventListener('pointermove', handlePointerMove)
+      runtime.renderer.domElement.removeEventListener('pointerleave', handlePointerLeave)
+      runtime.renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
+
+      if (renderSceneRef.current === renderScene) {
+        disposeRenderScene(renderScene)
+        renderSceneRef.current = null
+      }
+    }
+  }, [renderables, selectionFilter])
+
+  useEffect(() => {
+    if (!renderSceneRef.current) {
+      return
+    }
+
+    updateWorkspaceHighlight(renderSceneRef.current.targetToObjects, selection, hoverTarget)
+  }, [hoverTarget, selection])
+
   return (
     <div className="relative h-full w-full">
-      <div
-        ref={viewportRef}
-        className="h-full w-full"
-      />
-      <div className="absolute left-4 top-4 z-10 flex gap-2">
-        {renderables.map((renderable) => {
-          const target = renderable.target
-          const isSelected = selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
-          const isHovered = hoverTarget !== null && getPrimitiveRefKey(hoverTarget) === getPrimitiveRefKey(target)
-          const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
-
-          return (
-            <button
-              key={renderable.id}
-              type="button"
-              onMouseEnter={() => {
-                if (!isAllowed) {
-                  return
-                }
-                onInteraction({ type: 'hover', target })
-              }}
-              onMouseLeave={() => onInteraction({ type: 'clearHover' })}
-              onClick={() => {
-                if (!isAllowed) {
-                  return
-                }
-                onInteraction({ type: 'select', target })
-              }}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium shadow-[var(--cad-panel-shadow)] transition ${
-                isSelected || isHovered
-                  ? 'border-[var(--cad-accent)] bg-[rgba(42,84,145,0.92)] text-white'
-                  : 'border-[var(--cad-border)] bg-[rgba(7,11,17,0.84)] text-[var(--cad-muted-foreground)]'
-              } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
-              aria-disabled={!isAllowed}
-            >
-              {renderable.label || getPrimitiveRefLabel(target)}
-            </button>
-          )
-        })}
-      </div>
+      <div ref={viewportRef} className="h-full w-full" />
       <div className="pointer-events-none absolute left-4 top-18 rounded-xl border border-[var(--cad-border)] bg-[rgba(7,11,17,0.84)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
         <div>
-          Viewport event surface: <span className="text-[var(--cad-foreground)]">{activeCommand?.toolId ?? 'navigation'}</span>
+          Viewport event surface:{' '}
+          <span className="text-[var(--cad-foreground)]">{activeCommand?.toolId ?? 'navigation'}</span>
         </div>
         <div>
-          Hover: <span className="text-[var(--cad-foreground)]">{hoverTarget ? getPrimitiveRefLabel(hoverTarget) : 'none'}</span>
+          Hover:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {hoverTarget ? getPrimitiveRefLabel(hoverTarget) : 'none'}
+          </span>
+        </div>
+        <div>
+          Render bindings: <span className="text-[var(--cad-foreground)]">{renderables.length}</span>
         </div>
       </div>
       <div className="pointer-events-none absolute right-4 top-4 flex flex-col items-end gap-2">
@@ -249,4 +342,22 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       </div>
     </div>
   )
+}
+
+function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
+  if (!renderScene) {
+    return
+  }
+
+  renderScene.group.removeFromParent()
+  renderScene.group.traverse((object) => {
+    if (object instanceof THREE.Mesh) {
+      object.geometry.dispose()
+      if (Array.isArray(object.material)) {
+        object.material.forEach((material) => material.dispose())
+      } else {
+        object.material.dispose()
+      }
+    }
+  })
 }

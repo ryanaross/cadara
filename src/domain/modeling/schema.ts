@@ -70,6 +70,27 @@ export interface RenderableEntityRecord {
   ownerBodyId: BodyId | null
   ownerFeatureId: FeatureId | null
   topology: 'face' | 'edge' | 'vertex'
+  pickBinding: {
+    pickId: `pick_${string}`
+    target: PrimitiveRef
+    topology: 'face' | 'edge' | 'vertex'
+  }
+  geometry:
+    | {
+        kind: 'planarFace'
+        center: readonly [number, number, number]
+        size: readonly [number, number]
+        normalAxis: 'x' | 'y' | 'z'
+      }
+    | {
+        kind: 'polyline'
+        points: readonly (readonly [number, number, number])[]
+      }
+    | {
+        kind: 'pointMarker'
+        position: readonly [number, number, number]
+        radius: number
+      }
 }
 
 export interface SketchPrimitiveRecord {
