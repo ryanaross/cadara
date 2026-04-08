@@ -26,8 +26,12 @@ import type {
   FeatureSnapshotRecord,
   PreviewId,
   GetDocumentSnapshotRequest,
+  InvalidReferenceDetailPayload,
   ModelingDiagnostic,
+  ModelingDiagnosticDetail,
+  MutationRevisionState,
   ObjectTreeNodeRecord,
+  PreviewFreshness,
   ReferenceRecord,
   RenderableEntityRecord,
   ResolvedReferenceRecord,
@@ -53,6 +57,7 @@ export interface ModelingServiceOptions {
 export interface ModelingFeatureMutationResult {
   revisionId: DocumentSnapshot['revisionId']
   featureId: FeatureId
+  revisionState: MutationRevisionState
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -60,6 +65,7 @@ export interface ModelingFeatureMutationResult {
 export interface ModelingDeleteFeatureResult {
   revisionId: DocumentSnapshot['revisionId']
   deletedFeatureId: FeatureId
+  revisionState: MutationRevisionState
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -67,6 +73,7 @@ export interface ModelingDeleteFeatureResult {
 export interface ModelingCommitSketchResult {
   revisionId: DocumentSnapshot['revisionId']
   sketchId: SketchId
+  revisionState: MutationRevisionState
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -84,6 +91,7 @@ export interface ModelingPreviewResult {
   revisionId: DocumentSnapshot['revisionId']
   previewId: EvaluatePreviewResponse['previewId']
   renderables: RenderableEntityRecord[]
+  freshness: PreviewFreshness
   stale: boolean
   diagnostics: ModelingDiagnostic[]
 }
@@ -227,8 +235,106 @@ function normalizeDiagnostics(value: unknown): ModelingDiagnostic[] {
       severity: entry.severity,
       message: entry.message,
       target: entry.target == null ? null : assertPrimitiveRef(entry.target),
+      detail: entry.detail == null ? null : normalizeDiagnosticDetail(entry.detail),
     }
   })
+}
+
+function normalizeInvalidReferenceDetail(value: unknown): InvalidReferenceDetailPayload {
+  if (!isRecord(value) || !isString(value.reason)) {
+    throw new Error('Invalid invalid reference detail payload.')
+  }
+
+  return {
+    reason: value.reason,
+    target: assertPrimitiveRef(value.target),
+    ownerFeatureId: value.ownerFeatureId === null ? null : assertFeatureId(value.ownerFeatureId),
+    ownerSketchId: value.ownerSketchId === null ? null : assertSketchId(value.ownerSketchId),
+    sourceTarget: value.sourceTarget === null ? null : assertPrimitiveRef(value.sourceTarget),
+  }
+}
+
+function normalizeDiagnosticDetail(value: unknown): ModelingDiagnosticDetail {
+  if (!isRecord(value) || !isString(value.kind)) {
+    throw new Error('Invalid diagnostic detail payload.')
+  }
+
+  switch (value.kind) {
+    case 'invalidReference':
+      return {
+        kind: 'invalidReference',
+        reference: normalizeInvalidReferenceDetail(value.reference),
+      }
+    case 'revisionConflict':
+      return {
+        kind: 'revisionConflict',
+        expectedRevisionId: assertRevisionId(value.expectedRevisionId),
+        actualRevisionId: assertRevisionId(value.actualRevisionId),
+      }
+    case 'stalePreview':
+      return {
+        kind: 'stalePreview',
+        previewId: value.previewId as PreviewId,
+        requestedRevisionId: assertRevisionId(value.requestedRevisionId),
+        currentRevisionId: assertRevisionId(value.currentRevisionId),
+      }
+    case 'rebuildFailure':
+      if (!Array.isArray(value.affectedFeatureIds) || !Array.isArray(value.affectedTargets)) {
+        throw new Error('Invalid rebuild failure detail payload.')
+      }
+
+      return {
+        kind: 'rebuildFailure',
+        affectedFeatureIds: value.affectedFeatureIds.map((featureId) => assertFeatureId(featureId)),
+        affectedTargets: value.affectedTargets.map((target) => assertPrimitiveRef(target)),
+      }
+    default:
+      throw new Error('Invalid diagnostic detail kind.')
+  }
+}
+
+function normalizeRevisionState(value: unknown): MutationRevisionState {
+  if (!isRecord(value) || !isString(value.kind)) {
+    throw new Error('Invalid revision state payload.')
+  }
+
+  switch (value.kind) {
+    case 'accepted':
+      return {
+        kind: 'accepted',
+        baseRevisionId: assertRevisionId(value.baseRevisionId),
+      }
+    case 'conflict':
+      return {
+        kind: 'conflict',
+        expectedRevisionId: assertRevisionId(value.expectedRevisionId),
+        actualRevisionId: assertRevisionId(value.actualRevisionId),
+      }
+    default:
+      throw new Error('Invalid revision state kind.')
+  }
+}
+
+function normalizePreviewFreshness(value: unknown): PreviewFreshness {
+  if (!isRecord(value) || !isString(value.kind)) {
+    throw new Error('Invalid preview freshness payload.')
+  }
+
+  switch (value.kind) {
+    case 'fresh':
+      return {
+        kind: 'fresh',
+        baseRevisionId: assertRevisionId(value.baseRevisionId),
+      }
+    case 'stale':
+      return {
+        kind: 'stale',
+        requestedRevisionId: assertRevisionId(value.requestedRevisionId),
+        currentRevisionId: assertRevisionId(value.currentRevisionId),
+      }
+    default:
+      throw new Error('Invalid preview freshness kind.')
+  }
 }
 
 function normalizeFeatureTree(value: unknown): DocumentSnapshot['featureTree'] {
@@ -323,14 +429,7 @@ function normalizeReferences(value: unknown): ReferenceRecord[] {
       target: assertPrimitiveRef(entry.target),
       ownerFeatureId: entry.ownerFeatureId as FeatureId | null,
       ownerSketchId: entry.ownerSketchId === null ? null : assertSketchId(entry.ownerSketchId),
-      invalidationReason:
-        entry.invalidationReason === null
-          ? null
-          : isString(entry.invalidationReason)
-            ? entry.invalidationReason
-            : (() => {
-                throw new Error('Invalid reference invalidation payload.')
-              })(),
+      invalidation: entry.invalidation === null ? null : normalizeInvalidReferenceDetail(entry.invalidation),
     }
   })
 }
@@ -666,14 +765,7 @@ function normalizeResolution(value: unknown): ResolvedReferenceRecord {
     ownerFeatureId: value.ownerFeatureId === null ? null : assertFeatureId(value.ownerFeatureId),
     ownerSketchId: value.ownerSketchId === null ? null : assertSketchId(value.ownerSketchId),
     ownerBodyId: value.ownerBodyId === null ? null : assertBodyId(value.ownerBodyId),
-    invalidationReason:
-      value.invalidationReason === null
-        ? null
-        : isString(value.invalidationReason)
-          ? value.invalidationReason
-          : (() => {
-              throw new Error('Invalid invalidation reason payload.')
-            })(),
+    invalidation: value.invalidation === null ? null : normalizeInvalidReferenceDetail(value.invalidation),
   }
 }
 
@@ -735,6 +827,7 @@ function normalizeFeatureMutationResponse(
   return {
     revisionId: assertRevisionId(response.revisionId),
     featureId: assertFeatureId(response.featureId),
+    revisionState: normalizeRevisionState(response.revisionState),
     changedTargets: normalizeChangedTargets(response.changedTargets),
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
@@ -759,6 +852,7 @@ function normalizeDeleteFeatureResponse(
   return {
     revisionId: assertRevisionId(response.revisionId),
     deletedFeatureId: assertFeatureId(response.deletedFeatureId),
+    revisionState: normalizeRevisionState(response.revisionState),
     changedTargets: normalizeChangedTargets(response.changedTargets),
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
@@ -783,6 +877,7 @@ function normalizeCommitSketchResponse(
   return {
     revisionId: assertRevisionId(response.revisionId),
     sketchId: assertSketchId(response.sketchId),
+    revisionState: normalizeRevisionState(response.revisionState),
     changedTargets: normalizeChangedTargets(response.changedTargets),
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
@@ -809,7 +904,8 @@ function normalizePreviewResponse(
     revisionId: assertRevisionId(response.revisionId),
     previewId: response.previewId as PreviewId,
     renderables: normalizeRenderables(response.renderables),
-    stale: false,
+    freshness: normalizePreviewFreshness(response.freshness),
+    stale: normalizePreviewFreshness(response.freshness).kind === 'stale',
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
 }

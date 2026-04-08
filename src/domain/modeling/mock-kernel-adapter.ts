@@ -22,6 +22,25 @@ import type {
 const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
+const CURRENT_REVISION_ID = 'rev_0002' as const
+
+function hasRevisionConflict(baseRevisionId: string) {
+  return baseRevisionId !== REVISION_ID
+}
+
+function createRevisionConflictDiagnostic(baseRevisionId: string) {
+  return {
+    code: 'mock-revision-conflict',
+    severity: 'error' as const,
+    message: `Request revision ${baseRevisionId} does not match current revision ${REVISION_ID}.`,
+    target: null,
+    detail: {
+      kind: 'revisionConflict' as const,
+      expectedRevisionId: baseRevisionId as `rev_${string}`,
+      actualRevisionId: REVISION_ID,
+    },
+  }
+}
 
 function entity(
   input: Omit<
@@ -656,7 +675,7 @@ const mockSnapshot: DocumentSnapshot = {
       target: { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'curve_profile-outer' },
       ownerFeatureId: 'feature_extrude-1',
       ownerSketchId: 'sketch_primary',
-      invalidationReason: null,
+      invalidation: null,
     },
     {
       id: 'ref_feature_fillet_chain',
@@ -664,10 +683,44 @@ const mockSnapshot: DocumentSnapshot = {
       target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
       ownerFeatureId: 'feature_fillet-1',
       ownerSketchId: null,
-      invalidationReason: null,
+      invalidation: {
+        reason: 'Upstream edge chain changed after the last rebuild.',
+        target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+        ownerFeatureId: 'feature_fillet-1',
+        ownerSketchId: null,
+        sourceTarget: { kind: 'feature', featureId: 'feature_extrude-1' },
+      },
     },
   ],
-  diagnostics: [],
+  diagnostics: [
+    {
+      code: 'mock-invalid-reference',
+      severity: 'warning',
+      message: 'Fillet 1 lost one downstream edge reference after an upstream topology change.',
+      target: { kind: 'feature', featureId: 'feature_fillet-1' },
+      detail: {
+        kind: 'invalidReference',
+        reference: {
+          reason: 'Upstream edge chain changed after the last rebuild.',
+          target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+          ownerFeatureId: 'feature_fillet-1',
+          ownerSketchId: null,
+          sourceTarget: { kind: 'feature', featureId: 'feature_extrude-1' },
+        },
+      },
+    },
+    {
+      code: 'mock-rebuild-warning',
+      severity: 'warning',
+      message: 'Rebuild completed with downstream reference failures.',
+      target: { kind: 'feature', featureId: 'feature_fillet-1' },
+      detail: {
+        kind: 'rebuildFailure',
+        affectedFeatureIds: ['feature_fillet-1'],
+        affectedTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
+      },
+    },
+  ],
   renderables: [
     {
       id: 'render_face_top',
@@ -745,11 +798,31 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
   }
 
   async createFeature(request: CreateFeatureRequest): Promise<CreateFeatureResponse> {
+    if (hasRevisionConflict(request.baseRevisionId)) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: REVISION_ID,
+        featureId: `feature_${request.featureType}-preview`,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: REVISION_ID,
+        },
+        changedTargets: [],
+        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
       revisionId: request.baseRevisionId,
       featureId: `feature_${request.featureType}-preview`,
+      revisionState: {
+        kind: 'accepted',
+        baseRevisionId: request.baseRevisionId,
+      },
       changedTargets: request.consumedTargets,
       diagnostics: [
         {
@@ -757,6 +830,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           severity: 'info',
           message: 'Mock kernel accepted the feature create request without mutating committed state.',
           target: request.consumedTargets[0] ?? null,
+          detail: null,
         },
       ],
     }
@@ -765,11 +839,31 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
   async commitSketch(request: CommitSketchRequest): Promise<CommitSketchResponse> {
     const sketchId = request.sketchId ?? 'sketch_primary'
 
+    if (hasRevisionConflict(request.baseRevisionId)) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: REVISION_ID,
+        sketchId,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: REVISION_ID,
+        },
+        changedTargets: [],
+        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
       revisionId: request.baseRevisionId,
       sketchId,
+      revisionState: {
+        kind: 'accepted',
+        baseRevisionId: request.baseRevisionId,
+      },
       changedTargets: [
         { kind: 'sketch', sketchId },
         ...request.primitiveIds.map((primitiveId) => ({
@@ -784,17 +878,38 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           severity: 'info',
           message: 'Mock kernel accepted the sketch commit request without mutating the document.',
           target: { kind: 'sketch', sketchId },
+          detail: null,
         },
       ],
     }
   }
 
   async updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse> {
+    if (hasRevisionConflict(request.baseRevisionId)) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: REVISION_ID,
+        featureId: request.featureId,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: REVISION_ID,
+        },
+        changedTargets: [],
+        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
       revisionId: request.baseRevisionId,
       featureId: request.featureId,
+      revisionState: {
+        kind: 'accepted',
+        baseRevisionId: request.baseRevisionId,
+      },
       changedTargets: request.consumedTargets,
       diagnostics: [
         {
@@ -802,17 +917,38 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           severity: 'info',
           message: 'Mock kernel accepted the feature update request without mutating committed state.',
           target: request.consumedTargets[0] ?? null,
+          detail: null,
         },
       ],
     }
   }
 
   async deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse> {
+    if (hasRevisionConflict(request.baseRevisionId)) {
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: REVISION_ID,
+        deletedFeatureId: request.featureId,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: REVISION_ID,
+        },
+        changedTargets: [],
+        diagnostics: [createRevisionConflictDiagnostic(request.baseRevisionId)],
+      }
+    }
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
       revisionId: request.baseRevisionId,
       deletedFeatureId: request.featureId,
+      revisionState: {
+        kind: 'accepted',
+        baseRevisionId: request.baseRevisionId,
+      },
       changedTargets: [],
       diagnostics: [
         {
@@ -820,25 +956,56 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           severity: 'info',
           message: 'Mock kernel accepted the feature delete without mutating the document.',
           target: { kind: 'feature', featureId: request.featureId },
+          detail: null,
         },
       ],
     }
   }
 
   async evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse> {
+    const stale = request.baseRevisionId !== CURRENT_REVISION_ID
+
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
-      revisionId: request.baseRevisionId,
+      revisionId: stale ? CURRENT_REVISION_ID : request.baseRevisionId,
       previewId: request.previewId,
-      renderables: structuredClone(mockSnapshot.renderables),
+      freshness: stale
+        ? {
+            kind: 'stale',
+            requestedRevisionId: request.baseRevisionId,
+            currentRevisionId: CURRENT_REVISION_ID,
+          }
+        : {
+            kind: 'fresh',
+            baseRevisionId: request.baseRevisionId,
+          },
+      renderables: stale ? [] : structuredClone(mockSnapshot.renderables),
       diagnostics: [
-        {
-          code: 'mock-preview',
-          severity: 'info',
-          message: `Preview evaluation for ${request.featureType} is mocked and does not mutate committed state.`,
-          target: request.consumedTargets[0] ?? null,
-        },
+        ...(stale
+          ? [
+              {
+                code: 'mock-stale-preview',
+                severity: 'warning' as const,
+                message: `Preview ${request.previewId} was rejected because revision ${request.baseRevisionId} is stale.`,
+                target: request.consumedTargets[0] ?? null,
+                detail: {
+                  kind: 'stalePreview' as const,
+                  previewId: request.previewId,
+                  requestedRevisionId: request.baseRevisionId,
+                  currentRevisionId: CURRENT_REVISION_ID,
+                },
+              },
+            ]
+          : [
+              {
+                code: 'mock-preview',
+                severity: 'info' as const,
+                message: `Preview evaluation for ${request.featureType} is mocked and does not mutate committed state.`,
+                target: request.consumedTargets[0] ?? null,
+                detail: null,
+              },
+            ]),
       ],
     }
   }
@@ -862,7 +1029,15 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           request.target.kind === 'vertex'
             ? request.target.bodyId
             : null,
-        invalidationReason: resolvedTarget ? null : 'The requested primitive does not exist in the mock snapshot.',
+        invalidation: resolvedTarget
+          ? null
+          : {
+              reason: 'The requested primitive does not exist in the mock snapshot.',
+              target: request.target,
+              ownerFeatureId: null,
+              ownerSketchId: null,
+              sourceTarget: null,
+            },
       },
       diagnostics: resolvedTarget
         ? []
@@ -872,6 +1047,16 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
               severity: 'warning',
               message: 'The requested primitive is not part of the current mock snapshot.',
               target: request.target,
+              detail: {
+                kind: 'invalidReference',
+                reference: {
+                  reason: 'The requested primitive does not exist in the mock snapshot.',
+                  target: request.target,
+                  ownerFeatureId: null,
+                  ownerSketchId: null,
+                  sourceTarget: null,
+                },
+              },
             },
           ],
     }

@@ -42,10 +42,16 @@ export async function commitActiveSketchSession(input: {
     return null
   }
 
-  return input.modelingService.commitSketch({
+  const result = await input.modelingService.commitSketch({
     baseRevisionId: input.baseRevisionId,
     ...input.session.commitRequest,
   })
+
+  if (result.revisionState.kind === 'conflict') {
+    return result
+  }
+
+  return result
 }
 
 export function mergeSketchRenderables(

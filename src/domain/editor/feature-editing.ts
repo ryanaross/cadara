@@ -3,6 +3,7 @@ import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
   FeatureBooleanOperation,
   FeatureSnapshotRecord,
+  ModelingDiagnostic,
   PreviewId,
 } from '@/domain/modeling/schema'
 
@@ -30,12 +31,7 @@ export interface FeatureEditSessionState {
   status: 'idle' | 'previewing' | 'previewReady' | 'submitting'
   lastPreviewRevisionId: RevisionId | null
   lastCommittedRevisionId: RevisionId | null
-  diagnostics: {
-    code: string
-    severity: 'info' | 'warning' | 'error'
-    message: string
-    target: PrimitiveRef | null
-  }[]
+  diagnostics: ModelingDiagnostic[]
 }
 
 export interface ExtrudeFeatureParameterPayload extends Record<string, unknown> {

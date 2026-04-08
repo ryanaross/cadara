@@ -34,6 +34,7 @@ export function CadWorkbench() {
     dispatch,
   } = useEditorState()
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null)
+  const [snapshotDiagnostics, setSnapshotDiagnostics] = useState<DocumentSnapshot['diagnostics']>([])
 
   useEffect(() => installConsoleLoggingSubscribers(actionBus), [actionBus])
 
@@ -45,6 +46,7 @@ export function CadWorkbench() {
       .then((nextSnapshot) => {
         if (!isCancelled) {
           setSnapshot(nextSnapshot)
+          setSnapshotDiagnostics(nextSnapshot.diagnostics)
         }
       })
 
@@ -101,6 +103,20 @@ export function CadWorkbench() {
           return
         }
 
+        if (result.revisionState.kind === 'conflict') {
+          dispatch({
+            type: 'setPreview',
+            preview: {
+              kind: 'sketch',
+              label:
+                result.diagnostics[0]?.message ??
+                `Sketch commit rejected due to revision conflict (${result.revisionState.actualRevisionId}).`,
+              target: sketchSession.planeTarget,
+            },
+          })
+          return
+        }
+
         dispatch({ type: 'finishSketchSession' })
 
         modelingService
@@ -111,6 +127,7 @@ export function CadWorkbench() {
             }
 
             setSnapshot(nextSnapshot)
+            setSnapshotDiagnostics(nextSnapshot.diagnostics)
           })
           .catch((error: unknown) => {
             if (isCancelled) {
@@ -174,40 +191,58 @@ export function CadWorkbench() {
       : snapshot?.renderables ?? []
 
   const handleCommitFeature = () => {
-    void commitFeature().then((result) => {
-      if (!result) {
-        return
-      }
+    void commitFeature()
+      .then((result) => {
+        if (!result) {
+          return
+        }
 
-      dispatch({ type: 'endEditSession' })
+        dispatch({ type: 'endEditSession' })
 
-      modelingService
-        .getCurrentDocumentSnapshot()
-        .then((nextSnapshot) => {
-          setSnapshot(nextSnapshot)
-          dispatch({
-            type: 'setPreview',
-            preview: {
-              kind: 'selection',
-              label: `Committed feature ${result.featureId}`,
-              target: { kind: 'feature', featureId: result.featureId },
-            },
+        modelingService
+          .getCurrentDocumentSnapshot()
+          .then((nextSnapshot) => {
+            setSnapshot(nextSnapshot)
+            setSnapshotDiagnostics(nextSnapshot.diagnostics)
+            dispatch({
+              type: 'setPreview',
+              preview: {
+                kind: 'selection',
+                label: `Committed feature ${result.featureId}`,
+                target: { kind: 'feature', featureId: result.featureId },
+              },
+            })
           })
-        })
-        .catch((error: unknown) => {
-          dispatch({
-            type: 'setPreview',
-            preview: {
-              kind: 'selection',
-              label:
-                error instanceof Error
-                  ? `Feature committed, but snapshot refresh failed: ${error.message}`
-                  : 'Feature committed, but snapshot refresh failed.',
-              target: { kind: 'feature', featureId: result.featureId },
-            },
+          .catch((error: unknown) => {
+            dispatch({
+              type: 'setPreview',
+              preview: {
+                kind: 'selection',
+                label:
+                  error instanceof Error
+                    ? `Feature committed, but snapshot refresh failed: ${error.message}`
+                    : 'Feature committed, but snapshot refresh failed.',
+                target: { kind: 'feature', featureId: result.featureId },
+              },
+            })
           })
+      })
+      .catch((error: unknown) => {
+        dispatch({
+          type: 'setPreview',
+          preview: {
+            kind: 'selection',
+            label:
+              error instanceof Error
+                ? `Feature commit failed: ${error.message}`
+                : 'Feature commit failed.',
+            target:
+              activeEditSession?.featureId != null
+                ? { kind: 'feature', featureId: activeEditSession.featureId }
+                : selection[0] ?? null,
+          },
         })
-    })
+      })
   }
 
   return (
@@ -233,6 +268,10 @@ export function CadWorkbench() {
             <div>
               Revision:{' '}
               <span className="text-[var(--cad-foreground)]">{snapshot?.revisionId ?? 'loading'}</span>
+            </div>
+            <div>
+              Snapshot diagnostics:{' '}
+              <span className="text-[var(--cad-foreground)]">{snapshotDiagnostics.length}</span>
             </div>
             <div>
               Sketch session:{' '}

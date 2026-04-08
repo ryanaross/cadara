@@ -7,7 +7,7 @@ import {
   getPrimitiveRefLabel,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import type { DocumentSnapshot } from '@/domain/modeling/schema'
+import type { DocumentSnapshot, ModelingDiagnostic, ReferenceRecord } from '@/domain/modeling/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 interface FeatureSidebarProps {
@@ -32,6 +32,37 @@ function formatReferenceOwner(snapshot: DocumentSnapshot, featureId: string | nu
   }
 
   return 'Document root'
+}
+
+function getReferenceStatus(reference: ReferenceRecord) {
+  if (!reference.invalidation) {
+    return null
+  }
+
+  return `${getPrimitiveRefLabel(reference.invalidation.target)} invalid: ${reference.invalidation.reason}`
+}
+
+function formatDocumentDiagnosticDetail(diagnostic: ModelingDiagnostic) {
+  const detail = diagnostic.detail
+
+  if (!detail) {
+    return null
+  }
+
+  switch (detail.kind) {
+    case 'invalidReference':
+      return `Broken ref ${getPrimitiveRefLabel(detail.reference.target)} from ${
+        detail.reference.sourceTarget ? getPrimitiveRefLabel(detail.reference.sourceTarget) : 'document state'
+      }`
+    case 'revisionConflict':
+      return `Expected ${detail.expectedRevisionId}, current ${detail.actualRevisionId}`
+    case 'stalePreview':
+      return `Preview ${detail.previewId} requested ${detail.requestedRevisionId}, current ${detail.currentRevisionId}`
+    case 'rebuildFailure':
+      return `Affected features: ${detail.affectedFeatureIds.join(', ') || 'none'} | Targets: ${
+        detail.affectedTargets.map((target) => getPrimitiveRefLabel(target)).join(', ') || 'none'
+      }`
+  }
 }
 
 export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps) {
@@ -168,7 +199,11 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
               {(snapshot?.references ?? []).map((reference) => (
                 <div
                   key={reference.id}
-                  className="rounded-md border border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)] px-2 py-2"
+                  className={`rounded-md border px-2 py-2 ${
+                    reference.invalidation
+                      ? 'border-[rgba(214,106,106,0.4)] bg-[rgba(49,22,24,0.72)]'
+                      : 'border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)]'
+                  }`}
                 >
                   <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">{reference.label}</p>
                   <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
@@ -177,11 +212,58 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                   <p className="mt-1 truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
                     Owner {snapshot ? formatReferenceOwner(snapshot, reference.ownerFeatureId, reference.ownerSketchId) : 'n/a'}
                   </p>
+                  {getReferenceStatus(reference) ? (
+                    <p className="mt-1 text-xs text-[rgb(241,160,160)]">{getReferenceStatus(reference)}</p>
+                  ) : null}
                 </div>
               ))}
             </div>
           </ScrollArea>
         </div>
+      </section>
+
+      <section className="flex min-h-0 flex-[0.85] flex-col border-b border-[var(--cad-border)]">
+        <header className="border-b border-[var(--cad-border)] px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
+            Document Diagnostics
+          </p>
+        </header>
+        <ScrollArea className="min-h-0 flex-1">
+          <div className="space-y-2 px-3 py-3">
+            {snapshot?.diagnostics.length ? (
+              snapshot.diagnostics.map((diagnostic) => (
+                <div
+                  key={`${diagnostic.code}-${diagnostic.message}`}
+                  className={`rounded-md border px-2 py-2 ${
+                    diagnostic.severity === 'error'
+                      ? 'border-[rgba(214,106,106,0.45)] bg-[rgba(49,22,24,0.72)]'
+                      : diagnostic.severity === 'warning'
+                        ? 'border-[rgba(196,152,84,0.45)] bg-[rgba(46,33,17,0.72)]'
+                        : 'border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)]'
+                  }`}
+                >
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
+                    {diagnostic.severity}
+                  </p>
+                  <p className="mt-1 text-sm text-[var(--cad-foreground)]">{diagnostic.message}</p>
+                  {diagnostic.target ? (
+                    <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+                      Target {getPrimitiveRefLabel(diagnostic.target)}
+                    </p>
+                  ) : null}
+                  {formatDocumentDiagnosticDetail(diagnostic) ? (
+                    <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+                      {formatDocumentDiagnosticDetail(diagnostic)}
+                    </p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-[var(--cad-muted)]">{diagnostic.code}</p>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-[var(--cad-muted-foreground)]">No document diagnostics.</p>
+            )}
+          </div>
+        </ScrollArea>
       </section>
 
       <section className="border-t border-[var(--cad-border)] px-4 py-3">
@@ -200,10 +282,6 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           <span className="text-[var(--cad-foreground)]">
             {activeEditSession?.status ?? 'idle'}
           </span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Revision:{' '}
-          <span className="text-[var(--cad-foreground)]">{snapshot?.revisionId ?? 'Loading snapshot'}</span>
         </p>
         <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
           Selection:{' '}

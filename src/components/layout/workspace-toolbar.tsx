@@ -78,12 +78,21 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
 export function WorkspaceToolbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    state: { activeCommand, mode },
+    state: { activeCommand, mode, sketchSession },
   } = useEditorState()
   const visibleSections = useMemo(() => getToolbarSectionsForMode(mode), [mode])
   const searchResults = useMemo(() => searchToolDefinitions(searchQuery), [searchQuery])
+  const hasActiveSketchSession = sketchSession !== null
 
   const renderTool = (tool: RegisteredToolDefinition) => {
+    if (tool.id === 'sketch' && hasActiveSketchSession) {
+      return null
+    }
+
+    if (tool.id === 'finishSketch' && !hasActiveSketchSession) {
+      return null
+    }
+
     const Icon = iconMap[tool.icon]
     const isActive =
       activeCommand?.toolId === tool.id ||

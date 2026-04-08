@@ -2,6 +2,7 @@ import { Check, CircleSlash, Layers3 } from 'lucide-react'
 
 import type { FeatureSnapshotRecord, ModelingDiagnostic } from '@/domain/modeling/schema'
 import type { FeatureBooleanOperation } from '@/domain/modeling/schema'
+import { getPrimitiveRefLabel } from '@/domain/editor/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 interface FeatureInspectorProps {
@@ -32,11 +33,35 @@ function DiagnosticsList({ diagnostics }: { diagnostics: ModelingDiagnostic[] })
             {diagnostic.severity}
           </p>
           <p className="mt-1 text-sm text-[var(--cad-foreground)]">{diagnostic.message}</p>
+          {diagnostic.detail ? (
+            <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+              {formatDiagnosticDetail(diagnostic)}
+            </p>
+          ) : null}
           <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">{diagnostic.code}</p>
         </div>
       ))}
     </div>
   )
+}
+
+function formatDiagnosticDetail(diagnostic: ModelingDiagnostic) {
+  const detail = diagnostic.detail
+
+  if (!detail) {
+    return null
+  }
+
+  switch (detail.kind) {
+    case 'invalidReference':
+      return `Broken ref ${getPrimitiveRefLabel(detail.reference.target)}: ${detail.reference.reason}`
+    case 'revisionConflict':
+      return `Expected ${detail.expectedRevisionId}, current ${detail.actualRevisionId}`
+    case 'stalePreview':
+      return `Preview ${detail.previewId} used ${detail.requestedRevisionId}; current is ${detail.currentRevisionId}`
+    case 'rebuildFailure':
+      return `Affected features: ${detail.affectedFeatureIds.join(', ') || 'none'}`
+  }
 }
 
 export function FeatureInspector({
@@ -72,6 +97,12 @@ export function FeatureInspector({
         </p>
         <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
           Contract: `createFeature` / `updateFeature` + `evaluatePreview`
+        </p>
+        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+          Revision state:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {activeEditSession.lastPreviewRevisionId ?? activeEditSession.lastCommittedRevisionId ?? 'pending'}
+          </span>
         </p>
       </header>
 

@@ -58,6 +58,7 @@ export function useFeatureEditing(
             severity: 'warning' as const,
             message: 'Select a sketch or sketch profile before previewing extrude.',
             target: null,
+            detail: null,
           },
         ],
       }
@@ -126,6 +127,17 @@ export function useFeatureEditing(
           return
         }
 
+        if (result.stale) {
+          setPreviewRenderables(null)
+          dispatch({
+            type: 'setFeatureEditDiagnostics',
+            diagnostics: result.diagnostics,
+            revisionId: result.revisionId,
+          })
+          dispatch({ type: 'setFeatureEditStatus', status: 'idle' })
+          return
+        }
+
         setPreviewRenderables(result.renderables)
         dispatch({
           type: 'setFeatureEditDiagnostics',
@@ -148,6 +160,7 @@ export function useFeatureEditing(
               severity: 'error',
               message: error instanceof Error ? error.message : 'Feature preview failed.',
               target: previewInput.profileTarget,
+              detail: null,
             },
           ],
         })
@@ -182,6 +195,7 @@ export function useFeatureEditing(
               severity: 'error',
               message: 'Extrude requires an explicit profile target.',
               target: null,
+              detail: null,
             },
           ],
         })
@@ -198,15 +212,44 @@ export function useFeatureEditing(
       }
 
       const result =
-        activeEditSession.mode === 'edit' && activeEditSession.featureId
-          ? await modelingService.updateFeature({
-              ...input,
-              featureId: activeEditSession.featureId,
+        await (async () => {
+          try {
+            return activeEditSession.mode === 'edit' && activeEditSession.featureId
+              ? await modelingService.updateFeature({
+                  ...input,
+                  featureId: activeEditSession.featureId,
+                })
+              : await modelingService.createFeature({
+                  ...input,
+                  featureType: activeEditSession.featureType,
+                })
+          } catch (error: unknown) {
+            dispatch({
+              type: 'setFeatureEditDiagnostics',
+              diagnostics: [
+                {
+                  code: 'feature-commit-failed',
+                  severity: 'error',
+                  message: error instanceof Error ? error.message : 'Feature commit failed.',
+                  target: activeEditSession.draft.profileTarget,
+                  detail: null,
+                },
+              ],
             })
-          : await modelingService.createFeature({
-              ...input,
-              featureType: activeEditSession.featureType,
-            })
+            dispatch({ type: 'setFeatureEditStatus', status: 'idle' })
+            throw error
+          }
+        })()
+
+      if (result.revisionState.kind === 'conflict') {
+        dispatch({
+          type: 'setFeatureEditDiagnostics',
+          diagnostics: result.diagnostics,
+          revisionId: result.revisionId,
+        })
+        dispatch({ type: 'setFeatureEditStatus', status: 'idle' })
+        return null
+      }
 
       dispatch({
         type: 'setFeatureEditDiagnostics',

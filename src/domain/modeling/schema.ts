@@ -22,6 +22,58 @@ export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
 
 export type SketchPoint = readonly [number, number]
 
+export interface InvalidReferenceDetailPayload {
+  reason: string
+  target: PrimitiveRef
+  ownerFeatureId: FeatureId | null
+  ownerSketchId: SketchId | null
+  sourceTarget: PrimitiveRef | null
+}
+
+export type ModelingDiagnosticDetail =
+  | {
+      kind: 'invalidReference'
+      reference: InvalidReferenceDetailPayload
+    }
+  | {
+      kind: 'revisionConflict'
+      expectedRevisionId: RevisionId
+      actualRevisionId: RevisionId
+    }
+  | {
+      kind: 'stalePreview'
+      previewId: PreviewId
+      requestedRevisionId: RevisionId
+      currentRevisionId: RevisionId
+    }
+  | {
+      kind: 'rebuildFailure'
+      affectedFeatureIds: FeatureId[]
+      affectedTargets: PrimitiveRef[]
+    }
+
+export type MutationRevisionState =
+  | {
+      kind: 'accepted'
+      baseRevisionId: RevisionId
+    }
+  | {
+      kind: 'conflict'
+      expectedRevisionId: RevisionId
+      actualRevisionId: RevisionId
+    }
+
+export type PreviewFreshness =
+  | {
+      kind: 'fresh'
+      baseRevisionId: RevisionId
+    }
+  | {
+      kind: 'stale'
+      requestedRevisionId: RevisionId
+      currentRevisionId: RevisionId
+    }
+
 export type SketchPrimitiveGeometry =
   | {
       kind: 'line'
@@ -47,6 +99,7 @@ export interface ModelingDiagnostic {
   severity: 'info' | 'warning' | 'error'
   message: string
   target: PrimitiveRef | null
+  detail: ModelingDiagnosticDetail | null
 }
 
 export interface SnapshotOwnershipRecord {
@@ -84,7 +137,7 @@ export interface ReferenceRecord {
   target: PrimitiveRef
   ownerFeatureId: FeatureId | null
   ownerSketchId: SketchId | null
-  invalidationReason: string | null
+  invalidation: InvalidReferenceDetailPayload | null
 }
 
 export interface RenderableEntityRecord {
@@ -204,6 +257,7 @@ export interface ModelingOperationResult {
   contractVersion: ContractVersion
   documentId: DocumentId
   revisionId: RevisionId
+  revisionState: MutationRevisionState
   changedTargets: PrimitiveRef[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -277,6 +331,7 @@ export interface EvaluatePreviewResponse {
   documentId: DocumentId
   revisionId: RevisionId
   previewId: PreviewId
+  freshness: PreviewFreshness
   renderables: RenderableEntityRecord[]
   diagnostics: ModelingDiagnostic[]
 }
@@ -293,7 +348,7 @@ export interface ResolvedReferenceRecord {
   ownerFeatureId: FeatureId | null
   ownerSketchId: SketchId | null
   ownerBodyId: BodyId | null
-  invalidationReason: string | null
+  invalidation: InvalidReferenceDetailPayload | null
 }
 
 export interface ResolveReferenceResponse {
