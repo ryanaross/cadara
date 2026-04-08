@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+  font-family:
+    'IBM Plex Sans',
+    'Segoe UI',
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  --cad-background: #0a0f14;
+  --cad-foreground: #edf3fb;
+  --cad-muted: #6d839f;
+  --cad-muted-foreground: #9fb1c8;
+  --cad-border: rgba(121, 140, 168, 0.18);
+  --cad-border-strong: rgba(121, 140, 168, 0.34);
+  --cad-surface: rgba(20, 28, 37, 0.98);
+  --cad-surface-muted: rgba(13, 18, 25, 0.95);
+  --cad-surface-elevated: rgba(30, 40, 52, 0.96);
+  --cad-accent: #5ca5ff;
+  --cad-panel-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.38),
+    0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top, rgba(51, 84, 121, 0.2), transparent 28%),
+    linear-gradient(180deg, #0f141a, #070a0f 62%);
+}
+
+body {
+  min-height: 100vh;
+  color: var(--cad-foreground);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input {
+  font: inherit;
+}

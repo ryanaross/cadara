@@ -1,0 +1,59 @@
+FROM ubuntu:24.04
+
+# Install basic development tools, ca-certificates, and iptables/ipset, then clean up apt cache to reduce image size
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  aggregate \
+  ca-certificates \
+  curl \
+  dnsutils \
+  fzf \
+  gh \
+  git \
+  gnupg2 \
+  iproute2 \
+  ipset \
+  iptables \
+  jq \
+  less \
+  man-db \
+  procps \
+  unzip \
+  ripgrep \
+  zsh \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 24
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
+  && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
+
+# Set up npm global directory with proper permissions
+RUN mkdir -p /usr/local/share/npm-global \
+  && chmod 755 /usr/local/share/npm-global
+
+# Install codex from npm globally
+ARG CODEX_VERSION=latest
+RUN npm install -g @openai/codex@${CODEX_VERSION} \
+    && npm cache clean --force
+
+# Set npm global config for any user
+ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
+ENV PATH=$PATH:/usr/local/share/npm-global/bin
+
+# Inside the container we consider the environment already sufficiently locked
+# down, therefore instruct Codex CLI to allow running without sandboxing.
+ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
+ENV OPENAI_API_KEY=sk-dummy
+
+RUN mkdir -p /app
+WORKDIR /app
+
+RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<EOF
+model = "gpt-5.4"
+openai_base_url = "https://ai.vpn.dzerv.art/v1"
+[projects."/app"]
+trust_level = "trusted"
+
+[notice.model_migrations]
+"gpt-5.3-codex" = "gpt-5.4"
+EOF

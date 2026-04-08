@@ -1,0 +1,80 @@
+import { ChevronDown } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import type { RegisteredToolDefinition } from '@/domain/tools/tool-registry'
+import type { ToolIconId } from '@/domain/tools/schema'
+import { useToolActions } from '@/hooks/use-tool-actions'
+
+interface ToolDropdownButtonProps {
+  tool: RegisteredToolDefinition
+  icon: LucideIcon
+  variantTools: RegisteredToolDefinition[]
+  iconMap: Record<ToolIconId, LucideIcon>
+}
+
+export function ToolDropdownButton({
+  tool,
+  icon: Icon,
+  variantTools,
+  iconMap,
+}: ToolDropdownButtonProps) {
+  const { triggerTool } = useToolActions()
+
+  return (
+    <TooltipProvider delayDuration={100}>
+      <Tooltip>
+        <DropdownMenu>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex h-10 items-center gap-1 rounded-lg border border-transparent px-2.5 text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)]"
+                aria-label={tool.tooltip}
+              >
+                <Icon className="h-4 w-4" />
+                <ChevronDown className="h-3.5 w-3.5 text-[var(--cad-muted)]" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <DropdownMenuContent align="start" className="min-w-56">
+            {variantTools.map((variant) => {
+              const VariantIcon = iconMap[variant.icon]
+
+              return (
+                <DropdownMenuItem
+                  key={variant.id}
+                  onSelect={() =>
+                    triggerTool(variant.id, {
+                      source: 'dropdown',
+                    })
+                  }
+                >
+                  <VariantIcon className="mr-2 h-4 w-4" />
+                  <div className="flex flex-col">
+                    <span>{variant.name}</span>
+                    <span className="text-xs text-[var(--cad-muted-foreground)]">
+                      {variant.tooltip}
+                    </span>
+                  </div>
+                </DropdownMenuItem>
+              )
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <TooltipContent>{tool.tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
