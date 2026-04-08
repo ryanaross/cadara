@@ -488,6 +488,16 @@ const mockSnapshot: DocumentSnapshot = {
       label: 'Extrude 1',
       featureType: 'extrude',
       featureTypeVersion: 'feature-type/v1alpha1',
+      parameterPayload: {
+        depth: 12,
+        direction: 'oneSided',
+        operation: 'newBody',
+        profileTarget: {
+          kind: 'sketchPrimitive',
+          sketchId: 'sketch_primary',
+          primitiveId: 'curve_profile-outer',
+        },
+      },
       consumedTargets: [
         { kind: 'sketch', sketchId: 'sketch_primary' },
         { kind: 'sketchPrimitive', sketchId: 'sketch_primary', primitiveId: 'curve_profile-outer' },
@@ -508,6 +518,9 @@ const mockSnapshot: DocumentSnapshot = {
       label: 'Fillet 1',
       featureType: 'fillet',
       featureTypeVersion: 'feature-type/v1alpha1',
+      parameterPayload: {
+        radius: 1.5,
+      },
       consumedTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
       producedTargets: [
         { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
@@ -742,7 +755,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         {
           code: 'mock-create-feature',
           severity: 'info',
-          message: 'Mock kernel accepted the feature request without mutating the document.',
+          message: 'Mock kernel accepted the feature create request without mutating committed state.',
           target: request.consumedTargets[0] ?? null,
         },
       ],
@@ -787,7 +800,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         {
           code: 'mock-update-feature',
           severity: 'info',
-          message: 'Mock kernel accepted the feature update without mutating the document.',
+          message: 'Mock kernel accepted the feature update request without mutating committed state.',
           target: request.consumedTargets[0] ?? null,
         },
       ],
@@ -823,7 +836,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         {
           code: 'mock-preview',
           severity: 'info',
-          message: 'Preview evaluation is mocked and returns the current renderable set.',
+          message: `Preview evaluation for ${request.featureType} is mocked and does not mutate committed state.`,
           target: request.consumedTargets[0] ?? null,
         },
       ],

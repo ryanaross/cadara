@@ -1,6 +1,7 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
 import type { SketchSessionState } from '@/domain/editor/sketch-session'
+import type { FeatureEditSessionState } from '@/domain/editor/feature-editing'
 
 export type DocumentId = `doc_${string}`
 export type RevisionId = `rev_${string}`
@@ -44,10 +45,6 @@ export interface CommandPreview {
   target: PrimitiveRef | null
 }
 
-export interface FeatureEditSession {
-  featureId: FeatureId
-}
-
 export interface EditorState {
   mode: ToolbarMode
   activeCommand: ActiveCommand | null
@@ -55,7 +52,7 @@ export interface EditorState {
   selectionFilter: SelectionFilter | null
   hoverTarget: SelectionTarget | null
   preview: CommandPreview | null
-  activeEditSession: FeatureEditSession | null
+  activeEditSession: FeatureEditSessionState | null
   sketchSession: SketchSessionState | null
 }
 

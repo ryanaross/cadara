@@ -18,6 +18,7 @@ export type FeatureTypeVersion = 'feature-type/v1alpha1'
 export type PreviewId = `preview_${string}`
 export type ReferenceId = `ref_${string}`
 export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
+export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
 
 export type SketchPoint = readonly [number, number]
 
@@ -138,6 +139,7 @@ export interface FeatureSnapshotRecord extends SnapshotOwnershipRecord {
   label: string
   featureType: string
   featureTypeVersion: FeatureTypeVersion
+  parameterPayload: Record<string, unknown>
   consumedTargets: PrimitiveRef[]
   producedTargets: PrimitiveRef[]
 }

@@ -84,6 +84,7 @@ export interface ModelingPreviewResult {
   revisionId: DocumentSnapshot['revisionId']
   previewId: EvaluatePreviewResponse['previewId']
   renderables: RenderableEntityRecord[]
+  stale: boolean
   diagnostics: ModelingDiagnostic[]
 }
 
@@ -523,6 +524,7 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
       !isString(entry.label) ||
       !isString(entry.featureType) ||
       entry.featureTypeVersion !== 'feature-type/v1alpha1' ||
+      !isRecord(entry.parameterPayload) ||
       !Array.isArray(entry.consumedTargets) ||
       !Array.isArray(entry.producedTargets)
     ) {
@@ -535,6 +537,7 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
       label: entry.label,
       featureType: entry.featureType,
       featureTypeVersion: entry.featureTypeVersion,
+      parameterPayload: entry.parameterPayload,
       consumedTargets: entry.consumedTargets.map((target) => assertPrimitiveRef(target)),
       producedTargets: entry.producedTargets.map((target) => assertPrimitiveRef(target)),
     }
@@ -806,6 +809,7 @@ function normalizePreviewResponse(
     revisionId: assertRevisionId(response.revisionId),
     previewId: response.previewId as PreviewId,
     renderables: normalizeRenderables(response.renderables),
+    stale: false,
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
 }

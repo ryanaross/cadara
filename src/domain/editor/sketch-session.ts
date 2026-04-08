@@ -517,10 +517,10 @@ export function getSketchSessionPreviewLabel(session: SketchSessionState): strin
   }
 
   if (session.status === 'drawing') {
-    return `${session.activeTool} preview updates locally`
+    return `${session.activeTool} preview active, click again to accept`
   }
 
-  return `Ready to place ${session.activeTool}`
+  return `Ready to place ${session.activeTool}, click to set first point`
 }
 
 export function getSketchSessionRenderables(session: SketchSessionState): RenderableEntityRecord[] {

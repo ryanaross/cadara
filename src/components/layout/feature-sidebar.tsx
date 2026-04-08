@@ -43,8 +43,10 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
   const activeFeatureLabel =
     activeEditSession === null
       ? 'No feature selected'
-      : snapshot?.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
-        activeEditSession.featureId
+      : activeEditSession.mode === 'create'
+        ? 'New extrude'
+        : snapshot?.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
+          activeEditSession.featureId
 
   return (
     <aside className="flex w-[360px] min-w-[360px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
@@ -192,6 +194,12 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
         <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
           Edit session:{' '}
           <span className="text-[var(--cad-foreground)]">{activeFeatureLabel}</span>
+        </p>
+        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
+          Edit status:{' '}
+          <span className="text-[var(--cad-foreground)]">
+            {activeEditSession?.status ?? 'idle'}
+          </span>
         </p>
         <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
           Revision:{' '}

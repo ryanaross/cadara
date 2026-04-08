@@ -2,6 +2,7 @@ import { getPrimitiveRefKey } from '@/domain/editor/schema'
 import type { PrimitiveRef } from '@/domain/editor/schema'
 import type {
   DocumentSnapshot,
+  FeatureSnapshotRecord,
   SnapshotEntityRecord,
 } from '@/domain/modeling/schema'
 
@@ -71,4 +72,11 @@ export function getSelectionDetail(
       return relatedEntity.label
     }),
   }
+}
+
+export function getFeatureSnapshot(
+  snapshot: DocumentSnapshot,
+  featureId: FeatureSnapshotRecord['featureId'],
+) {
+  return snapshot.features.find((feature) => feature.featureId === featureId) ?? null
 }

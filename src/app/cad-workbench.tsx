@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 
+import { ThreeCadViewport } from '@/components/cad/three-cad-viewport'
+import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
-import { ThreeCadViewport } from '@/components/cad/three-cad-viewport'
+import { hydrateExtrudeFeatureEditSession } from '@/domain/editor/feature-editing'
 import {
   commitActiveSketchSession,
   mergeSketchRenderables,
@@ -13,10 +15,14 @@ import {
   type PrimitiveRef,
   type ViewportInteractionEvent,
 } from '@/domain/editor/schema'
-import { getSelectionDetail } from '@/domain/modeling/document-snapshot-view'
+import {
+  getFeatureSnapshot,
+  getSelectionDetail,
+} from '@/domain/modeling/document-snapshot-view'
 import type { DocumentSnapshot } from '@/domain/modeling/schema'
 import { installConsoleLoggingSubscribers } from '@/domain/tools/console-logging'
 import { useEditorState } from '@/hooks/use-editor-state'
+import { useFeatureEditing } from '@/hooks/use-feature-editing'
 import { useModelingService } from '@/hooks/use-modeling-service'
 import { useToolActionBus } from '@/hooks/use-tool-actions'
 
@@ -24,7 +30,7 @@ export function CadWorkbench() {
   const actionBus = useToolActionBus()
   const modelingService = useModelingService()
   const {
-    state: { activeCommand, selection, hoverTarget, sketchSession },
+    state: { activeCommand, selection, hoverTarget, sketchSession, activeEditSession },
     dispatch,
   } = useEditorState()
   const [snapshot, setSnapshot] = useState<DocumentSnapshot | null>(null)
@@ -36,9 +42,9 @@ export function CadWorkbench() {
 
     modelingService
       .getCurrentDocumentSnapshot()
-      .then((snapshot) => {
+      .then((nextSnapshot) => {
         if (!isCancelled) {
-          setSnapshot(snapshot)
+          setSnapshot(nextSnapshot)
         }
       })
 
@@ -146,21 +152,72 @@ export function CadWorkbench() {
 
   const primarySelection = selection[0] ?? hoverTarget ?? null
   const selectionDetail =
-    snapshot && primarySelection
-      ? getSelectionDetail(snapshot, primarySelection)
+    snapshot && primarySelection ? getSelectionDetail(snapshot, primarySelection) : null
+  const activeFeatureSnapshot =
+    snapshot && activeEditSession?.featureId
+      ? getFeatureSnapshot(snapshot, activeEditSession.featureId)
+      : primarySelection?.kind === 'feature' && snapshot
+        ? getFeatureSnapshot(snapshot, primarySelection.featureId)
+        : null
+  const editableFeatureSnapshot =
+    activeFeatureSnapshot && hydrateExtrudeFeatureEditSession(activeFeatureSnapshot)
+      ? activeFeatureSnapshot
       : null
+
+  const { commitFeature, cancelFeature, previewRenderables } = useFeatureEditing(
+    snapshot?.revisionId ?? null,
+    editableFeatureSnapshot,
+  )
+  const viewportRenderables =
+    activeEditSession && previewRenderables !== null
+      ? previewRenderables
+      : snapshot?.renderables ?? []
+
+  const handleCommitFeature = () => {
+    void commitFeature().then((result) => {
+      if (!result) {
+        return
+      }
+
+      dispatch({ type: 'endEditSession' })
+
+      modelingService
+        .getCurrentDocumentSnapshot()
+        .then((nextSnapshot) => {
+          setSnapshot(nextSnapshot)
+          dispatch({
+            type: 'setPreview',
+            preview: {
+              kind: 'selection',
+              label: `Committed feature ${result.featureId}`,
+              target: { kind: 'feature', featureId: result.featureId },
+            },
+          })
+        })
+        .catch((error: unknown) => {
+          dispatch({
+            type: 'setPreview',
+            preview: {
+              kind: 'selection',
+              label:
+                error instanceof Error
+                  ? `Feature committed, but snapshot refresh failed: ${error.message}`
+                  : 'Feature committed, but snapshot refresh failed.',
+              target: { kind: 'feature', featureId: result.featureId },
+            },
+          })
+        })
+    })
+  }
 
   return (
     <div className="flex h-screen min-h-screen flex-col bg-[var(--cad-background)] text-[var(--cad-foreground)]">
       <WorkspaceToolbar />
       <div className="flex min-h-0 flex-1">
-        <FeatureSidebar
-          snapshot={snapshot}
-          onSelectTarget={handleSelectionRequest}
-        />
+        <FeatureSidebar snapshot={snapshot} onSelectTarget={handleSelectionRequest} />
         <main className="relative min-h-0 flex-1 overflow-hidden border-l border-[var(--cad-border)] bg-[radial-gradient(circle_at_top,_rgba(79,104,140,0.12),_transparent_36%),linear-gradient(180deg,_rgba(14,18,24,0.96),_rgba(8,11,16,1))]">
           <ThreeCadViewport
-            renderables={mergeSketchRenderables(snapshot?.renderables ?? [], sketchSession)}
+            renderables={mergeSketchRenderables(viewportRenderables, sketchSession)}
             onInteraction={handleViewportInteraction}
           />
           <div className="pointer-events-none absolute bottom-4 left-4 grid gap-3 rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.9)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
@@ -185,18 +242,22 @@ export function CadWorkbench() {
                   : 'none'}
               </span>
             </div>
+            <div>
+              Feature session:{' '}
+              <span className="text-[var(--cad-foreground)]">
+                {activeEditSession
+                  ? `${activeEditSession.mode}:${activeEditSession.featureType}:${activeEditSession.status}`
+                  : 'none'}
+              </span>
+            </div>
             <div className="border-t border-[var(--cad-border)] pt-2">
               <div>
                 Selection detail:{' '}
-                <span className="text-[var(--cad-foreground)]">
-                  {selectionDetail?.label ?? 'none'}
-                </span>
+                <span className="text-[var(--cad-foreground)]">{selectionDetail?.label ?? 'none'}</span>
               </div>
               <div>
                 Kind:{' '}
-                <span className="text-[var(--cad-foreground)]">
-                  {selectionDetail?.kindLabel ?? 'none'}
-                </span>
+                <span className="text-[var(--cad-foreground)]">{selectionDetail?.kindLabel ?? 'none'}</span>
               </div>
               <div>
                 Owner:{' '}
@@ -219,6 +280,17 @@ export function CadWorkbench() {
             </div>
           </div>
         </main>
+        <FeatureInspector
+          featureSnapshot={editableFeatureSnapshot}
+          onDepthChange={(value) =>
+            dispatch({ type: 'patchExtrudeEditSession', patch: { depth: value } })
+          }
+          onOperationChange={(value) =>
+            dispatch({ type: 'patchExtrudeEditSession', patch: { operation: value } })
+          }
+          onCommit={handleCommitFeature}
+          onCancel={cancelFeature}
+        />
       </div>
     </div>
   )

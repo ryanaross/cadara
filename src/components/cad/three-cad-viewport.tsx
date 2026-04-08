@@ -52,6 +52,7 @@ interface ViewportRuntime {
   sketchPlane: THREE.Plane
   sketchHitPoint: THREE.Vector3
   animationFrameId: number
+  pointerDownTarget: EventTarget | null
 }
 
 export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewportProps) {
@@ -135,6 +136,7 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       sketchPlane: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
       sketchHitPoint: new THREE.Vector3(),
       animationFrameId: 0,
+      pointerDownTarget: null,
     }
 
     runtimeRef.current = runtime
@@ -307,12 +309,7 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       if (event.button !== 0) {
         return
       }
-
-      const planePoint = readPlanePoint(event)
-
-      if (planePoint) {
-        onInteractionRef.current({ type: 'canvasPointerDown', worldPosition: planePoint })
-      }
+      runtime.pointerDownTarget = event.target
 
       if (sketchSession) {
         return
@@ -331,6 +328,13 @@ export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewpor
       if (event.button !== 0) {
         return
       }
+
+       if (runtime.pointerDownTarget !== event.target) {
+        runtime.pointerDownTarget = null
+        return
+      }
+
+      runtime.pointerDownTarget = null
 
       const planePoint = readPlanePoint(event)
 
