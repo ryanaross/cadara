@@ -1,10 +1,15 @@
 import type {
   BodyId,
+  ConstructionId,
+  EdgeId,
   DocumentId,
+  FaceId,
   FeatureId,
   PrimitiveRef,
   RevisionId,
   SketchId,
+  SketchPrimitiveId,
+  VertexId,
 } from '@/domain/editor/schema'
 
 export type ContractVersion = 'modeling-contract/v1alpha1'
@@ -20,12 +25,23 @@ export interface ModelingDiagnostic {
   target: PrimitiveRef | null
 }
 
+export interface SnapshotOwnershipRecord {
+  ownerDocumentId: DocumentId
+  ownerRevisionId: RevisionId
+  ownerFeatureId: FeatureId | null
+  ownerSketchId: SketchId | null
+  ownerBodyId: BodyId | null
+}
+
 export interface FeatureTreeNodeRecord {
   id: string
   label: string
   description: string
   kind: 'plane' | 'sketch' | 'feature'
   target: PrimitiveRef
+  ownerFeatureId: FeatureId | null
+  ownerSketchId: SketchId | null
+  sourceFeatureId: FeatureId | null
 }
 
 export interface ObjectTreeNodeRecord {
@@ -34,6 +50,8 @@ export interface ObjectTreeNodeRecord {
   description: string
   kind: 'body' | 'construction'
   target: PrimitiveRef
+  ownerBodyId: BodyId | null
+  ownerFeatureId: FeatureId | null
 }
 
 export interface ReferenceRecord {
@@ -41,12 +59,68 @@ export interface ReferenceRecord {
   label: string
   target: PrimitiveRef
   ownerFeatureId: FeatureId | null
+  ownerSketchId: SketchId | null
+  invalidationReason: string | null
 }
 
 export interface RenderableEntityRecord {
   id: string
   label: string
   target: PrimitiveRef
+  ownerBodyId: BodyId | null
+  ownerFeatureId: FeatureId | null
+  topology: 'face' | 'edge' | 'vertex'
+}
+
+export interface SketchPrimitiveRecord {
+  primitiveId: SketchPrimitiveId
+  label: string
+  kind: 'line' | 'circle' | 'arc' | 'point' | 'profile'
+  target: PrimitiveRef
+}
+
+export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
+  sketchId: SketchId
+  label: string
+  planeTarget: PrimitiveRef
+  primitiveIds: SketchPrimitiveId[]
+  primitives: SketchPrimitiveRecord[]
+}
+
+export interface FeatureSnapshotRecord extends SnapshotOwnershipRecord {
+  featureId: FeatureId
+  label: string
+  featureType: string
+  featureTypeVersion: FeatureTypeVersion
+  consumedTargets: PrimitiveRef[]
+  producedTargets: PrimitiveRef[]
+}
+
+export interface BodyTopologySnapshotRecord {
+  faceIds: FaceId[]
+  edgeIds: EdgeId[]
+  vertexIds: VertexId[]
+}
+
+export interface BodySnapshotRecord extends SnapshotOwnershipRecord {
+  bodyId: BodyId
+  label: string
+  topology: BodyTopologySnapshotRecord
+}
+
+export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
+  constructionId: ConstructionId
+  label: string
+  constructionType: 'plane'
+  target: PrimitiveRef
+}
+
+export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
+  id: string
+  label: string
+  target: PrimitiveRef
+  relatedTargets: PrimitiveRef[]
+  consumedByFeatureIds: FeatureId[]
 }
 
 export interface DocumentSnapshot {
@@ -56,6 +130,11 @@ export interface DocumentSnapshot {
   revisionId: RevisionId
   featureTree: FeatureTreeNodeRecord[]
   objects: ObjectTreeNodeRecord[]
+  features: FeatureSnapshotRecord[]
+  sketches: SketchSnapshotRecord[]
+  bodies: BodySnapshotRecord[]
+  constructions: ConstructionSnapshotRecord[]
+  entities: SnapshotEntityRecord[]
   references: ReferenceRecord[]
   diagnostics: ModelingDiagnostic[]
   renderables: RenderableEntityRecord[]

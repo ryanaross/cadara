@@ -14,17 +14,23 @@ import type {
 } from '@/domain/editor/schema'
 import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor/schema'
 import type {
+  BodySnapshotRecord,
+  ConstructionSnapshotRecord,
   CreateFeatureRequest,
   DeleteFeatureRequest,
   DocumentSnapshot,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
+  FeatureSnapshotRecord,
+  PreviewId,
   GetDocumentSnapshotRequest,
   ModelingDiagnostic,
   ObjectTreeNodeRecord,
   ReferenceRecord,
   RenderableEntityRecord,
   ResolvedReferenceRecord,
+  SketchSnapshotRecord,
+  SnapshotEntityRecord,
   UpdateFeatureRequest,
 } from '@/domain/modeling/schema'
 
@@ -124,6 +130,14 @@ function assertBodyId(value: unknown): BodyId {
   }
 
   return value as BodyId
+}
+
+function assertSketchPrimitiveId(value: unknown): SketchPrimitiveId {
+  if (!isString(value)) {
+    throw new Error('Invalid sketch primitive ID payload.')
+  }
+
+  return value as SketchPrimitiveId
 }
 
 function assertPrimitiveRef(value: unknown): PrimitiveRef {
@@ -227,6 +241,9 @@ function normalizeFeatureTree(value: unknown): DocumentSnapshot['featureTree'] {
       description: entry.description,
       kind: entry.kind,
       target: assertPrimitiveRef(entry.target),
+      ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
+      ownerSketchId: entry.ownerSketchId === null ? null : assertSketchId(entry.ownerSketchId),
+      sourceFeatureId: entry.sourceFeatureId === null ? null : assertFeatureId(entry.sourceFeatureId),
     }
   })
 }
@@ -253,8 +270,24 @@ function normalizeObjects(value: unknown): ObjectTreeNodeRecord[] {
       description: entry.description,
       kind: entry.kind,
       target: assertPrimitiveRef(entry.target),
+      ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
+      ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
     }
   })
+}
+
+function normalizeOwnership(value: unknown) {
+  if (!isRecord(value)) {
+    throw new Error('Invalid ownership payload.')
+  }
+
+  return {
+    ownerDocumentId: assertDocumentId(value.ownerDocumentId),
+    ownerRevisionId: assertRevisionId(value.ownerRevisionId),
+    ownerFeatureId: value.ownerFeatureId === null ? null : assertFeatureId(value.ownerFeatureId),
+    ownerSketchId: value.ownerSketchId === null ? null : assertSketchId(value.ownerSketchId),
+    ownerBodyId: value.ownerBodyId === null ? null : assertBodyId(value.ownerBodyId),
+  }
 }
 
 function normalizeReferences(value: unknown): ReferenceRecord[] {
@@ -277,6 +310,15 @@ function normalizeReferences(value: unknown): ReferenceRecord[] {
       label: entry.label,
       target: assertPrimitiveRef(entry.target),
       ownerFeatureId: entry.ownerFeatureId as FeatureId | null,
+      ownerSketchId: entry.ownerSketchId === null ? null : assertSketchId(entry.ownerSketchId),
+      invalidationReason:
+        entry.invalidationReason === null
+          ? null
+          : isString(entry.invalidationReason)
+            ? entry.invalidationReason
+            : (() => {
+                throw new Error('Invalid reference invalidation payload.')
+              })(),
     }
   })
 }
@@ -287,7 +329,12 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
   }
 
   return value.map((entry) => {
-    if (!isRecord(entry) || !isString(entry.id) || !isString(entry.label)) {
+    if (
+      !isRecord(entry) ||
+      !isString(entry.id) ||
+      !isString(entry.label) ||
+      (entry.topology !== 'face' && entry.topology !== 'edge' && entry.topology !== 'vertex')
+    ) {
       throw new Error('Invalid renderable record.')
     }
 
@@ -295,6 +342,185 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       id: entry.id,
       label: entry.label,
       target: assertPrimitiveRef(entry.target),
+      ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
+      ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
+      topology: entry.topology,
+    }
+  })
+}
+
+function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid sketch snapshot payload.')
+  }
+
+  return value.map((entry) => {
+    if (!isRecord(entry) || !isString(entry.sketchId) || !isString(entry.label)) {
+      throw new Error('Invalid sketch snapshot record.')
+    }
+
+    if (!Array.isArray(entry.primitiveIds) || !Array.isArray(entry.primitives)) {
+      throw new Error('Invalid sketch primitive payload.')
+    }
+
+    return {
+      ...normalizeOwnership(entry),
+      sketchId: assertSketchId(entry.sketchId),
+      label: entry.label,
+      planeTarget: assertPrimitiveRef(entry.planeTarget),
+      primitiveIds: entry.primitiveIds.map((primitiveId) => assertSketchPrimitiveId(primitiveId)),
+      primitives: entry.primitives.map((primitive) => {
+        if (
+          !isRecord(primitive) ||
+          !isString(primitive.primitiveId) ||
+          !isString(primitive.label) ||
+          (primitive.kind !== 'line' &&
+            primitive.kind !== 'circle' &&
+            primitive.kind !== 'arc' &&
+            primitive.kind !== 'point' &&
+            primitive.kind !== 'profile')
+        ) {
+          throw new Error('Invalid sketch primitive record.')
+        }
+
+        return {
+          primitiveId: assertSketchPrimitiveId(primitive.primitiveId),
+          label: primitive.label,
+          kind: primitive.kind,
+          target: assertPrimitiveRef(primitive.target),
+        }
+      }),
+    }
+  })
+}
+
+function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid feature snapshot payload.')
+  }
+
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !isString(entry.featureId) ||
+      !isString(entry.label) ||
+      !isString(entry.featureType) ||
+      entry.featureTypeVersion !== 'feature-type/v1alpha1' ||
+      !Array.isArray(entry.consumedTargets) ||
+      !Array.isArray(entry.producedTargets)
+    ) {
+      throw new Error('Invalid feature snapshot record.')
+    }
+
+    return {
+      ...normalizeOwnership(entry),
+      featureId: assertFeatureId(entry.featureId),
+      label: entry.label,
+      featureType: entry.featureType,
+      featureTypeVersion: entry.featureTypeVersion,
+      consumedTargets: entry.consumedTargets.map((target) => assertPrimitiveRef(target)),
+      producedTargets: entry.producedTargets.map((target) => assertPrimitiveRef(target)),
+    }
+  })
+}
+
+function normalizeBodies(value: unknown): BodySnapshotRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid body snapshot payload.')
+  }
+
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !isString(entry.bodyId) ||
+      !isString(entry.label) ||
+      !isRecord(entry.topology) ||
+      !Array.isArray(entry.topology.faceIds) ||
+      !Array.isArray(entry.topology.edgeIds) ||
+      !Array.isArray(entry.topology.vertexIds)
+    ) {
+      throw new Error('Invalid body snapshot record.')
+    }
+
+    return {
+      ...normalizeOwnership(entry),
+      bodyId: assertBodyId(entry.bodyId),
+      label: entry.label,
+      topology: {
+        faceIds: entry.topology.faceIds.map((faceId) => {
+          if (!isString(faceId)) {
+            throw new Error('Invalid face ID payload.')
+          }
+
+          return faceId as BodySnapshotRecord['topology']['faceIds'][number]
+        }),
+        edgeIds: entry.topology.edgeIds.map((edgeId) => {
+          if (!isString(edgeId)) {
+            throw new Error('Invalid edge ID payload.')
+          }
+
+          return edgeId as BodySnapshotRecord['topology']['edgeIds'][number]
+        }),
+        vertexIds: entry.topology.vertexIds.map((vertexId) => {
+          if (!isString(vertexId)) {
+            throw new Error('Invalid vertex ID payload.')
+          }
+
+          return vertexId as BodySnapshotRecord['topology']['vertexIds'][number]
+        }),
+      },
+    }
+  })
+}
+
+function normalizeConstructions(value: unknown): ConstructionSnapshotRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid construction snapshot payload.')
+  }
+
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !isString(entry.constructionId) ||
+      !isString(entry.label) ||
+      entry.constructionType !== 'plane'
+    ) {
+      throw new Error('Invalid construction snapshot record.')
+    }
+
+    return {
+      ...normalizeOwnership(entry),
+      constructionId: entry.constructionId as ConstructionSnapshotRecord['constructionId'],
+      label: entry.label,
+      constructionType: entry.constructionType,
+      target: assertPrimitiveRef(entry.target),
+    }
+  })
+}
+
+function normalizeEntities(value: unknown): SnapshotEntityRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error('Invalid snapshot entity payload.')
+  }
+
+  return value.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      !isString(entry.id) ||
+      !isString(entry.label) ||
+      !Array.isArray(entry.relatedTargets) ||
+      !Array.isArray(entry.consumedByFeatureIds)
+    ) {
+      throw new Error('Invalid snapshot entity record.')
+    }
+
+    return {
+      ...normalizeOwnership(entry),
+      id: entry.id,
+      label: entry.label,
+      target: assertPrimitiveRef(entry.target),
+      relatedTargets: entry.relatedTargets.map((target) => assertPrimitiveRef(target)),
+      consumedByFeatureIds: entry.consumedByFeatureIds.map((featureId) => assertFeatureId(featureId)),
     }
   })
 }
@@ -352,6 +578,11 @@ function normalizeSnapshot(snapshot: unknown): DocumentSnapshot {
     revisionId: snapshot.revisionId as DocumentSnapshot['revisionId'],
     featureTree: normalizeFeatureTree(snapshot.featureTree),
     objects: normalizeObjects(snapshot.objects),
+    features: normalizeFeatures(snapshot.features),
+    sketches: normalizeSketches(snapshot.sketches),
+    bodies: normalizeBodies(snapshot.bodies),
+    constructions: normalizeConstructions(snapshot.constructions),
+    entities: normalizeEntities(snapshot.entities),
     references: normalizeReferences(snapshot.references),
     diagnostics: normalizeDiagnostics(snapshot.diagnostics),
     renderables: normalizeRenderables(snapshot.renderables),
@@ -432,7 +663,7 @@ function normalizePreviewResponse(
 
   return {
     revisionId: assertRevisionId(response.revisionId),
-    previewId: response.previewId,
+    previewId: response.previewId as PreviewId,
     renderables: normalizeRenderables(response.renderables),
     diagnostics: normalizeDiagnostics(response.diagnostics),
   }
@@ -462,17 +693,30 @@ function assertMutationBase(input: {
   }
 }
 
-function normalizeFeatureMutationInput<T extends ModelingCreateFeatureInput | ModelingUpdateFeatureInput>(
-  input: T,
+function normalizeCreateFeatureInput(
+  input: ModelingCreateFeatureInput,
   documentId: DocumentId,
-): T extends ModelingCreateFeatureInput ? CreateFeatureRequest : UpdateFeatureRequest {
+): CreateFeatureRequest {
   assertMutationBase(input)
 
   return {
     ...input,
     contractVersion: CONTRACT_VERSION,
     documentId,
-  } as T extends ModelingCreateFeatureInput ? CreateFeatureRequest : UpdateFeatureRequest
+  }
+}
+
+function normalizeUpdateFeatureInput(
+  input: ModelingUpdateFeatureInput,
+  documentId: DocumentId,
+): UpdateFeatureRequest {
+  assertMutationBase(input)
+
+  return {
+    ...input,
+    contractVersion: CONTRACT_VERSION,
+    documentId,
+  }
 }
 
 function normalizeDeleteFeatureInput(
@@ -532,12 +776,12 @@ export function createModelingService(
       return normalizeSnapshot(response.snapshot)
     },
     async createFeature(input) {
-      const response = await adapter.createFeature(normalizeFeatureMutationInput(input, currentDocumentId))
+      const response = await adapter.createFeature(normalizeCreateFeatureInput(input, currentDocumentId))
 
       return normalizeFeatureMutationResponse(response, currentDocumentId)
     },
     async updateFeature(input) {
-      const response = await adapter.updateFeature(normalizeFeatureMutationInput(input, currentDocumentId))
+      const response = await adapter.updateFeature(normalizeUpdateFeatureInput(input, currentDocumentId))
 
       return normalizeFeatureMutationResponse(response, currentDocumentId)
     },

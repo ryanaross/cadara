@@ -2,12 +2,12 @@ import { Box, Component, Layers3, Workflow } from 'lucide-react'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { PrimitiveRef } from '@/domain/editor/schema'
-import type { DocumentSnapshot } from '@/domain/modeling/schema'
 import {
   getPrimitiveRefKey,
   getPrimitiveRefLabel,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
+import type { DocumentSnapshot } from '@/domain/modeling/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 interface FeatureSidebarProps {
@@ -22,6 +22,18 @@ const treeIconMap = {
   plane: Component,
 } as const
 
+function formatReferenceOwner(snapshot: DocumentSnapshot, featureId: string | null, sketchId: string | null) {
+  if (featureId) {
+    return snapshot.features.find((feature) => feature.featureId === featureId)?.label ?? featureId
+  }
+
+  if (sketchId) {
+    return snapshot.sketches.find((sketch) => sketch.sketchId === sketchId)?.label ?? sketchId
+  }
+
+  return 'Document root'
+}
+
 export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps) {
   const {
     state: { selection, selectionFilter, preview, activeEditSession, mode },
@@ -31,12 +43,11 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
   const activeFeatureLabel =
     activeEditSession === null
       ? 'No feature selected'
-      : snapshot?.featureTree.find(
-          (item) => item.target.kind === 'feature' && item.target.featureId === activeEditSession.featureId,
-        )?.label ?? activeEditSession.featureId
+      : snapshot?.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
+        activeEditSession.featureId
 
   return (
-    <aside className="flex w-[320px] min-w-[320px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
+    <aside className="flex w-[360px] min-w-[360px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
       <section className="flex min-h-0 flex-1 flex-col border-b border-[var(--cad-border)]">
         <header className="border-b border-[var(--cad-border)] px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
@@ -63,12 +74,12 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                   key={item.id}
                   type="button"
                   onClick={() => {
-                    if (!target || !isAllowed) {
+                    if (!isAllowed) {
                       return
                     }
                     onSelectTarget(target)
                   }}
-                  className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+                  className={`flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
                     isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
                   } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
                   aria-disabled={!isAllowed}
@@ -84,6 +95,9 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
                     <span className="block truncate text-xs text-[var(--cad-muted-foreground)]">
                       {item.description}
                     </span>
+                    <span className="block truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
+                      Owner {formatReferenceOwner(snapshot!, item.ownerFeatureId, item.ownerSketchId)}
+                    </span>
                   </span>
                 </button>
               )
@@ -92,58 +106,86 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
         </ScrollArea>
       </section>
 
-      <section className="flex min-h-0 flex-[0.9] flex-col">
-        <header className="border-b border-[var(--cad-border)] px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-            Parts & Objects
-          </p>
-        </header>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-1 px-3 py-3">
-            {(snapshot?.objects ?? []).map((item) => {
-              const target = item.target
-              const isSelected =
-                selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
-              const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
+      <section className="grid min-h-0 flex-[1.2] grid-rows-[minmax(0,1fr)_minmax(0,0.9fr)] border-b border-[var(--cad-border)]">
+        <div className="flex min-h-0 flex-col border-b border-[var(--cad-border)]">
+          <header className="border-b border-[var(--cad-border)] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
+              Parts & Objects
+            </p>
+          </header>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-1 px-3 py-3">
+              {(snapshot?.objects ?? []).map((item) => {
+                const target = item.target
+                const isSelected =
+                  selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
+                const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
 
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    if (!target || !isAllowed) {
-                      return
-                    }
-                    onSelectTarget(target)
-                  }}
-                  className={`w-full rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
-                    isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
-                  } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
-                  aria-disabled={!isAllowed}
-                  title={!isAllowed ? 'Filtered out by the current command' : undefined}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
-                      {item.kind === 'body' ? (
-                        <Box className="h-3.5 w-3.5" />
-                      ) : (
-                        <Component className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">
-                        {item.label}
-                      </p>
-                      <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
-                        {item.description}
-                      </p>
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (!isAllowed) {
+                        return
+                      }
+                      onSelectTarget(target)
+                    }}
+                    className={`w-full rounded-md px-2 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+                      isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
+                    } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
+                    aria-disabled={!isAllowed}
+                    title={!isAllowed ? 'Filtered out by the current command' : undefined}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="flex h-4 w-4 items-center justify-center text-[var(--cad-accent)]">
+                        {item.kind === 'body' ? (
+                          <Box className="h-3.5 w-3.5" />
+                        ) : (
+                          <Component className="h-3.5 w-3.5" />
+                        )}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">
+                          {item.label}
+                        </p>
+                        <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
+                          {item.description}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
-        </ScrollArea>
+                  </button>
+                )
+              })}
+            </div>
+          </ScrollArea>
+        </div>
+
+        <div className="flex min-h-0 flex-col">
+          <header className="border-b border-[var(--cad-border)] px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
+              Snapshot References
+            </p>
+          </header>
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-2 px-3 py-3">
+              {(snapshot?.references ?? []).map((reference) => (
+                <div
+                  key={reference.id}
+                  className="rounded-md border border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)] px-2 py-2"
+                >
+                  <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">{reference.label}</p>
+                  <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
+                    {getPrimitiveRefLabel(reference.target)}
+                  </p>
+                  <p className="mt-1 truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
+                    Owner {snapshot ? formatReferenceOwner(snapshot, reference.ownerFeatureId, reference.ownerSketchId) : 'n/a'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
       </section>
 
       <section className="border-t border-[var(--cad-border)] px-4 py-3">
