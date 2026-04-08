@@ -3,13 +3,13 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import type { ViewportInteractionEvent } from '@/domain/editor/schema'
+import type { RenderableEntityRecord } from '@/domain/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
   getPrimitiveRefKey,
   getPrimitiveRefLabel,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import { viewportSelectionTargets } from '@/domain/editor/mock-document'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
 import { useEditorState } from '@/hooks/use-editor-state'
 
@@ -32,10 +32,11 @@ const FACE_INDEX_TO_DIRECTION = {
 } as const
 
 interface ThreeCadViewportProps {
+  renderables: RenderableEntityRecord[]
   onInteraction: (event: ViewportInteractionEvent) => void
 }
 
-export function ThreeCadViewport({ onInteraction }: ThreeCadViewportProps) {
+export function ThreeCadViewport({ renderables, onInteraction }: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
   const {
@@ -194,14 +195,15 @@ export function ThreeCadViewport({ onInteraction }: ThreeCadViewportProps) {
         className="h-full w-full"
       />
       <div className="absolute left-4 top-4 z-10 flex gap-2">
-        {viewportSelectionTargets.map((target) => {
+        {renderables.map((renderable) => {
+          const target = renderable.target
           const isSelected = selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
           const isHovered = hoverTarget !== null && getPrimitiveRefKey(hoverTarget) === getPrimitiveRefKey(target)
           const isAllowed = selectionFilterAllowsTarget(selectionFilter, target)
 
           return (
             <button
-              key={getPrimitiveRefKey(target)}
+              key={renderable.id}
               type="button"
               onMouseEnter={() => {
                 if (!isAllowed) {
@@ -223,7 +225,7 @@ export function ThreeCadViewport({ onInteraction }: ThreeCadViewportProps) {
               } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
               aria-disabled={!isAllowed}
             >
-              {getPrimitiveRefLabel(target)}
+              {renderable.label || getPrimitiveRefLabel(target)}
             </button>
           )
         })}

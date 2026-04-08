@@ -1,5 +1,4 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
-import { getFeatureDraftLabel } from '@/domain/editor/mock-document'
 import type {
   ActiveCommand,
   EditorState,
@@ -112,7 +111,6 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
           action.event.target.kind === 'feature'
             ? {
                 featureId: action.event.target.featureId,
-                draftLabel: getFeatureDraftLabel(action.event.target.featureId),
               }
             : null,
         activeCommand: state.activeCommand

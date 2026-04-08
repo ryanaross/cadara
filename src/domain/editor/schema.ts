@@ -45,7 +45,6 @@ export interface CommandPreview {
 
 export interface FeatureEditSession {
   featureId: FeatureId
-  draftLabel: string
 }
 
 export interface EditorState {
