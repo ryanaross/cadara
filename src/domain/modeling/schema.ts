@@ -14,6 +14,7 @@ import type {
   SnapshotEntityId,
   PreviewId,
   ReferenceId,
+  RequestId,
   VertexId,
 } from '@/contracts/shared/ids'
 import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
@@ -404,6 +405,19 @@ export interface UpdateFeatureResponse extends ModelingOperationResult {
 }
 
 export interface CommitSketchRequest extends DocumentMutationRequest {
+  /** Editor- or orchestrator-owned correlation IDs for explicit solver sub-requests. */
+  solverCorrelation: {
+    /** Parent request ID for the sketch commit workflow. */
+    requestId: RequestId
+    /** Correlation ID for explicit external-reference projection. */
+    projectionRequestId: RequestId
+    /** Correlation ID for explicit sketch validation. */
+    validationRequestId: RequestId
+    /** Correlation ID for explicit sketch solve. */
+    solveRequestId: RequestId
+    /** Correlation ID for explicit region derivation. */
+    regionRequestId: RequestId
+  } | null
   sketchId: SketchId | null
   sketchLabel: string
   planeTarget: PrimitiveRef

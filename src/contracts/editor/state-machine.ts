@@ -584,6 +584,7 @@ export interface EditorEffectRuntime {
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
   /** Commits the active sketch session against a base revision. */
   commitSketch(input: {
+    requestId: RequestId
     baseRevisionId: RevisionId
     session: SketchSessionState
   }): Promise<{
@@ -2104,6 +2105,7 @@ export async function runEditorEffect(
     case 'sketch.commit': {
       try {
         const result = await runtime.commitSketch({
+          requestId: effect.requestId,
           baseRevisionId: effect.baseRevisionId,
           session: effect.session,
         })
@@ -2161,7 +2163,17 @@ export async function runEditorEffect(
  */
 export function createModelingServiceEditorEffectRuntime(modelingService: {
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
+  sketchSolver: {
+    createCommitCorrelation(requestId: RequestId): {
+      requestId: RequestId
+      projectionRequestId: RequestId
+      validationRequestId: RequestId
+      solveRequestId: RequestId
+      regionRequestId: RequestId
+    }
+  } | null
   commitSketch: (input: {
+    requestId: RequestId
     baseRevisionId: RevisionId
     sketchId: SketchSessionState['commitRequest'] extends null
       ? never
@@ -2178,6 +2190,13 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
     definition: SketchSessionState['commitRequest'] extends null
       ? never
       : NonNullable<SketchSessionState['commitRequest']>['definition']
+    solverCorrelation: {
+      requestId: RequestId
+      projectionRequestId: RequestId
+      validationRequestId: RequestId
+      solveRequestId: RequestId
+      regionRequestId: RequestId
+    } | null
   }) => Promise<{
     revisionId: RevisionId
     revisionState: { kind: 'accepted' } | { kind: 'conflict'; actualRevisionId: RevisionId }
@@ -2225,12 +2244,16 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
     getCurrentDocumentSnapshot: () => modelingService.getCurrentDocumentSnapshot(),
     async commitSketch(input) {
       const result = await modelingService.commitSketch({
+        requestId: input.requestId,
         baseRevisionId: input.baseRevisionId,
         sketchId: input.session.commitRequest?.sketchId ?? null,
         sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
         planeTarget: input.session.commitRequest?.planeTarget ?? input.session.planeTarget,
         planeKey: input.session.commitRequest?.planeKey ?? input.session.planeKey,
         definition: input.session.commitRequest?.definition ?? input.session.definition,
+        solverCorrelation: modelingService.sketchSolver
+          ? modelingService.sketchSolver.createCommitCorrelation(input.requestId)
+          : null,
       })
 
       if (!result) {

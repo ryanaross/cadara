@@ -309,6 +309,7 @@ function buildCommitRequest(input: {
   definition: SketchDefinition
 }): SketchSessionState['commitRequest'] {
   return {
+    solverCorrelation: null,
     sketchId: input.sketchId,
     sketchLabel: input.sketchLabel,
     planeTarget: input.planeTarget,

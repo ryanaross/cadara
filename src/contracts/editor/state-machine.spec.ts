@@ -1,5 +1,6 @@
 import {
   getEditorSelectionKey,
+  type EditorEffectRuntime,
   initialEditorState,
   replayEditorEvents,
   replayEditorEventsWithRuntime,
@@ -176,9 +177,9 @@ function testSelectionKeyUsesDurableRefs() {
 
 async function testRuntimeLoopProcessesSketchOpen() {
   const runtimeSnapshot: DocumentSnapshot = createSnapshot()
-  const runtime = {
+  const runtime: EditorEffectRuntime = {
     getCurrentDocumentSnapshot: async () => runtimeSnapshot,
-    commitSketch: async () => null,
+    commitSketch: async (_input) => null,
     evaluatePreview: async () => ({
       revisionId: 'rev_1' as const,
       stale: false,

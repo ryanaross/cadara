@@ -64,11 +64,20 @@ import type {
   SketchRecord,
   SolvedSketchSnapshot,
 } from '@/contracts/sketch/schema'
+import type {
+  DeriveSketchRegionsRequest,
+  ProjectSketchExternalReferencesRequest,
+  ResolveSketchReferenceRequest,
+  SolveSketchRequest,
+  ValidateSketchRequest,
+} from '@/contracts/solver/schema'
+import type { SketchSolverAdapter as SketchSolverBoundary } from '@/contracts/solver/adapter'
 import type { DurableRef } from '@/contracts/shared/references'
-import type { ConstraintId, DimensionId, RegionId, SketchEntityId, SketchPointId } from '@/contracts/shared/ids'
+import type { ConstraintId, DimensionId, RegionId, RequestId, SketchEntityId, SketchPointId } from '@/contracts/shared/ids'
 
 export interface ModelingService {
   readonly currentDocumentId: DocumentId
+  readonly sketchSolver: SketchSolverService | null
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
   commitSketch(input: ModelingCommitSketchInput): Promise<ModelingCommitSketchResult>
   createFeature(input: ModelingCreateFeatureInput): Promise<ModelingFeatureMutationResult>
@@ -80,6 +89,26 @@ export interface ModelingService {
 
 export interface ModelingServiceOptions {
   currentDocumentId: DocumentSnapshot['documentId']
+  sketchSolver?: SketchSolverBoundary
+}
+
+/**
+ * Explicit sketch-solver service facade exposed to editor/runtime code.
+ * This keeps Phase 3 solver behavior separate from the broader kernel service.
+ */
+export interface SketchSolverService {
+  solveSketch(input: Omit<SolveSketchRequest, 'contractVersion'>): ReturnType<SketchSolverBoundary['solveSketch']>
+  validateSketch(input: Omit<ValidateSketchRequest, 'contractVersion'>): ReturnType<SketchSolverBoundary['validateSketch']>
+  deriveSketchRegions(
+    input: Omit<DeriveSketchRegionsRequest, 'contractVersion'>,
+  ): ReturnType<SketchSolverBoundary['deriveSketchRegions']>
+  projectExternalReferences(
+    input: Omit<ProjectSketchExternalReferencesRequest, 'contractVersion'>,
+  ): ReturnType<SketchSolverBoundary['projectExternalReferences']>
+  resolveSketchReference(
+    input: Omit<ResolveSketchReferenceRequest, 'contractVersion'>,
+  ): ReturnType<SketchSolverBoundary['resolveSketchReference']>
+  createCommitCorrelation(requestId: RequestId): ModelingCommitSketchCorrelation
 }
 
 export interface ModelingFeatureMutationResult {
@@ -109,7 +138,17 @@ export interface ModelingCommitSketchResult {
 export type ModelingCreateFeatureInput = Omit<CreateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingUpdateFeatureInput = Omit<UpdateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingDeleteFeatureInput = Omit<DeleteFeatureRequest, 'contractVersion' | 'documentId'>
-export type ModelingCommitSketchInput = Omit<CommitSketchRequest, 'contractVersion' | 'documentId'>
+export interface ModelingCommitSketchCorrelation {
+  requestId: RequestId
+  projectionRequestId: RequestId
+  validationRequestId: RequestId
+  solveRequestId: RequestId
+  regionRequestId: RequestId
+}
+
+export interface ModelingCommitSketchInput extends Omit<CommitSketchRequest, 'contractVersion' | 'documentId'> {
+  solverCorrelation: ModelingCommitSketchCorrelation | null
+}
 export type ModelingEvaluatePreviewInput = Omit<
   EvaluatePreviewRequest,
   'contractVersion' | 'documentId'
@@ -131,6 +170,15 @@ export interface ModelingResolvedReferenceResult {
 
 const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const SNAPSHOT_SCHEMA_VERSION = 'document-snapshot/v1alpha1' as const
+
+function withContractVersion<TRequest extends { contractVersion: typeof CONTRACT_VERSION }>(
+  input: Omit<TRequest, 'contractVersion'>,
+): TRequest {
+  return {
+    contractVersion: CONTRACT_VERSION,
+    ...input,
+  } as TRequest
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -1622,9 +1670,11 @@ export function createModelingService(
   options: ModelingServiceOptions,
 ): ModelingService {
   const currentDocumentId = normalizeCurrentDocumentId(options.currentDocumentId)
+  const sketchSolver = options.sketchSolver ? createSketchSolverService(options.sketchSolver) : null
 
   return {
     currentDocumentId,
+    sketchSolver,
     async getCurrentDocumentSnapshot() {
       const response = await adapter.getDocumentSnapshot(buildDocumentRequest(currentDocumentId))
       return normalizeSnapshot(response.snapshot)
@@ -1668,6 +1718,41 @@ export function createModelingService(
           ...normalized.resolution,
           label: getResolutionLabel(normalized.resolution),
         },
+      }
+    },
+  }
+}
+
+export function createSketchSolverService(
+  adapter: SketchSolverBoundary,
+): SketchSolverService {
+  return {
+    solveSketch(input) {
+      return adapter.solveSketch(withContractVersion<SolveSketchRequest>(input))
+    },
+    validateSketch(input) {
+      return adapter.validateSketch(withContractVersion<ValidateSketchRequest>(input))
+    },
+    deriveSketchRegions(input) {
+      return adapter.deriveSketchRegions(withContractVersion<DeriveSketchRegionsRequest>(input))
+    },
+    projectExternalReferences(input) {
+      return adapter.projectExternalReferences(
+        withContractVersion<ProjectSketchExternalReferencesRequest>(input),
+      )
+    },
+    resolveSketchReference(input) {
+      return adapter.resolveSketchReference(
+        withContractVersion<ResolveSketchReferenceRequest>(input),
+      )
+    },
+    createCommitCorrelation(requestId) {
+      return {
+        requestId,
+        projectionRequestId: `${requestId}:project` as RequestId,
+        validationRequestId: `${requestId}:validate` as RequestId,
+        solveRequestId: `${requestId}:solve` as RequestId,
+        regionRequestId: `${requestId}:regions` as RequestId,
       }
     },
   }

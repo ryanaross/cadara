@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test:editor-state-machine": "bun x vite-node src/contracts/editor/state-machine.spec.ts"
+    "test:editor-state-machine": "bun x vite-node src/contracts/editor/state-machine.spec.ts",
+    "test:solver-contract": "bun x vite-node src/contracts/solver/solver-contract.spec.ts"
   },
   "dependencies": {
     "@radix-ui/react-dropdown-menu": "^2.1.16",

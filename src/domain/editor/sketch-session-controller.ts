@@ -57,6 +57,7 @@ export async function commitActiveSketchSession(input: {
   const result = await input.modelingService.commitSketch({
     baseRevisionId: input.baseRevisionId,
     ...input.session.commitRequest,
+    solverCorrelation: null,
   })
 
   if (result.revisionState.kind === 'conflict') {
