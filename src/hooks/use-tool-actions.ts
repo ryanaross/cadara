@@ -18,7 +18,7 @@ export function useToolActionBus() {
 export function useToolActions() {
   const context = useContext(ToolActionContext)
   const {
-    state: { mode },
+    machineState,
     dispatch,
   } = useEditorState()
 
@@ -28,12 +28,16 @@ export function useToolActions() {
 
   return {
     triggerTool(toolId: ToolId, metadata: ToolTriggerMetadata) {
-      const nextMode = toolId === 'sketch' ? 'sketch' : mode
+      const nextMode =
+        toolId === 'sketch'
+          ? 'part'
+          : toolId === 'line' || toolId === 'rectangle' || toolId === 'circle' || toolId === 'finishSketch'
+            ? 'sketch'
+            : machineState.mode
 
       dispatch({
-        type: 'activateCommand',
+        type: 'tool.activated',
         toolId,
-        mode: nextMode,
       })
 
       context.actionBus.triggerTool(toolId, nextMode, metadata)

@@ -3,11 +3,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import {
-  getPrimitiveRefLabel,
   selectionFilterAllowsTarget,
-  type ViewportInteractionEvent,
 } from '@/domain/editor/schema'
-import { type SketchPlaneKey } from '@/domain/modeling/schema'
 import type { RenderableEntityRecord } from '@/domain/modeling/schema'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
@@ -39,7 +36,11 @@ const FACE_INDEX_TO_DIRECTION = {
 
 interface ThreeCadViewportProps {
   renderables: RenderableEntityRecord[]
-  onInteraction: (event: ViewportInteractionEvent) => void
+  onHover: (target: RenderableEntityRecord['target']) => void
+  onSelect: (target: RenderableEntityRecord['target']) => void
+  onClearHover: () => void
+  onSketchMove: (point: readonly [number, number]) => void
+  onSketchRelease: (point: readonly [number, number]) => void
 }
 
 interface ViewportRuntime {
@@ -56,29 +57,51 @@ interface ViewportRuntime {
   sketchPlane: THREE.Plane
   sketchHitPoint: THREE.Vector3
   animationFrameId: number
-  pointerDownTarget: EventTarget | null
 }
 
 export function ThreeCadViewport({
   renderables,
-  onInteraction,
+  onHover,
+  onSelect,
+  onClearHover,
+  onSketchMove,
+  onSketchRelease,
 }: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<ViewportRuntime | null>(null)
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
-  const onInteractionRef = useRef(onInteraction)
+  const hoverRef = useRef(onHover)
+  const selectRef = useRef(onSelect)
+  const clearHoverRef = useRef(onClearHover)
+  const sketchMoveRef = useRef(onSketchMove)
+  const sketchReleaseRef = useRef(onSketchRelease)
   const {
-    state: { hoverTarget, selection, activeCommand, selectionFilter, selectionCatalog, sketchSession },
+    state: { hoverTarget, selection, selectionFilter, selectionCatalog, sketchSession },
   } = useEditorState()
   const selectionRef = useRef(selection)
   const selectionFilterRef = useRef(selectionFilter)
   const selectionCatalogRef = useRef(selectionCatalog)
 
-  onInteractionRef.current = onInteraction
-  selectionRef.current = selection
-  selectionFilterRef.current = selectionFilter
-  selectionCatalogRef.current = selectionCatalog
+  useEffect(() => {
+    hoverRef.current = onHover
+    selectRef.current = onSelect
+    clearHoverRef.current = onClearHover
+    sketchMoveRef.current = onSketchMove
+    sketchReleaseRef.current = onSketchRelease
+    selectionRef.current = selection
+    selectionFilterRef.current = selectionFilter
+    selectionCatalogRef.current = selectionCatalog
+  }, [
+    onClearHover,
+    onHover,
+    onSelect,
+    onSketchMove,
+    onSketchRelease,
+    selection,
+    selectionCatalog,
+    selectionFilter,
+  ])
 
   useEffect(() => {
     const viewportElement = viewportRef.current
@@ -149,7 +172,6 @@ export function ThreeCadViewport({
       sketchPlane: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
       sketchHitPoint: new THREE.Vector3(),
       animationFrameId: 0,
-      pointerDownTarget: null,
     }
 
     runtimeRef.current = runtime
@@ -262,141 +284,10 @@ export function ThreeCadViewport({
     }
 
     disposeRenderScene(renderSceneRef.current)
-
-    const renderScene = buildWorkspaceRenderScene(renderables)
-    renderSceneRef.current = renderScene
-    runtime.scene.add(renderScene.group)
-
-    const readPick = (event: PointerEvent) => {
-      const rect = runtime.renderer.domElement.getBoundingClientRect()
-      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-
-      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
-      return resolvePickTarget(
-        runtime.raycaster.intersectObjects(renderScene.pickables, false),
-        renderScene.pickIdToRenderable,
-      )
-    }
-
-    const readPlanePoint = (event: PointerEvent) => {
-      const rect = runtime.renderer.domElement.getBoundingClientRect()
-      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
-
-      const planeNormal = getPlaneNormal(sketchSession?.planeKey ?? 'xy')
-      runtime.sketchPlane.set(planeNormal, 0)
-
-      return runtime.raycaster.ray.intersectPlane(runtime.sketchPlane, runtime.sketchHitPoint)
-        ? ([runtime.sketchHitPoint.x, runtime.sketchHitPoint.y, runtime.sketchHitPoint.z] as const)
-        : null
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      const planePoint = readPlanePoint(event)
-
-      if (planePoint) {
-        onInteractionRef.current({ type: 'canvasMove', worldPosition: planePoint })
-      }
-
-      if (sketchSession) {
-        return
-      }
-
-      const pickResult = readPick(event)
-
-      if (!pickResult) {
-        onInteractionRef.current({ type: 'clearHover' })
-        return
-      }
-
-      if (
-        !selectionFilterAllowsTarget(
-          selectionFilterRef.current,
-          selectionRef.current,
-          pickResult.target,
-          selectionCatalogRef.current,
-        )
-      ) {
-        onInteractionRef.current({ type: 'clearHover' })
-        return
-      }
-
-      onInteractionRef.current({ type: 'hover', target: pickResult.target })
-    }
-
-    const handlePointerLeave = () => {
-      onInteractionRef.current({ type: 'clearHover' })
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
-        return
-      }
-      runtime.pointerDownTarget = event.target
-
-      if (sketchSession) {
-        return
-      }
-
-      const pickResult = readPick(event)
-
-      if (!pickResult) {
-        return
-      }
-
-      if (
-        !selectionFilterAllowsTarget(
-          selectionFilterRef.current,
-          selectionRef.current,
-          pickResult.target,
-          selectionCatalogRef.current,
-        )
-      ) {
-        return
-      }
-
-      onInteractionRef.current({ type: 'select', target: pickResult.target })
-    }
-
-    const handlePointerUp = (event: PointerEvent) => {
-      if (event.button !== 0) {
-        return
-      }
-
-       if (runtime.pointerDownTarget !== event.target) {
-        runtime.pointerDownTarget = null
-        return
-      }
-
-      runtime.pointerDownTarget = null
-
-      const planePoint = readPlanePoint(event)
-
-      if (planePoint) {
-        onInteractionRef.current({ type: 'canvasPointerUp', worldPosition: planePoint })
-      }
-    }
-
-    runtime.renderer.domElement.addEventListener('pointermove', handlePointerMove)
-    runtime.renderer.domElement.addEventListener('pointerleave', handlePointerLeave)
-    runtime.renderer.domElement.addEventListener('pointerdown', handlePointerDown)
-    runtime.renderer.domElement.addEventListener('pointerup', handlePointerUp)
-    updateWorkspaceHighlight(renderScene.targetToObjects, selection, hoverTarget)
-
-    return () => {
-      runtime.renderer.domElement.removeEventListener('pointermove', handlePointerMove)
-      runtime.renderer.domElement.removeEventListener('pointerleave', handlePointerLeave)
-      runtime.renderer.domElement.removeEventListener('pointerdown', handlePointerDown)
-      runtime.renderer.domElement.removeEventListener('pointerup', handlePointerUp)
-
-      if (renderSceneRef.current === renderScene) {
-        disposeRenderScene(renderScene)
-        renderSceneRef.current = null
-      }
-    }
-  }, [renderables, sketchSession])
+    const nextScene = buildWorkspaceRenderScene(renderables)
+    runtime.scene.add(nextScene.group)
+    renderSceneRef.current = nextScene
+  }, [renderables])
 
   useEffect(() => {
     if (!renderSceneRef.current) {
@@ -406,47 +297,126 @@ export function ThreeCadViewport({
     updateWorkspaceHighlight(renderSceneRef.current.targetToObjects, selection, hoverTarget)
   }, [hoverTarget, selection])
 
+  useEffect(() => {
+    const runtime = runtimeRef.current
+    const renderScene = renderSceneRef.current
+
+    if (!runtime || !renderScene) {
+      return
+    }
+
+    const canvas = runtime.renderer.domElement
+
+    const projectSketchPoint = (event: PointerEvent): readonly [number, number] | null => {
+      const rect = canvas.getBoundingClientRect()
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+
+      if (!runtime.raycaster.ray.intersectPlane(runtime.sketchPlane, runtime.sketchHitPoint)) {
+        return null
+      }
+
+      if (sketchSession?.planeKey === 'yz') {
+        return [runtime.sketchHitPoint.y, runtime.sketchHitPoint.z] as const
+      }
+
+      if (sketchSession?.planeKey === 'xz') {
+        return [runtime.sketchHitPoint.x, runtime.sketchHitPoint.z] as const
+      }
+
+      return [runtime.sketchHitPoint.x, runtime.sketchHitPoint.y] as const
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
+      const target = resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+
+      if (
+        target &&
+        selectionFilterAllowsTarget(
+          selectionFilterRef.current,
+          selectionRef.current,
+          target.target,
+          selectionCatalogRef.current,
+        )
+      ) {
+        hoverRef.current(target.target)
+      } else {
+        clearHoverRef.current()
+      }
+
+      if (!sketchSession) {
+        return
+      }
+
+      const point = projectSketchPoint(event)
+
+      if (point) {
+        sketchMoveRef.current(point)
+      }
+    }
+
+    const handlePointerUp = (event: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
+      const target = resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+
+      if (
+        target &&
+        selectionFilterAllowsTarget(
+          selectionFilterRef.current,
+          selectionRef.current,
+          target.target,
+          selectionCatalogRef.current,
+        )
+      ) {
+        selectRef.current(target.target)
+      }
+
+      if (!sketchSession) {
+        return
+      }
+
+      const point = projectSketchPoint(event)
+
+      if (point) {
+        sketchReleaseRef.current(point)
+      }
+    }
+
+    const handlePointerLeave = () => {
+      clearHoverRef.current()
+    }
+
+    canvas.addEventListener('pointermove', handlePointerMove)
+    canvas.addEventListener('pointerup', handlePointerUp)
+    canvas.addEventListener('pointerleave', handlePointerLeave)
+
+    return () => {
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerup', handlePointerUp)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+    }
+  }, [hoverTarget, renderables, selection, sketchSession])
+
   return (
-    <div className="relative h-full w-full">
+    <>
       <div ref={viewportRef} className="h-full w-full" />
-      <div className="pointer-events-none absolute left-4 top-18 rounded-xl border border-[var(--cad-border)] bg-[rgba(7,11,17,0.84)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
-        <div>
-          Viewport event surface:{' '}
-          <span className="text-[var(--cad-foreground)]">{activeCommand?.toolId ?? 'navigation'}</span>
-        </div>
-        <div>
-          Hover:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {hoverTarget ? getPrimitiveRefLabel(hoverTarget) : 'none'}
-          </span>
-        </div>
-        <div>
-          Render bindings: <span className="text-[var(--cad-foreground)]">{renderables.length}</span>
-        </div>
-      </div>
-      <div className="pointer-events-none absolute right-4 top-4 flex flex-col items-end gap-2">
-        <div className="rounded-md border border-[var(--cad-border)] bg-[rgba(10,14,20,0.88)] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.24em] text-[var(--cad-muted)] shadow-[var(--cad-panel-shadow)]">
-          View Cube
-        </div>
-        <div
-          ref={gizmoRef}
-          className="pointer-events-auto overflow-hidden rounded-xl border border-[var(--cad-border-strong)] bg-[linear-gradient(180deg,_rgba(18,25,35,0.92),_rgba(7,11,17,0.92))] shadow-[var(--cad-panel-shadow)]"
-        />
-      </div>
-    </div>
+      <div
+        ref={gizmoRef}
+        className="pointer-events-auto absolute right-4 top-4 h-[120px] w-[120px] overflow-hidden rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.78)] shadow-[var(--cad-panel-shadow)]"
+      />
+    </>
   )
-}
-
-function getPlaneNormal(planeKey: SketchPlaneKey) {
-  if (planeKey === 'yz') {
-    return new THREE.Vector3(1, 0, 0)
-  }
-
-  if (planeKey === 'xz') {
-    return new THREE.Vector3(0, 1, 0)
-  }
-
-  return new THREE.Vector3(0, 0, 1)
 }
 
 function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
@@ -454,10 +424,22 @@ function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
     return
   }
 
-  renderScene.group.removeFromParent()
-  renderScene.group.traverse((object) => {
+  renderScene.group.children.forEach((object) => {
+    renderScene.group.remove(object)
+
     if (object instanceof THREE.Mesh) {
       object.geometry.dispose()
+
+      if (Array.isArray(object.material)) {
+        object.material.forEach((material) => material.dispose())
+      } else {
+        object.material.dispose()
+      }
+    }
+
+    if (object instanceof THREE.Line || object instanceof THREE.Points) {
+      object.geometry.dispose()
+
       if (Array.isArray(object.material)) {
         object.material.forEach((material) => material.dispose())
       } else {

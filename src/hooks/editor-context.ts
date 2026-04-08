@@ -2,12 +2,16 @@ import { createContext } from 'react'
 
 import type { Dispatch } from 'react'
 
-import type { EditorAction } from '@/domain/editor/editor-state'
-import type { EditorState } from '@/domain/editor/schema'
+import type {
+  EditorEvent,
+  EditorState,
+  EditorViewState,
+} from '@/contracts/editor/state-machine'
 
 export interface EditorContextValue {
-  state: EditorState
-  dispatch: Dispatch<EditorAction>
+  machineState: EditorState
+  state: EditorViewState
+  dispatch: Dispatch<EditorEvent>
 }
 
 export const EditorContext = createContext<EditorContextValue | null>(null)

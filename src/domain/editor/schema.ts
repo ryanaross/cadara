@@ -1,7 +1,5 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
-import type { SketchSessionState } from '@/domain/editor/sketch-session'
-import type { FeatureEditSessionState } from '@/domain/editor/feature-editing'
 import type { DurableRef } from '@/contracts/shared/references'
 
 export type {
@@ -84,36 +82,10 @@ export interface SelectionTargetCatalog {
   planarFaceKeys: readonly string[]
 }
 
-export type CommandPhase = 'idle' | 'armed' | 'collecting' | 'editing'
-
-export interface ActiveCommand {
-  toolId: ToolId
-  phase: CommandPhase
-  startedAt: number
-}
-
 export interface CommandPreview {
   kind: 'selection' | 'sketch'
   label: string
   target: PrimitiveRef | null
-}
-
-export interface EditorState {
-  mode: ToolbarMode
-  activeCommand: ActiveCommand | null
-  selection: SelectionTarget[]
-  selectionCatalog: SelectionTargetCatalog | null
-  selectionFilter: SelectionFilter | null
-  hoverTarget: SelectionTarget | null
-  preview: CommandPreview | null
-  activeEditSession: FeatureEditSessionState | null
-  sketchSession: SketchSessionState | null
-}
-
-export interface ViewportInteractionEvent {
-  type: 'hover' | 'select' | 'clearHover' | 'canvasMove' | 'canvasPointerDown' | 'canvasPointerUp'
-  target?: PrimitiveRef
-  worldPosition?: readonly [number, number, number]
 }
 
 export const defaultSelectionFilter: SelectionFilter = {
@@ -277,18 +249,6 @@ export const planeSelectionFilter: SelectionFilter = {
   ],
 }
 
-export const initialEditorState: EditorState = {
-  mode: 'part',
-  activeCommand: null,
-  selection: [],
-  selectionCatalog: null,
-  selectionFilter: defaultSelectionFilter,
-  hoverTarget: null,
-  preview: null,
-  activeEditSession: null,
-  sketchSession: null,
-}
-
 export function getPrimitiveRefLabel(target: PrimitiveRef) {
   switch (target.kind) {
     case 'body':
@@ -307,8 +267,6 @@ export function getPrimitiveRefLabel(target: PrimitiveRef) {
       return `${target.sketchId}.${target.entityId}`
     case 'sketchPoint':
       return `${target.sketchId}.${target.pointId}`
-    case 'sketchEntity':
-      return `${target.sketchId}.${target.entityId}`
     case 'feature':
       return target.featureId
     case 'construction':
@@ -336,8 +294,6 @@ export function getPrimitiveRefKey(target: PrimitiveRef) {
       return `sketchEntity:${target.sketchId}:${target.entityId}`
     case 'sketchPoint':
       return `sketchPoint:${target.sketchId}:${target.pointId}`
-    case 'sketchEntity':
-      return `sketchEntity:${target.sketchId}:${target.entityId}`
     case 'feature':
       return `feature:${target.featureId}`
     case 'construction':

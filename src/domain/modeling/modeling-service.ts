@@ -55,6 +55,7 @@ import type { DurableRef } from '@/contracts/shared/references'
 import type { SketchEntityId } from '@/contracts/shared/ids'
 
 export interface ModelingService {
+  readonly currentDocumentId: DocumentId
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
   commitSketch(input: ModelingCommitSketchInput): Promise<ModelingCommitSketchResult>
   createFeature(input: ModelingCreateFeatureInput): Promise<ModelingFeatureMutationResult>
@@ -1032,6 +1033,7 @@ export function createModelingService(
   const currentDocumentId = normalizeCurrentDocumentId(options.currentDocumentId)
 
   return {
+    currentDocumentId,
     async getCurrentDocumentSnapshot() {
       const response = await adapter.getDocumentSnapshot(buildDocumentRequest(currentDocumentId))
       return normalizeSnapshot(response.snapshot)

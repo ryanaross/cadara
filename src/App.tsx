@@ -20,7 +20,7 @@ function App() {
 
   return (
     <ModelingServiceProvider modelingService={modelingService}>
-      <EditorProvider>
+      <EditorProvider modelingService={modelingService}>
         <ToolActionProvider actionBus={actionBus}>
           <CadWorkbench />
         </ToolActionProvider>
