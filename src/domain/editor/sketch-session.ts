@@ -11,7 +11,6 @@ import type { DurableRef, SketchEntityRef, SketchPointRef } from '@/contracts/sh
 import type {
   ConstraintId,
   DimensionId,
-  PickId,
   RenderableId,
   SketchEntityId,
   SketchId,
@@ -19,11 +18,11 @@ import type {
 } from '@/contracts/shared/ids'
 import type {
   CommitSketchRequest,
-  RenderableEntityRecord,
   SketchPlaneKey,
   SketchPoint,
   SketchSnapshotRecord,
 } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
 
 export type SketchToolId = 'line' | 'rectangle' | 'circle'
 
@@ -62,6 +61,12 @@ export interface SketchSessionState {
   solvedRegions: RegionRecord[]
   commitRequest: Omit<CommitSketchRequest, 'contractVersion' | 'documentId' | 'baseRevisionId'> | null
   validationMessage: string | null
+}
+
+export interface SketchSessionDisplayRenderable {
+  id: RenderableId
+  label: string
+  geometry: RenderableEntityRecord['geometry']
 }
 
 export function derivePlaneKeyFromTarget(target: DurableRef): SketchPlaneKey {
@@ -882,39 +887,26 @@ export function getSketchSessionPreviewLabel(session: SketchSessionState): strin
   return `Ready to place ${session.activeTool}, click to set first point`
 }
 
-export function getSketchSessionRenderables(session: SketchSessionState): RenderableEntityRecord[] {
-  return session.entities.map((entity, index) => createRenderableForEntity(session, entity, index))
+export function getSketchSessionDisplayRenderables(session: SketchSessionState): SketchSessionDisplayRenderable[] {
+  return session.entities.map((entity, index) => createDisplayRenderableForEntity(session, entity, index))
 }
 
-function createRenderableForEntity(
+function createDisplayRenderableForEntity(
   session: SketchSessionState,
   entity: SketchDraftEntity,
   index: number,
-): RenderableEntityRecord {
+): SketchSessionDisplayRenderable {
   if (entity.kind === 'line') {
-    const target =
-      entity.entityId === null
-        ? session.planeTarget
-        : createSketchEntityRef(session.sketchId ?? ('sketch_draft' as SketchId), entity.entityId)
-
     return {
       id: `renderable_sketch_line_${index}` as RenderableId,
       label: entity.label,
-      target,
-      ownerBodyId: null,
-      ownerFeatureId: null,
-      topology: 'edge',
-      pickBinding: {
-        pickId: `pick_sketch_line_${index}` as PickId,
-        target,
-        topology: 'edge',
-      },
       geometry: {
         kind: 'polyline',
         points: [
           mapSketchPointToWorld(session.planeKey, entity.start),
           mapSketchPointToWorld(session.planeKey, entity.end),
         ],
+        isClosed: false,
       },
     }
   }
@@ -927,26 +919,14 @@ function createRenderableForEntity(
       entity.center[1] + Math.sin(angle) * entity.radius,
     ])
   })
-  const target =
-    entity.entityId === null
-      ? session.planeTarget
-      : createSketchEntityRef(session.sketchId ?? ('sketch_draft' as SketchId), entity.entityId)
 
   return {
     id: `renderable_sketch_circle_${index}` as RenderableId,
     label: entity.label,
-    target,
-    ownerBodyId: null,
-    ownerFeatureId: null,
-    topology: 'edge',
-    pickBinding: {
-      pickId: `pick_sketch_circle_${index}` as PickId,
-      target,
-      topology: 'edge',
-    },
     geometry: {
       kind: 'polyline',
       points,
+      isClosed: true,
     },
   }
 }

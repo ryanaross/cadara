@@ -41,8 +41,8 @@ import { buildSelectionTargetCatalog } from '@/domain/modeling/document-snapshot
 import type {
   DocumentSnapshot,
   ModelingDiagnostic,
-  RenderableEntityRecord,
 } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type {
   CommandSessionId,
   DocumentId,

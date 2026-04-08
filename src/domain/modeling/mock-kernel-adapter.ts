@@ -35,12 +35,13 @@ import type {
   ReorderFeatureResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
-  RenderableEntityRecord,
   SnapshotEntityRecord,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
 } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { DurableRef } from '@/contracts/shared/references'
+import { RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import type { ModelingCommitSketchCorrelation } from '@/domain/modeling/modeling-service'
 import {
   DEFAULT_MOCK_SKETCH_PLANE_FRAME,
@@ -187,37 +188,51 @@ function createPreviewRenderableSet(targetKey: string): RenderableEntityRecord[]
     {
       id: `renderable_${targetKey}_face` as RenderableId,
       label: 'Preview top face',
-      target: { kind: 'face', bodyId: 'body_preview', faceId: 'face_preview-top' },
       ownerBodyId: 'body_preview',
       ownerFeatureId: null,
-      topology: 'face',
-      pickBinding: {
+      binding: {
         pickId: `pick_${targetKey}_face` as PickId,
+        pickPriority: 20,
         target: { kind: 'face', bodyId: 'body_preview', faceId: 'face_preview-top' },
         topology: 'face',
+        semanticClass: 'planarFace',
       },
       geometry: {
-        kind: 'planarFace',
-        center: [0, 0, 12],
-        size: [8, 6],
-        normalAxis: 'z',
+        kind: 'mesh',
+        vertexPositions: [
+          [-4, -3, 12],
+          [4, -3, 12],
+          [4, 3, 12],
+          [-4, 3, 12],
+        ],
+        vertexNormals: [
+          [0, 0, 1],
+          [0, 0, 1],
+          [0, 0, 1],
+          [0, 0, 1],
+        ],
+        triangleIndices: [
+          [0, 1, 2],
+          [0, 2, 3],
+        ],
       },
     },
     {
       id: `renderable_${targetKey}_edge` as RenderableId,
       label: 'Preview profile edge',
-      target: { kind: 'edge', bodyId: 'body_preview', edgeId: 'edge_preview-0' },
       ownerBodyId: 'body_preview',
       ownerFeatureId: null,
-      topology: 'edge',
-      pickBinding: {
+      binding: {
         pickId: `pick_${targetKey}_edge` as PickId,
+        pickPriority: 10,
         target: { kind: 'edge', bodyId: 'body_preview', edgeId: 'edge_preview-0' },
         topology: 'edge',
+        semanticClass: 'featureEdge',
       },
       geometry: {
         kind: 'polyline',
         points: [[-4, -3, 12], [4, -3, 12]],
+        isClosed: false,
       },
     },
   ]
@@ -1096,52 +1111,98 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       },
     ],
     diagnostics: [],
-    renderables: [
-      {
-        id: 'renderable_face_top' as RenderableId,
-        label: 'Top face',
-        target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-        ownerBodyId: 'body_part-1',
-        ownerFeatureId: 'feature_extrude-1',
-        topology: 'face',
-        pickBinding: {
-          pickId: 'pick_face_top' as PickId,
-          target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-          topology: 'face',
+    render: {
+      schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
+      records: [
+        {
+          id: 'renderable_face_top' as RenderableId,
+          label: 'Top face',
+          ownerBodyId: 'body_part-1',
+          ownerFeatureId: 'feature_extrude-1',
+          binding: {
+            pickId: 'pick_face_top' as PickId,
+            pickPriority: 20,
+            target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+            topology: 'face',
+            semanticClass: 'planarFace',
+          },
+          geometry: {
+            kind: 'mesh',
+            vertexPositions: [
+              [-4, -3, 12],
+              [4, -3, 12],
+              [4, 3, 12],
+              [-4, 3, 12],
+            ],
+            vertexNormals: [
+              [0, 0, 1],
+              [0, 0, 1],
+              [0, 0, 1],
+              [0, 0, 1],
+            ],
+            triangleIndices: [
+              [0, 1, 2],
+              [0, 2, 3],
+            ],
+          },
         },
-        geometry: {
-          kind: 'planarFace',
-          center: [0, 0, 12],
-          size: [8, 6],
-          normalAxis: 'z',
+        {
+          id: 'renderable_edge_outer_0' as RenderableId,
+          label: 'Outer edge',
+          ownerBodyId: 'body_part-1',
+          ownerFeatureId: 'feature_extrude-1',
+          binding: {
+            pickId: 'pick_edge_outer_0' as PickId,
+            pickPriority: 10,
+            target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
+            topology: 'edge',
+            semanticClass: 'featureEdge',
+          },
+          geometry: {
+            kind: 'polyline',
+            points: [[-4, -3, 12], [4, -3, 12]],
+            isClosed: false,
+          },
         },
-      },
-      {
-        id: 'renderable_edge_outer_0' as RenderableId,
-        label: 'Outer edge',
-        target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-        ownerBodyId: 'body_part-1',
-        ownerFeatureId: 'feature_extrude-1',
-        topology: 'edge',
-        pickBinding: {
-          pickId: 'pick_edge_outer_0' as PickId,
-          target: { kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' },
-          topology: 'edge',
-        },
-        geometry: {
-          kind: 'polyline',
-          points: [[-4, -3, 12], [4, -3, 12]],
-        },
-      },
-    ],
+      ],
+    },
   }
 }
 
-function entity(input: Omit<SnapshotEntityRecord, 'ownerDocumentId' | 'ownerRevisionId'>): SnapshotEntityRecord {
+function entity(
+  input: Omit<SnapshotEntityRecord, 'ownerDocumentId' | 'ownerRevisionId' | 'selectionSemantics'> & {
+    selectionSemantics?: SnapshotEntityRecord['selectionSemantics']
+  },
+): SnapshotEntityRecord {
+  const selectionSemantics = input.selectionSemantics ?? getSelectionSemanticsForTarget(input.target)
   return {
     ownerDocumentId: DOCUMENT_ID,
     ownerRevisionId: REVISION_ID,
     ...input,
+    selectionSemantics,
+  }
+}
+
+function getSelectionSemanticsForTarget(target: SnapshotEntityRecord['target']): SnapshotEntityRecord['selectionSemantics'] {
+  switch (target.kind) {
+    case 'body':
+      return ['body']
+    case 'face':
+      return target.faceId === 'face_top' ? ['face', 'planarFace', 'planarReference'] : ['face']
+    case 'edge':
+      return ['edge']
+    case 'vertex':
+      return ['vertex']
+    case 'construction':
+      return ['constructionPlane', 'planarReference']
+    case 'sketch':
+      return ['existingSketch']
+    case 'region':
+      return ['existingSketch']
+    case 'sketchEntity':
+      return ['sketchEntity']
+    default:
+      return []
   }
 }
 
@@ -1539,7 +1600,10 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
             requestedRevisionId: request.baseRevisionId,
             currentRevisionId: CURRENT_REVISION_ID,
           },
-      renderables: validation.accepted ? buildPreviewRenderables(request.definition, snapshot) : [],
+      render: {
+        schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
+        records: validation.accepted ? buildPreviewRenderables(request.definition, snapshot) : [],
+      },
       diagnostics: validation.diagnostics,
     }
   }

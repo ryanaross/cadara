@@ -83,18 +83,20 @@ export function getFeatureSnapshot(
 }
 
 export function buildSelectionTargetCatalog(snapshot: DocumentSnapshot): SelectionTargetCatalog {
+  const entries = snapshot.entities.map((entity) => ({
+    key: getPrimitiveRefKey(entity.target),
+    semantics: entity.selectionSemantics,
+  }))
+
   return {
-    existingSketchKeys: [
-      ...snapshot.sketches.map((sketch) => getPrimitiveRefKey({ kind: 'sketch', sketchId: sketch.sketchId })),
-      ...snapshot.sketches.flatMap((sketch) =>
-        sketch.sketch.regions.map((region) => getPrimitiveRefKey(region.target)),
-      ),
-    ],
-    constructionPlaneKeys: snapshot.constructions
-      .filter((construction) => construction.constructionType === 'plane')
-      .map((construction) => getPrimitiveRefKey(construction.target)),
-    planarFaceKeys: snapshot.renderables
-      .filter((renderable) => renderable.topology === 'face' && renderable.geometry.kind === 'planarFace')
-      .map((renderable) => getPrimitiveRefKey(renderable.target)),
+    existingSketchKeys: entries
+      .filter((entry) => entry.semantics.includes('existingSketch'))
+      .map((entry) => entry.key),
+    constructionPlaneKeys: entries
+      .filter((entry) => entry.semantics.includes('constructionPlane'))
+      .map((entry) => entry.key),
+    planarFaceKeys: entries
+      .filter((entry) => entry.semantics.includes('planarFace'))
+      .map((entry) => entry.key),
   }
 }

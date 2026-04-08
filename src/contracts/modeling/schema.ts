@@ -7,11 +7,9 @@ import type {
   FeatureId,
   FeatureTreeNodeId,
   ObjectTreeNodeId,
-  PickId,
   PreviewId,
   ReferenceId,
   RegionId,
-  RenderableId,
   RequestId,
   RevisionId,
   SketchId,
@@ -21,6 +19,7 @@ import type {
 import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
 import type { DurableRef } from '@/contracts/shared/references'
 import type { SketchPoint2D, SketchRecord } from '@/contracts/sketch/schema'
+import type { RenderExport } from '@/contracts/render/schema'
 import type {
   ContractVersion,
   FeatureTypeVersion,
@@ -353,41 +352,6 @@ export interface ReferenceRecord {
   invalidation: InvalidReferenceDetailPayload | null
 }
 
-/**
- * Transient render export record for viewport rendering and picking.
- * `id` and `pickBinding.pickId` are render/picking keys only; durable identity
- * is carried by `target`.
- */
-export interface RenderableEntityRecord {
-  id: RenderableId
-  label: string
-  target: PrimitiveRef
-  ownerBodyId: BodyId | null
-  ownerFeatureId: FeatureId | null
-  topology: 'face' | 'edge' | 'vertex'
-  pickBinding: {
-    pickId: PickId
-    target: PrimitiveRef
-    topology: 'face' | 'edge' | 'vertex'
-  }
-  geometry:
-    | {
-        kind: 'planarFace'
-        center: readonly [number, number, number]
-        size: readonly [number, number]
-        normalAxis: 'x' | 'y' | 'z'
-      }
-    | {
-        kind: 'polyline'
-        points: readonly (readonly [number, number, number])[]
-      }
-    | {
-        kind: 'pointMarker'
-        position: readonly [number, number, number]
-        radius: number
-      }
-}
-
 export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   sketchId: SketchId
   label: string
@@ -458,6 +422,22 @@ export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
   target: PrimitiveRef
   relatedTargets: PrimitiveRef[]
   consumedByFeatureIds: FeatureId[]
+  /**
+   * Explicit durable selection semantics owned by the snapshot, not by render
+   * export availability. This allows the editor to decide planar eligibility
+   * without inspecting tessellation payloads.
+   */
+  selectionSemantics: readonly (
+    | 'body'
+    | 'face'
+    | 'edge'
+    | 'vertex'
+    | 'constructionPlane'
+    | 'existingSketch'
+    | 'sketchEntity'
+    | 'planarFace'
+    | 'planarReference'
+  )[]
 }
 
 /**
@@ -477,7 +457,7 @@ export interface DocumentSnapshot {
   entities: SnapshotEntityRecord[]
   references: ReferenceRecord[]
   diagnostics: ModelingDiagnostic[]
-  renderables: RenderableEntityRecord[]
+  render: RenderExport
 }
 
 /**
@@ -656,7 +636,7 @@ export interface EvaluatePreviewResponse {
   revisionId: RevisionId
   previewId: PreviewId
   freshness: PreviewFreshness
-  renderables: RenderableEntityRecord[]
+  render: RenderExport
   diagnostics: ModelingDiagnostic[]
 }
 

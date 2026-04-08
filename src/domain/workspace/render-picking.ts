@@ -5,7 +5,8 @@ import {
   primitiveRefEquals,
   type PrimitiveRef,
 } from '@/domain/editor/schema'
-import type { RenderableEntityRecord } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
 
 export interface WorkspaceRenderScene {
   group: THREE.Group
@@ -14,17 +15,14 @@ export interface WorkspaceRenderScene {
   pickIdToRenderable: Map<string, RenderableEntityRecord>
 }
 
-const TOPOLOGY_PICK_PRIORITY: Record<RenderableEntityRecord['topology'], number> = {
-  vertex: 0,
-  edge: 1,
-  face: 2,
-}
-
 const SURFACE_COLORS = {
-  base: 0x6f89aa,
-  active: 0x79b3ff,
-  edge: 0x9fc7ff,
-  point: 0xe8f3ff,
+  bodyFace: 0x6f89aa,
+  planarFace: 0x6f89aa,
+  featureEdge: 0x9fc7ff,
+  featureVertex: 0xe8f3ff,
+  sketchCurve: 0x7cbcff,
+  sketchPoint: 0xe8f3ff,
+  construction: 0xb6d6ff,
 } as const
 
 export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[]): WorkspaceRenderScene {
@@ -35,13 +33,14 @@ export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[])
 
   for (const renderable of renderables) {
     const object = createObjectForRenderable(renderable)
-    object.userData.pickId = renderable.pickBinding.pickId
-    object.userData.target = renderable.target
+    object.userData.pickId = renderable.binding.pickId
+    object.userData.target = renderable.binding.target
+    object.userData.semanticClass = renderable.binding.semanticClass
     group.add(object)
     pickables.push(object)
-    pickIdToRenderable.set(renderable.pickBinding.pickId, renderable)
+    pickIdToRenderable.set(renderable.binding.pickId, renderable)
 
-    const targetKey = getPrimitiveRefKey(renderable.target)
+    const targetKey = getPrimitiveRefKey(renderable.binding.target)
     const targetObjects = targetToObjects.get(targetKey) ?? []
     targetObjects.push(object)
     targetToObjects.set(targetKey, targetObjects)
@@ -55,27 +54,65 @@ export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[])
   }
 }
 
-function createObjectForRenderable(renderable: RenderableEntityRecord) {
+export function buildSketchDisplayGroup(renderables: SketchSessionDisplayRenderable[]) {
+  const group = new THREE.Group()
+
+  for (const renderable of renderables) {
+    const object = createDisplayObject(renderable)
+    group.add(object)
+  }
+
+  return group
+}
+
+function createDisplayObject(renderable: SketchSessionDisplayRenderable) {
   switch (renderable.geometry.kind) {
-    case 'planarFace':
-      return createFaceObject(renderable)
+    case 'mesh':
+      return createDisplayFaceObject(renderable)
     case 'polyline':
-      return createEdgeObject(renderable)
-    case 'pointMarker':
-      return createVertexObject(renderable)
+      return createDisplayEdgeObject(renderable)
+    case 'marker':
+      return createDisplayMarkerObject(renderable)
   }
 }
 
-function createFaceObject(renderable: RenderableEntityRecord) {
-  const geometryData = renderable.geometry.kind === 'planarFace' ? renderable.geometry : null
+function createObjectForRenderable(renderable: RenderableEntityRecord) {
+  switch (renderable.geometry.kind) {
+    case 'mesh':
+      return createMeshObject(renderable)
+    case 'polyline':
+      return createPolylineObject(renderable)
+    case 'marker':
+      return createMarkerObject(renderable)
+  }
+}
+
+function createMeshObject(renderable: RenderableEntityRecord) {
+  const geometryData = renderable.geometry.kind === 'mesh' ? renderable.geometry : null
 
   if (!geometryData) {
-    throw new Error(`Renderable ${renderable.id} is missing planar face geometry.`)
+    throw new Error(`Renderable ${renderable.id} is missing mesh geometry.`)
   }
 
-  const geometry = new THREE.PlaneGeometry(geometryData.size[0], geometryData.size[1])
+  const geometry = new THREE.BufferGeometry()
+  const flattenedPositions = geometryData.vertexPositions.flat()
+  geometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(flattenedPositions, 3),
+  )
+
+  if (geometryData.vertexNormals) {
+    geometry.setAttribute(
+      'normal',
+      new THREE.Float32BufferAttribute(geometryData.vertexNormals.flat(), 3),
+    )
+  } else {
+    geometry.computeVertexNormals()
+  }
+
+  geometry.setIndex(geometryData.triangleIndices.flat())
   const material = new THREE.MeshStandardMaterial({
-    color: SURFACE_COLORS.base,
+    color: getRenderableBaseColor(renderable.binding.semanticClass),
     transparent: true,
     opacity: 0.86,
     side: THREE.DoubleSide,
@@ -88,69 +125,120 @@ function createFaceObject(renderable: RenderableEntityRecord) {
     polygonOffsetUnits: -2,
   })
   const mesh = new THREE.Mesh(geometry, material)
-  applyAxisOrientation(mesh, geometryData.normalAxis)
-  mesh.position.set(geometryData.center[0], geometryData.center[1], geometryData.center[2])
   mesh.renderOrder = 2
   return mesh
 }
 
-function createEdgeObject(renderable: RenderableEntityRecord) {
+function createPolylineObject(renderable: RenderableEntityRecord) {
   const geometryData = renderable.geometry.kind === 'polyline' ? renderable.geometry : null
 
   if (!geometryData) {
     throw new Error(`Renderable ${renderable.id} is missing polyline geometry.`)
   }
 
-  const curve = new THREE.CatmullRomCurve3(
-    geometryData.points.map((point) => new THREE.Vector3(point[0], point[1], point[2])),
-  )
-  const geometry = new THREE.TubeGeometry(curve, 24, 0.08, 10, false)
-  const material = new THREE.MeshStandardMaterial({
-    color: SURFACE_COLORS.edge,
-    metalness: 0.08,
-    roughness: 0.38,
-    emissive: 0x234774,
-    emissiveIntensity: 0.28,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -4,
+  const points = geometryData.points.map((point) => new THREE.Vector3(point[0], point[1], point[2]))
+  const displayPoints = geometryData.isClosed && points.length > 0 ? [...points, points[0].clone()] : points
+  const geometry = new THREE.BufferGeometry().setFromPoints(displayPoints)
+  const material = new THREE.LineBasicMaterial({
+    color: getRenderableBaseColor(renderable.binding.semanticClass),
+    transparent: true,
+    opacity: 0.95,
   })
-  const mesh = new THREE.Mesh(geometry, material)
-  mesh.renderOrder = 3
-  return mesh
+  const line = new THREE.Line(geometry, material)
+  line.renderOrder = 3
+  return line
 }
 
-function createVertexObject(renderable: RenderableEntityRecord) {
-  const geometryData = renderable.geometry.kind === 'pointMarker' ? renderable.geometry : null
+function createMarkerObject(renderable: RenderableEntityRecord) {
+  const geometryData = renderable.geometry.kind === 'marker' ? renderable.geometry : null
 
   if (!geometryData) {
-    throw new Error(`Renderable ${renderable.id} is missing point marker geometry.`)
+    throw new Error(`Renderable ${renderable.id} is missing marker geometry.`)
   }
 
-  const geometry = new THREE.SphereGeometry(geometryData.radius, 24, 24)
+  const geometry = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(geometryData.position[0], geometryData.position[1], geometryData.position[2]),
+  ])
+  const material = new THREE.PointsMaterial({
+    color: getRenderableBaseColor(renderable.binding.semanticClass),
+    size: Math.max(geometryData.displayRadius * 22, 4),
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.98,
+  })
+  const points = new THREE.Points(geometry, material)
+  points.renderOrder = 4
+  return points
+}
+
+function createDisplayFaceObject(renderable: SketchSessionDisplayRenderable) {
+  const geometryData = renderable.geometry.kind === 'mesh' ? renderable.geometry : null
+
+  if (!geometryData) {
+    throw new Error(`Display renderable ${renderable.id} is missing mesh geometry.`)
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(geometryData.vertexPositions.flat(), 3))
+
+  if (geometryData.vertexNormals) {
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(geometryData.vertexNormals.flat(), 3))
+  } else {
+    geometry.computeVertexNormals()
+  }
+
+  geometry.setIndex(geometryData.triangleIndices.flat())
   const material = new THREE.MeshStandardMaterial({
-    color: SURFACE_COLORS.point,
-    metalness: 0.1,
-    roughness: 0.26,
-    emissive: 0x2f7fe8,
-    emissiveIntensity: 0.34,
+    color: SURFACE_COLORS.sketchCurve,
+    transparent: true,
+    opacity: 0.24,
+    side: THREE.DoubleSide,
+    metalness: 0.08,
+    roughness: 0.58,
+    emissive: 0x214566,
+    emissiveIntensity: 0.18,
+  })
+
+  return new THREE.Mesh(geometry, material)
+}
+
+function createDisplayEdgeObject(renderable: SketchSessionDisplayRenderable) {
+  const geometryData = renderable.geometry.kind === 'polyline' ? renderable.geometry : null
+
+  if (!geometryData) {
+    throw new Error(`Display renderable ${renderable.id} is missing polyline geometry.`)
+  }
+
+  const points = geometryData.points.map((point) => new THREE.Vector3(point[0], point[1], point[2]))
+  const displayPoints = geometryData.isClosed && points.length > 0 ? [...points, points[0].clone()] : points
+  const geometry = new THREE.BufferGeometry().setFromPoints(displayPoints)
+  const material = new THREE.LineBasicMaterial({
+    color: 0x7cbcff,
+    transparent: true,
+    opacity: 0.95,
+  })
+
+  return new THREE.Line(geometry, material)
+}
+
+function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
+  const geometryData = renderable.geometry.kind === 'marker' ? renderable.geometry : null
+
+  if (!geometryData) {
+    throw new Error(`Display renderable ${renderable.id} is missing marker geometry.`)
+  }
+
+  const geometry = new THREE.SphereGeometry(geometryData.displayRadius, 16, 16)
+  const material = new THREE.MeshStandardMaterial({
+    color: SURFACE_COLORS.sketchPoint,
+    metalness: 0.08,
+    roughness: 0.34,
+    emissive: 0x2559a8,
+    emissiveIntensity: 0.28,
   })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
-  mesh.renderOrder = 4
   return mesh
-}
-
-function applyAxisOrientation(mesh: THREE.Mesh, axis: 'x' | 'y' | 'z') {
-  if (axis === 'x') {
-    mesh.rotation.y = Math.PI / 2
-    return
-  }
-
-  if (axis === 'y') {
-    mesh.rotation.x = Math.PI / 2
-    return
-  }
 }
 
 export function resolvePickTarget(
@@ -174,15 +262,13 @@ export function resolvePickTarget(
       return {
         intersection,
         pickId,
-        target: renderable.pickBinding.target,
+        target: renderable.binding.target,
         renderable,
       }
     })
     .filter((hit): hit is NonNullable<typeof hit> => hit !== null)
     .sort((left, right) => {
-      const priorityDelta =
-        TOPOLOGY_PICK_PRIORITY[left.renderable.topology] -
-        TOPOLOGY_PICK_PRIORITY[right.renderable.topology]
+      const priorityDelta = left.renderable.binding.pickPriority - right.renderable.binding.pickPriority
 
       if (priorityDelta !== 0) {
         return priorityDelta
@@ -209,9 +295,10 @@ export function updateWorkspaceHighlight(
 ) {
   for (const objects of targetToObjects.values()) {
     for (const object of objects) {
-      const material = object instanceof THREE.Mesh ? object.material : null
+      const material = getObjectMaterial(object)
+      const semanticClass = object.userData.semanticClass as RenderableEntityRecord['binding']['semanticClass'] | undefined
 
-      if (!material) {
+      if (!material || !semanticClass) {
         continue
       }
 
@@ -223,39 +310,97 @@ export function updateWorkspaceHighlight(
 
       const isSelected = selection.some((entry) => primitiveRefEquals(entry, target))
       const isHovered = hoverTarget !== null && primitiveRefEquals(hoverTarget, target)
-      applyRenderableState(material, target.kind, isSelected || isHovered, isSelected)
+      applyRenderableState(material, semanticClass, isSelected || isHovered, isSelected)
     }
   }
 }
 
 function applyRenderableState(
-  material: THREE.Material | THREE.Material[],
-  kind: PrimitiveRef['kind'],
+  material: THREE.Material | THREE.Material[] | THREE.LineBasicMaterial | THREE.PointsMaterial,
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
   isActive: boolean,
   isSelected: boolean,
 ) {
   const materials = Array.isArray(material) ? material : [material]
 
   for (const entry of materials) {
-    if (!(entry instanceof THREE.MeshStandardMaterial)) {
+    if (
+      !(entry instanceof THREE.MeshStandardMaterial)
+      && !(entry instanceof THREE.LineBasicMaterial)
+      && !(entry instanceof THREE.PointsMaterial)
+    ) {
       continue
     }
 
-    const color = (() => {
-      if (kind === 'edge') {
-        return isActive ? 0xc7e1ff : SURFACE_COLORS.edge
-      }
-
-      if (kind === 'vertex') {
-        return isActive ? 0xffffff : SURFACE_COLORS.point
-      }
-
-      return isActive ? SURFACE_COLORS.active : SURFACE_COLORS.base
-    })()
+    const color = getHighlightColor(semanticClass, isActive, isSelected)
 
     entry.color.setHex(color)
-    entry.emissive.setHex(isSelected ? 0x3c8dff : isActive ? 0x1e4f87 : 0x07111d)
-    entry.emissiveIntensity = isSelected ? 0.48 : isActive ? 0.3 : 0.18
-    entry.opacity = kind === 'face' ? (isActive ? 0.98 : 0.86) : 1
+
+    if (entry instanceof THREE.MeshStandardMaterial) {
+      entry.emissive.setHex(isSelected ? 0x3c8dff : isActive ? 0x1e4f87 : 0x07111d)
+      entry.emissiveIntensity = isSelected ? 0.48 : isActive ? 0.3 : 0.18
+      entry.opacity = isFaceSemanticClass(semanticClass) ? (isActive ? 0.98 : 0.86) : 1
+    } else {
+      entry.opacity = isSelected ? 1 : isActive ? 0.98 : 0.9
+    }
   }
+}
+
+function getRenderableBaseColor(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
+  switch (semanticClass) {
+    case 'bodyFace':
+      return SURFACE_COLORS.bodyFace
+    case 'planarFace':
+      return SURFACE_COLORS.planarFace
+    case 'featureEdge':
+      return SURFACE_COLORS.featureEdge
+    case 'featureVertex':
+      return SURFACE_COLORS.featureVertex
+    case 'sketchCurve':
+      return SURFACE_COLORS.sketchCurve
+    case 'sketchPoint':
+      return SURFACE_COLORS.sketchPoint
+    case 'construction':
+      return SURFACE_COLORS.construction
+  }
+}
+
+function getHighlightColor(
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  isActive: boolean,
+  isSelected: boolean,
+) {
+  if (isSelected) {
+    return 0xf2fbff
+  }
+
+  if (isActive) {
+    if (semanticClass === 'construction') {
+      return 0xe7f2ff
+    }
+
+    if (semanticClass === 'sketchCurve' || semanticClass === 'featureEdge') {
+      return 0xc7e1ff
+    }
+
+    if (semanticClass === 'sketchPoint' || semanticClass === 'featureVertex') {
+      return 0xffffff
+    }
+
+    return 0x79b3ff
+  }
+
+  return getRenderableBaseColor(semanticClass)
+}
+
+function isFaceSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
+  return semanticClass === 'bodyFace' || semanticClass === 'planarFace'
+}
+
+function getObjectMaterial(object: THREE.Object3D) {
+  if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
+    return object.material
+  }
+
+  return null
 }

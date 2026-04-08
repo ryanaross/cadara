@@ -9,6 +9,7 @@ import {
 } from './state-machine'
 import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 import type { DocumentSnapshot } from '@/contracts/modeling/schema'
+import { RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -41,7 +42,10 @@ function createSnapshot(): DocumentSnapshot {
     featureTree: [],
     objects: [],
     references: [],
-    renderables: [],
+    render: {
+      schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
+      records: [],
+    },
     sketches: [],
     features: [],
     bodies: [],
@@ -58,7 +62,21 @@ function createSnapshot(): DocumentSnapshot {
         target: { kind: 'construction', constructionId: 'construction_plane-xy' },
       },
     ],
-    entities: [],
+    entities: [
+      {
+        ownerDocumentId: 'doc_workspace',
+        ownerRevisionId: 'rev_1',
+        ownerFeatureId: null,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        id: 'snapshot_entity_plane_xy',
+        label: 'Top Plane',
+        target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        relatedTargets: [],
+        consumedByFeatureIds: [],
+        selectionSemantics: ['constructionPlane', 'planarReference'],
+      },
+    ],
     diagnostics: [],
   }
 }

@@ -43,8 +43,8 @@ export function CadWorkbench() {
 
   const { commitFeature, cancelFeature } = useFeatureEditing()
   const viewportRenderables = useMemo(
-    () => previewRenderables ?? snapshot?.renderables ?? [],
-    [previewRenderables, snapshot],
+    () => mergeSketchRenderables(previewRenderables ?? snapshot?.render.records ?? [], sketchSession),
+    [previewRenderables, sketchSession, snapshot],
   )
 
   const handleViewportHover = (target: PrimitiveRef) => {
@@ -74,7 +74,8 @@ export function CadWorkbench() {
         <FeatureSidebar snapshot={snapshot} onSelectTarget={handleViewportSelect} />
         <main className="relative min-h-0 flex-1 overflow-hidden border-l border-[var(--cad-border)] bg-[radial-gradient(circle_at_top,_rgba(79,104,140,0.12),_transparent_36%),linear-gradient(180deg,_rgba(14,18,24,0.96),_rgba(8,11,16,1))]">
           <ThreeCadViewport
-            renderables={mergeSketchRenderables(viewportRenderables, sketchSession)}
+            renderables={viewportRenderables.documentRenderables}
+            sketchDisplayRenderables={viewportRenderables.sketchDisplayRenderables}
             onHover={handleViewportHover}
             onSelect={handleViewportSelect}
             onClearHover={handleViewportHoverClear}

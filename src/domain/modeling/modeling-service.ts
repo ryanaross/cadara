@@ -17,7 +17,6 @@ import type {
   VertexId,
 } from '@/domain/editor/schema'
 import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor/schema'
-import { primitiveRefEquals } from '@/domain/editor/schema'
 import type {
   BodySnapshotRecord,
   CommitSketchResponse,
@@ -47,7 +46,6 @@ import type {
   PreviewFreshness,
   RebuildResult,
   ReferenceRecord,
-  RenderableEntityRecord,
   ResolvedReferenceRecord,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
@@ -61,6 +59,7 @@ import type {
   RevolveAxisRef,
   RevolveFeatureParameters,
 } from '@/contracts/modeling/schema'
+import type { RenderExport, RenderableEntityRecord } from '@/contracts/render/schema'
 import type {
   ConstraintStatusRecord,
   ConstraintDefinition,
@@ -183,7 +182,7 @@ export type ModelingEvaluatePreviewInput = Omit<
 export interface ModelingPreviewResult {
   revisionId: DocumentSnapshot['revisionId']
   previewId: EvaluatePreviewResponse['previewId']
-  renderables: RenderableEntityRecord[]
+  renderables: RenderExport['records']
   freshness: PreviewFreshness
   stale: boolean
   diagnostics: ModelingDiagnostic[]
@@ -814,12 +813,20 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       !isRecord(entry) ||
       !isString(entry.id) ||
       !isString(entry.label) ||
-      (entry.topology !== 'face' && entry.topology !== 'edge' && entry.topology !== 'vertex') ||
-      !isRecord(entry.pickBinding) ||
-      !isString(entry.pickBinding.pickId) ||
-      (entry.pickBinding.topology !== 'face' &&
-        entry.pickBinding.topology !== 'edge' &&
-        entry.pickBinding.topology !== 'vertex') ||
+      !isRecord(entry.binding) ||
+      !isString(entry.binding.pickId) ||
+      typeof entry.binding.pickPriority !== 'number' ||
+      !(entry.binding.topology === null ||
+        entry.binding.topology === 'face' ||
+        entry.binding.topology === 'edge' ||
+        entry.binding.topology === 'vertex') ||
+      (entry.binding.semanticClass !== 'bodyFace' &&
+        entry.binding.semanticClass !== 'planarFace' &&
+        entry.binding.semanticClass !== 'featureEdge' &&
+        entry.binding.semanticClass !== 'featureVertex' &&
+        entry.binding.semanticClass !== 'sketchCurve' &&
+        entry.binding.semanticClass !== 'sketchPoint' &&
+        entry.binding.semanticClass !== 'construction') ||
       !isRecord(entry.geometry) ||
       !isString(entry.geometry.kind)
     ) {
@@ -828,42 +835,96 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
 
     const geometry: RenderableEntityRecord['geometry'] = (() => {
       switch (entry.geometry.kind) {
-        case 'planarFace': {
+        case 'mesh': {
           if (
-            !Array.isArray(entry.geometry.center) ||
-            entry.geometry.center.length !== 3 ||
-            !Array.isArray(entry.geometry.size) ||
-            entry.geometry.size.length !== 2 ||
-            (entry.geometry.normalAxis !== 'x' &&
-              entry.geometry.normalAxis !== 'y' &&
-              entry.geometry.normalAxis !== 'z')
+            !Array.isArray(entry.geometry.vertexPositions) ||
+            !Array.isArray(entry.geometry.triangleIndices) ||
+            !(
+              entry.geometry.vertexNormals === null ||
+              Array.isArray(entry.geometry.vertexNormals)
+            )
           ) {
-            throw new Error('Invalid planar face geometry payload.')
+            throw new Error('Invalid mesh geometry payload.')
+          }
+
+          if (entry.geometry.vertexPositions.length === 0) {
+            throw new Error('Mesh geometry must contain at least one vertex position.')
+          }
+
+          const vertexPositions = entry.geometry.vertexPositions
+          const vertexNormals = entry.geometry.vertexNormals
+          const triangleIndices = entry.geometry.triangleIndices
+
+          if (
+            vertexNormals !== null
+            && vertexNormals.length !== vertexPositions.length
+          ) {
+            throw new Error('Mesh vertex normals must align 1:1 with vertex positions.')
           }
 
           return {
-            kind: 'planarFace' as const,
-            center: entry.geometry.center.map((component) => {
-              if (typeof component !== 'number') {
-                throw new Error('Invalid planar face center payload.')
+            kind: 'mesh' as const,
+            vertexPositions: vertexPositions.map((point) => {
+              if (
+                !Array.isArray(point) ||
+                point.length !== 3 ||
+                point.some((component) => typeof component !== 'number')
+              ) {
+                throw new Error('Invalid mesh vertex position payload.')
               }
 
-              return component
-            }) as [number, number, number],
-            size: entry.geometry.size.map((component) => {
-              if (typeof component !== 'number') {
-                throw new Error('Invalid planar face size payload.')
+              return point as [number, number, number]
+            }),
+            vertexNormals:
+              vertexNormals === null
+                ? null
+                : vertexNormals.map((normal) => {
+                    if (
+                      !Array.isArray(normal) ||
+                      normal.length !== 3 ||
+                      normal.some((component) => typeof component !== 'number')
+                    ) {
+                      throw new Error('Invalid mesh vertex normal payload.')
+                    }
+
+                    return normal as [number, number, number]
+                  }),
+            triangleIndices: triangleIndices.map((triangle) => {
+              if (
+                !Array.isArray(triangle) ||
+                triangle.length !== 3 ||
+                triangle.some((index) => typeof index !== 'number' || !Number.isInteger(index))
+              ) {
+                throw new Error('Invalid mesh triangle index payload.')
               }
 
-              return component
-            }) as [number, number],
-            normalAxis: entry.geometry.normalAxis as 'x' | 'y' | 'z',
+              if (
+                triangle.some((index) =>
+                  index < 0 || index >= vertexPositions.length,
+                )
+              ) {
+                throw new Error('Mesh triangle indices must reference existing vertex positions.')
+              }
+
+              return triangle as [number, number, number]
+            }),
           }
         }
         case 'polyline': {
-          if (!Array.isArray(entry.geometry.points)) {
+          if (!Array.isArray(entry.geometry.points) || typeof entry.geometry.isClosed !== 'boolean') {
             throw new Error('Invalid polyline geometry payload.')
           }
+
+          if (!entry.geometry.isClosed && entry.geometry.points.length < 2) {
+            throw new Error('Open polylines must contain at least 2 points.')
+          }
+
+          if (entry.geometry.isClosed && entry.geometry.points.length < 3) {
+            throw new Error('Closed polylines must contain at least 3 points.')
+          }
+
+          let previousPointKey: string | null = null
+          const distinctPointKeys = new Set<string>()
 
           return {
             kind: 'polyline' as const,
@@ -876,24 +937,38 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
                 throw new Error('Invalid polyline point payload.')
               }
 
+              const pointKey = `${point[0]}:${point[1]}:${point[2]}`
+
+              if (previousPointKey === pointKey) {
+                throw new Error('Polyline points must not contain consecutive duplicates.')
+              }
+
+              previousPointKey = pointKey
+              distinctPointKeys.add(pointKey)
+
               return point as [number, number, number]
             }),
+            isClosed: entry.geometry.isClosed,
           }
         }
-        case 'pointMarker': {
+        case 'marker': {
           if (
             !Array.isArray(entry.geometry.position) ||
             entry.geometry.position.length !== 3 ||
             entry.geometry.position.some((component) => typeof component !== 'number') ||
-            typeof entry.geometry.radius !== 'number'
+            typeof entry.geometry.displayRadius !== 'number'
           ) {
-            throw new Error('Invalid point marker geometry payload.')
+            throw new Error('Invalid marker geometry payload.')
+          }
+
+          if (entry.geometry.displayRadius <= 0) {
+            throw new Error('Marker display radius must be strictly positive.')
           }
 
           return {
-            kind: 'pointMarker' as const,
+            kind: 'marker' as const,
             position: entry.geometry.position as [number, number, number],
-            radius: entry.geometry.radius,
+            displayRadius: entry.geometry.displayRadius,
           }
         }
         default:
@@ -901,32 +976,144 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       }
     })()
 
-    const target = assertPrimitiveRef(entry.target)
-    const pickTarget = assertPrimitiveRef(entry.pickBinding.target)
-
-    if (!primitiveRefEquals(target, pickTarget)) {
-      throw new Error('Renderable pick target must match renderable target.')
+    const target = assertPrimitiveRef(entry.binding.target)
+    if (
+      geometry.kind === 'polyline' &&
+      geometry.isClosed &&
+      new Set(geometry.points.map((point) => `${point[0]}:${point[1]}:${point[2]}`)).size < 3
+    ) {
+      throw new Error('Closed polylines must contain at least 3 distinct positions.')
     }
 
-    if (entry.topology !== entry.pickBinding.topology) {
-      throw new Error('Renderable pick topology must match renderable topology.')
+    if (entry.binding.topology === 'face' && target.kind !== 'face') {
+      throw new Error('Face bindings must target durable faces.')
     }
+
+    if (entry.binding.topology === 'edge' && target.kind !== 'edge') {
+      throw new Error('Edge bindings must target durable edges.')
+    }
+
+    if (entry.binding.topology === 'vertex' && target.kind !== 'vertex') {
+      throw new Error('Vertex bindings must target durable vertices.')
+    }
+
+    if (entry.binding.topology === null && target.kind !== 'construction' && target.kind !== 'sketchEntity' && target.kind !== 'sketchPoint') {
+      throw new Error('Non-topological render bindings must target durable construction or sketch refs.')
+    }
+
+    if (
+      (entry.binding.semanticClass === 'bodyFace' || entry.binding.semanticClass === 'planarFace') &&
+      (entry.binding.topology !== 'face' || target.kind !== 'face')
+    ) {
+      throw new Error('Face semantic classes must bind to durable faces.')
+    }
+
+    if (entry.binding.semanticClass === 'featureEdge' && (entry.binding.topology !== 'edge' || target.kind !== 'edge')) {
+      throw new Error('featureEdge bindings must bind to durable edges.')
+    }
+
+    if (
+      entry.binding.semanticClass === 'featureVertex' &&
+      (entry.binding.topology !== 'vertex' || target.kind !== 'vertex')
+    ) {
+      throw new Error('featureVertex bindings must bind to durable vertices.')
+    }
+
+    if (
+      entry.binding.semanticClass === 'construction' &&
+      (entry.binding.topology !== null || target.kind !== 'construction')
+    ) {
+      throw new Error('construction bindings must target durable construction refs without topology.')
+    }
+
+    if (
+      entry.binding.semanticClass === 'sketchCurve' &&
+      (entry.binding.topology !== null || target.kind !== 'sketchEntity')
+    ) {
+      throw new Error('sketchCurve bindings must target durable sketch entities without topology.')
+    }
+
+    if (
+      entry.binding.semanticClass === 'sketchPoint' &&
+      (entry.binding.topology !== null || target.kind !== 'sketchPoint')
+    ) {
+      throw new Error('sketchPoint bindings must target durable sketch points without topology.')
+    }
+
+    const binding: RenderableEntityRecord['binding'] = (() => {
+      switch (entry.binding.semanticClass) {
+        case 'bodyFace':
+        case 'planarFace':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'face' }>,
+            topology: 'face',
+            semanticClass: entry.binding.semanticClass,
+          }
+        case 'featureEdge':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'edge' }>,
+            topology: 'edge',
+            semanticClass: 'featureEdge',
+          }
+        case 'featureVertex':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'vertex' }>,
+            topology: 'vertex',
+            semanticClass: 'featureVertex',
+          }
+        case 'construction':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'construction' }>,
+            topology: null,
+            semanticClass: 'construction',
+          }
+        case 'sketchCurve':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'sketchEntity' }>,
+            topology: null,
+            semanticClass: 'sketchCurve',
+          }
+        case 'sketchPoint':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'sketchPoint' }>,
+            topology: null,
+            semanticClass: 'sketchPoint',
+          }
+      }
+    })()
 
     return {
       id: entry.id as RenderableId,
       label: entry.label,
-      target,
       ownerBodyId: entry.ownerBodyId === null ? null : assertBodyId(entry.ownerBodyId),
       ownerFeatureId: entry.ownerFeatureId === null ? null : assertFeatureId(entry.ownerFeatureId),
-      topology: entry.topology,
-      pickBinding: {
-        pickId: entry.pickBinding.pickId as PickId,
-        target,
-        topology: entry.pickBinding.topology,
-      },
+      binding,
       geometry,
     }
   })
+}
+
+function normalizeRenderExport(value: unknown): RenderExport {
+  if (!isRecord(value) || value.schemaVersion !== 'render-export/v1alpha1') {
+    throw new Error('Invalid render export payload.')
+  }
+
+  return {
+    schemaVersion: value.schemaVersion,
+    records: normalizeRenderables(value.records),
+  }
 }
 
 function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
@@ -1623,7 +1810,8 @@ function normalizeEntities(value: unknown): SnapshotEntityRecord[] {
       !isString(entry.id) ||
       !isString(entry.label) ||
       !Array.isArray(entry.relatedTargets) ||
-      !Array.isArray(entry.consumedByFeatureIds)
+      !Array.isArray(entry.consumedByFeatureIds) ||
+      !Array.isArray(entry.selectionSemantics)
     ) {
       throw new Error('Invalid snapshot entity record.')
     }
@@ -1635,6 +1823,23 @@ function normalizeEntities(value: unknown): SnapshotEntityRecord[] {
       target: assertPrimitiveRef(entry.target),
       relatedTargets: entry.relatedTargets.map((target) => assertPrimitiveRef(target)),
       consumedByFeatureIds: entry.consumedByFeatureIds.map((featureId) => assertFeatureId(featureId)),
+      selectionSemantics: entry.selectionSemantics.map((semantic) => {
+        if (
+          semantic !== 'body' &&
+          semantic !== 'face' &&
+          semantic !== 'edge' &&
+          semantic !== 'vertex' &&
+          semantic !== 'constructionPlane' &&
+          semantic !== 'existingSketch' &&
+          semantic !== 'sketchEntity' &&
+          semantic !== 'planarFace' &&
+          semantic !== 'planarReference'
+        ) {
+          throw new Error('Invalid snapshot entity selection semantic.')
+        }
+
+        return semantic
+      }),
     }
   })
 }
@@ -1760,7 +1965,7 @@ function mapPreviewResponse(
   return {
     revisionId: response.revisionId,
     previewId: response.previewId,
-    renderables: response.renderables,
+    renderables: response.render.records,
     freshness: response.freshness,
     stale: response.freshness.kind === 'stale',
     diagnostics: response.diagnostics,
@@ -1975,6 +2180,7 @@ export const modelingRuntimeValidators = {
   objects: normalizeObjects,
   references: normalizeReferences,
   renderables: normalizeRenderables,
+  renderExport: normalizeRenderExport,
   sketches: normalizeSketches,
   features: normalizeFeatures,
   bodies: normalizeBodies,

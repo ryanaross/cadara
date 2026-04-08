@@ -15,11 +15,11 @@ import type {
   ModelingDiagnostic,
   ObjectTreeNodeRecord,
   ReferenceRecord,
-  RenderableEntityRecord,
   ReorderFeatureRequest,
   ResolvedReferenceRecord,
   SnapshotEntityRecord,
 } from '@/contracts/modeling/schema'
+import type { RenderExport, RenderableEntityRecord } from '@/contracts/render/schema'
 
 type Equals<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends
@@ -65,7 +65,22 @@ type RenderableIdsArePresentational = Assert<
 >
 
 type PickIdsAreTyped = Assert<
-  Equals<RenderableEntityRecord['pickBinding']['pickId'], PickId>
+  Equals<RenderableEntityRecord['binding']['pickId'], PickId>
+>
+
+type RenderBindingUsesCanonicalRefs = Assert<
+  RenderableEntityRecord['binding']['target'] extends DurableRef ? true : false
+>
+
+type RenderGeometryUnionIsSemanticExport = Assert<
+  Equals<RenderableEntityRecord['geometry']['kind'], 'mesh' | 'polyline' | 'marker'>
+>
+
+type NonTopologicalBindingsAreExplicit = Assert<
+  Equals<
+    Extract<RenderableEntityRecord['binding'], { semanticClass: 'construction' | 'sketchCurve' | 'sketchPoint' }>['topology'],
+    null
+  >
 >
 
 type SharedIdsModule = typeof import('@/contracts/shared/ids')
@@ -112,6 +127,10 @@ type SnapshotReferencesAreModelingOwned = Assert<
   Equals<DocumentSnapshot['references'][number], ReferenceRecord>
 >
 
+type SnapshotRenderUsesRenderContract = Assert<
+  Equals<DocumentSnapshot['render'], RenderExport>
+>
+
 export const CONTRACT_TYPE_TESTS: readonly [
   DurableRefKindsAreCanonical,
   FeatureTreeIdsArePresentational,
@@ -119,6 +138,9 @@ export const CONTRACT_TYPE_TESTS: readonly [
   SnapshotEntityIdsArePresentational,
   RenderableIdsArePresentational,
   PickIdsAreTyped,
+  RenderBindingUsesCanonicalRefs,
+  RenderGeometryUnionIsSemanticExport,
+  NonTopologicalBindingsAreExplicit,
   SharedIdsDoNotLeakSketchPrimitiveId,
   KernelSnapshotBoundaryIsTyped,
   FeatureDefinitionIsClosedUnion,
@@ -129,4 +151,5 @@ export const CONTRACT_TYPE_TESTS: readonly [
   ResolutionUsesCanonicalRefs,
   SnapshotEntitiesUseCanonicalRefs,
   SnapshotReferencesAreModelingOwned,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+  SnapshotRenderUsesRenderContract,
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]

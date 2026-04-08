@@ -5,10 +5,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import {
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import type { RenderableEntityRecord } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
   buildWorkspaceRenderScene,
+  buildSketchDisplayGroup,
   resolvePickTarget,
   updateWorkspaceHighlight,
   type WorkspaceRenderScene,
@@ -36,8 +38,9 @@ const FACE_INDEX_TO_DIRECTION = {
 
 interface ThreeCadViewportProps {
   renderables: RenderableEntityRecord[]
-  onHover: (target: RenderableEntityRecord['target']) => void
-  onSelect: (target: RenderableEntityRecord['target']) => void
+  sketchDisplayRenderables: SketchSessionDisplayRenderable[]
+  onHover: (target: RenderableEntityRecord['binding']['target']) => void
+  onSelect: (target: RenderableEntityRecord['binding']['target']) => void
   onClearHover: () => void
   onSketchMove: (point: readonly [number, number]) => void
   onSketchRelease: (point: readonly [number, number]) => void
@@ -61,6 +64,7 @@ interface ViewportRuntime {
 
 export function ThreeCadViewport({
   renderables,
+  sketchDisplayRenderables,
   onHover,
   onSelect,
   onClearHover,
@@ -71,6 +75,7 @@ export function ThreeCadViewport({
   const gizmoRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<ViewportRuntime | null>(null)
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
+  const sketchDisplayGroupRef = useRef<THREE.Group | null>(null)
   const hoverRef = useRef(onHover)
   const selectRef = useRef(onSelect)
   const clearHoverRef = useRef(onClearHover)
@@ -255,6 +260,8 @@ export function ThreeCadViewport({
 
       disposeRenderScene(renderSceneRef.current)
       renderSceneRef.current = null
+      disposeSketchDisplayGroup(sketchDisplayGroupRef.current)
+      sketchDisplayGroupRef.current = null
       runtimeRef.current = null
 
       controls.dispose()
@@ -288,6 +295,19 @@ export function ThreeCadViewport({
     runtime.scene.add(nextScene.group)
     renderSceneRef.current = nextScene
   }, [renderables])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+
+    if (!runtime) {
+      return
+    }
+
+    disposeSketchDisplayGroup(sketchDisplayGroupRef.current)
+    const group = buildSketchDisplayGroup(sketchDisplayRenderables)
+    runtime.scene.add(group)
+    sketchDisplayGroupRef.current = group
+  }, [sketchDisplayRenderables])
 
   useEffect(() => {
     if (!renderSceneRef.current) {
@@ -440,6 +460,28 @@ function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
     }
 
     if (object instanceof THREE.Line || object instanceof THREE.Points) {
+      object.geometry.dispose()
+
+      if (Array.isArray(object.material)) {
+        object.material.forEach((material) => material.dispose())
+      } else {
+        object.material.dispose()
+      }
+    }
+  }
+}
+
+function disposeSketchDisplayGroup(group: THREE.Group | null) {
+  if (!group) {
+    return
+  }
+
+  group.parent?.remove(group)
+
+  for (const object of [...group.children]) {
+    group.remove(object)
+
+    if (object instanceof THREE.Mesh) {
       object.geometry.dispose()
 
       if (Array.isArray(object.material)) {

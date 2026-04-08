@@ -2,10 +2,12 @@ import type { PrimitiveRef, RevisionId } from '@/domain/editor/schema'
 import {
   createNewSketchSession,
   createSketchSessionFromSnapshot,
-  getSketchSessionRenderables,
+  getSketchSessionDisplayRenderables,
+  type SketchSessionDisplayRenderable,
   type SketchSessionState,
 } from '@/domain/editor/sketch-session'
 import type { DocumentSnapshot } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type {
   ModelingCommitSketchResult,
   ModelingService,
@@ -68,12 +70,23 @@ export async function commitActiveSketchSession(input: {
 }
 
 export function mergeSketchRenderables(
-  documentRenderables: DocumentSnapshot['renderables'],
+  documentRenderables: RenderableEntityRecord[],
   session: SketchSessionState | null,
 ) {
   if (!session) {
-    return documentRenderables
+    return {
+      documentRenderables,
+      sketchDisplayRenderables: [],
+    }
   }
 
-  return [...documentRenderables, ...getSketchSessionRenderables(session)]
+  return {
+    documentRenderables,
+    sketchDisplayRenderables: getSketchSessionDisplayRenderables(session),
+  }
+}
+
+export type MergedSketchRenderables = {
+  documentRenderables: RenderableEntityRecord[]
+  sketchDisplayRenderables: SketchSessionDisplayRenderable[]
 }
