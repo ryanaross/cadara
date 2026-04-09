@@ -276,28 +276,45 @@ export type SolvedSketchStatus =
  */
 export type SolvedSketchEntityGeometryRecord =
   | {
+      /** Authored entity identity whose solved geometry is being reported. */
       entityId: SketchEntityId
+      /** Stable discriminant for solved point-entity geometry. */
       kind: 'point'
+      /** Solver-computed point position in sketch-plane units. */
       solvedPosition: SketchPoint2D
     }
   | {
+      /** Authored entity identity whose solved geometry is being reported. */
       entityId: SketchEntityId
+      /** Stable discriminant for solved line-segment geometry. */
       kind: 'lineSegment'
+      /** Solver-computed start point in sketch-plane units. */
       startPosition: SketchPoint2D
+      /** Solver-computed end point in sketch-plane units. */
       endPosition: SketchPoint2D
     }
   | {
+      /** Authored entity identity whose solved geometry is being reported. */
       entityId: SketchEntityId
+      /** Stable discriminant for solved circle geometry. */
       kind: 'circle'
+      /** Solver-computed center point in sketch-plane units. */
       centerPosition: SketchPoint2D
+      /** Solver-computed radius in sketch-plane units. */
       solvedRadius: number
     }
   | {
+      /** Authored entity identity whose solved geometry is being reported. */
       entityId: SketchEntityId
+      /** Stable discriminant for solved arc geometry. */
       kind: 'arc'
+      /** Solver-computed arc center in sketch-plane units. */
       centerPosition: SketchPoint2D
+      /** Solver-computed arc start point in sketch-plane units. */
       startPosition: SketchPoint2D
+      /** Solver-computed arc end point in sketch-plane units. */
       endPosition: SketchPoint2D
+      /** Solver-computed sweep direction from start to end. */
       sweepDirection: 'clockwise' | 'counterClockwise'
     }
 

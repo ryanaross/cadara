@@ -26,7 +26,10 @@ export type RenderSemanticClass =
 interface RenderBindingBase {
   /** Transient pick-binding identifier used by viewport hit-testing. */
   pickId: PickId
-  /** Lower values win when multiple exports overlap at one hit location. */
+  /**
+   * Lower values win when multiple exports overlap at one hit location.
+   * The export producer owns this ordering policy.
+   */
   pickPriority: number
 }
 
@@ -123,6 +126,7 @@ export type RenderSemanticBinding =
  * the consumer; otherwise it must align 1:1 with `vertexPositions`.
  */
 export interface RenderMeshGeometry {
+  /** Stable discriminant for triangle-mesh render records. */
   kind: 'mesh'
   /** Vertex positions in document modeling units. */
   vertexPositions: readonly RenderPoint3D[]
@@ -140,6 +144,7 @@ export interface RenderMeshGeometry {
  * not repeated in `points`.
  */
 export interface RenderPolylineGeometry {
+  /** Stable discriminant for polyline render records. */
   kind: 'polyline'
   /** Ordered world-space points in document modeling units. */
   points: readonly RenderPoint3D[]
@@ -152,6 +157,7 @@ export interface RenderPolylineGeometry {
  * `displayRadius` is a view hint only and must not be treated as topology.
  */
 export interface RenderMarkerGeometry {
+  /** Stable discriminant for point-marker render records. */
   kind: 'marker'
   /** Marker anchor in document modeling units. */
   position: RenderPoint3D
@@ -189,4 +195,7 @@ export interface RenderExport {
   records: RenderableEntityRecord[]
 }
 
+/**
+ * Canonical durable target type that one render record may bind to.
+ */
 export type RenderTarget = DurableRef

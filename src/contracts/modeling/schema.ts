@@ -26,10 +26,17 @@ import type {
   SnapshotSchemaVersion,
 } from '@/contracts/shared/versioning'
 
-export type { PreviewId, ReferenceId }
+/** Re-exported preview identifier used by modeling preview requests. */
+export type { PreviewId }
+/** Re-exported durable reference-record identifier used by named references. */
+export type { ReferenceId }
+/** Canonical durable reference union accepted throughout the modeling boundary. */
 export type PrimitiveRef = DurableRef
+/** Canonical orientation key for standard datum planes. */
 export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
+/** Boolean policy applied to feature results during rebuild. */
 export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
+/** Sketch-space 2D point alias used by historical modeling helpers. */
 export type SketchPoint = SketchPoint2D
 
 /**
@@ -72,7 +79,9 @@ export interface ExtrudeFeatureParameters {
 export interface FilletEdgeRef {
   /** Durable edge reference; this variant is fixed for fillet target lists. */
   kind: 'edge'
+  /** Owning body of the edge to round. */
   bodyId: BodyId
+  /** Exact durable edge identity to round. */
   edgeId: EdgeId
 }
 
@@ -157,6 +166,7 @@ export type FeatureDefinition =
       kind: 'fillet'
       /** Per-variant schema version owned by the fillet contract family. */
       featureTypeVersion: FeatureTypeVersion
+      /** Exact rebuild inputs owned by this fillet feature instance. */
       parameters: FilletFeatureParameters
     }
   | {
@@ -164,6 +174,7 @@ export type FeatureDefinition =
       kind: 'plane'
       /** Per-variant schema version owned by the plane contract family. */
       featureTypeVersion: FeatureTypeVersion
+      /** Exact rebuild inputs owned by this plane feature instance. */
       parameters: PlaneFeatureParameters
     }
   | {
@@ -171,6 +182,7 @@ export type FeatureDefinition =
       kind: 'revolve'
       /** Per-variant schema version owned by the revolve contract family. */
       featureTypeVersion: FeatureTypeVersion
+      /** Exact rebuild inputs owned by this revolve feature instance. */
       parameters: RevolveFeatureParameters
     }
 
@@ -184,10 +196,15 @@ export type FeatureDefinition =
  * human-readable messages for control flow.
  */
 export interface InvalidReferenceDetailPayload {
+  /** Stable backend-defined reason code for the invalidation. */
   reason: string
+  /** Exact durable target that is no longer valid. */
   target: PrimitiveRef
+  /** Owning feature of the dead target when known. */
   ownerFeatureId: FeatureId | null
+  /** Owning sketch of the dead target when known. */
   ownerSketchId: SketchId | null
+  /** Upstream source target that caused the invalidation, if one exists. */
   sourceTarget: PrimitiveRef | null
 }
 
@@ -198,23 +215,35 @@ export interface InvalidReferenceDetailPayload {
  */
 export type ModelingDiagnosticDetail =
   | {
+      /** Stable discriminant for invalid durable-reference failures. */
       kind: 'invalidReference'
+      /** Structured invalidation payload for the failed durable target. */
       reference: InvalidReferenceDetailPayload
     }
   | {
+      /** Stable discriminant for base-revision mismatch failures. */
       kind: 'revisionConflict'
+      /** Revision the caller expected to target. */
       expectedRevisionId: RevisionId
+      /** Revision that was current when the operation was evaluated. */
       actualRevisionId: RevisionId
     }
   | {
+      /** Stable discriminant for stale preview responses. */
       kind: 'stalePreview'
+      /** Preview correlation ID that went stale. */
       previewId: PreviewId
+      /** Base revision that the caller asked to preview. */
       requestedRevisionId: RevisionId
+      /** Newer committed revision that made the preview stale. */
       currentRevisionId: RevisionId
     }
   | {
+      /** Stable discriminant for rebuild failures after acceptance. */
       kind: 'rebuildFailure'
+      /** Durable features whose rebuild contributed to the failure. */
       affectedFeatureIds: FeatureId[]
+      /** Durable targets invalidated or implicated by the rebuild failure. */
       affectedTargets: PrimitiveRef[]
     }
 
@@ -222,10 +251,15 @@ export type ModelingDiagnosticDetail =
  * Top-level diagnostic record returned by the modeling boundary.
  */
 export interface ModelingDiagnostic {
+  /** Stable diagnostic code for programmatic handling. */
   code: string
+  /** Severity emitted by the modeling producer. */
   severity: 'info' | 'warning' | 'error'
+  /** Human-readable summary for logs and UI presentation. */
   message: string
+  /** Exact durable target implicated by this diagnostic, when known. */
   target: PrimitiveRef | null
+  /** Machine-readable detail payload for structured handling, when available. */
   detail: ModelingDiagnosticDetail | null
 }
 
@@ -238,17 +272,25 @@ export interface ModelingDiagnostic {
  */
 export type MutationRevisionState =
   | {
+      /** Accepted mutation evaluated against the requested base revision. */
       kind: 'accepted'
+      /** Exact base revision that the kernel accepted for this mutation. */
       baseRevisionId: RevisionId
     }
   | {
+      /** Mutation could not commit because the requested base revision was stale. */
       kind: 'conflict'
+      /** Base revision that the caller expected to target. */
       expectedRevisionId: RevisionId
+      /** Committed revision that was current when the conflict was detected. */
       actualRevisionId: RevisionId
     }
   | {
+      /** Mutation was evaluated but rejected without committing document state. */
       kind: 'rejected'
+      /** Base revision against which the rejected request was checked. */
       baseRevisionId: RevisionId
+      /** Stable machine-readable rejection code. */
       reasonCode: string
     }
 
@@ -261,22 +303,35 @@ export type MutationRevisionState =
  */
 export type RebuildResult =
   | {
+      /** Rebuild completed successfully for the returned revision. */
       kind: 'rebuilt'
+      /** Revision produced by the successful rebuild. */
       revisionId: RevisionId
+      /** Durable targets invalidated while producing the rebuilt revision. */
       invalidatedTargets: PrimitiveRef[]
+      /** Diagnostics emitted during the successful rebuild. */
       diagnostics: ModelingDiagnostic[]
     }
   | {
+      /** No rebuild ran because the mutation never produced a rebuildable change. */
       kind: 'skipped'
+      /** Stable machine-readable reason the rebuild was skipped. */
       reasonCode: 'revisionConflict' | 'validationRejected' | 'noOp'
+      /** Durable targets invalidated before the rebuild was skipped, if any. */
       invalidatedTargets: PrimitiveRef[]
+      /** Diagnostics emitted while deciding to skip rebuild. */
       diagnostics: ModelingDiagnostic[]
     }
   | {
+      /** Mutation was accepted but rebuild failed explicitly. */
       kind: 'failed'
+      /** Revision against which the failed rebuild was attempted. */
       revisionId: RevisionId
+      /** Stable machine-readable reason for the rebuild failure. */
       reasonCode: string
+      /** Durable targets invalidated by the failed rebuild attempt. */
       invalidatedTargets: PrimitiveRef[]
+      /** Diagnostics emitted by the failed rebuild. */
       diagnostics: ModelingDiagnostic[]
     }
 
@@ -287,12 +342,17 @@ export type RebuildResult =
  */
 export type PreviewFreshness =
   | {
+      /** Preview still matches the requested base revision. */
       kind: 'fresh'
+      /** Base revision that both caller and kernel agree the preview used. */
       baseRevisionId: RevisionId
     }
   | {
+      /** Preview was computed or received after the caller's base revision went stale. */
       kind: 'stale'
+      /** Base revision that the caller originally asked to preview. */
       requestedRevisionId: RevisionId
+      /** Newer committed revision that superseded the preview basis. */
       currentRevisionId: RevisionId
     }
 
@@ -308,13 +368,21 @@ export type SnapshotOwnershipRecord = OwnershipRecord
  * `id` is a UI/view-model key only; durable identity is carried by `target`.
  */
 export interface FeatureTreeNodeRecord {
+  /** Presentational tree-node key scoped to one snapshot payload. */
   id: FeatureTreeNodeId
+  /** Human-readable row label shown in the feature tree. */
   label: string
+  /** Human-readable secondary description owned by the snapshot producer. */
   description: string
+  /** Tree row family used for iconography and grouping. */
   kind: 'plane' | 'sketch' | 'feature'
+  /** Durable target represented by this tree row. */
   target: PrimitiveRef
+  /** Owning durable feature for this row, if any. */
   ownerFeatureId: FeatureId | null
+  /** Owning durable sketch for this row, if any. */
   ownerSketchId: SketchId | null
+  /** Source feature from which this row was derived, if distinct from `ownerFeatureId`. */
   sourceFeatureId: FeatureId | null
 }
 
@@ -323,12 +391,19 @@ export interface FeatureTreeNodeRecord {
  * `id` is a UI/view-model key only; durable identity is carried by `target`.
  */
 export interface ObjectTreeNodeRecord {
+  /** Presentational tree-node key scoped to one snapshot payload. */
   id: ObjectTreeNodeId
+  /** Human-readable row label shown in the object tree. */
   label: string
+  /** Human-readable secondary description owned by the snapshot producer. */
   description: string
+  /** Tree row family used for iconography and grouping. */
   kind: 'body' | 'construction'
+  /** Durable target represented by this tree row. */
   target: PrimitiveRef
+  /** Owning body when this row represents body topology; otherwise null. */
   ownerBodyId: BodyId | null
+  /** Owning feature when this row is feature-authored; otherwise null. */
   ownerFeatureId: FeatureId | null
 }
 
@@ -341,22 +416,40 @@ export interface ObjectTreeNodeRecord {
  * `invalidation` with a machine-readable failure reason.
  */
 export interface ReferenceRecord {
+  /** Durable named-reference identity scoped to the document. */
   id: ReferenceId
+  /** Human-readable label owned by the modeling producer. */
   label: string
+  /** Exact durable target named by this record. */
   target: PrimitiveRef
+  /** Durable document that owns the reference record. */
   ownerDocumentId: DocumentId
+  /** Revision in which this reference record was evaluated. */
   ownerRevisionId: RevisionId
+  /** Owning feature when the target belongs to feature-authored state. */
   ownerFeatureId: FeatureId | null
+  /** Owning sketch when the target belongs to sketch-authored state. */
   ownerSketchId: SketchId | null
+  /** Owning body when the target belongs to body topology. */
   ownerBodyId: BodyId | null
+  /** Explicit invalidation payload when the named reference no longer resolves. */
   invalidation: InvalidReferenceDetailPayload | null
 }
 
+/**
+ * Durable sketch snapshot entry embedded in one document snapshot.
+ * This record ties a sketch payload to its plane context and revision basis.
+ */
 export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
+  /** Durable sketch identity owned by the snapshot producer. */
   sketchId: SketchId
+  /** Human-readable sketch label. */
   label: string
+  /** Durable plane or planar reference that owns the sketch frame. */
   planeTarget: PrimitiveRef
+  /** Canonical plane key used by current UI/view helpers. */
   planeKey: SketchPlaneKey
+  /** Full authored, solved, and derived sketch payload for this snapshot row. */
   sketch: SketchRecord
 }
 
@@ -379,6 +472,10 @@ export interface FeatureSnapshotRecordBase extends SnapshotOwnershipRecord {
   producedTargets: PrimitiveRef[]
 }
 
+/**
+ * Durable feature snapshot entry embedded in one document snapshot.
+ * The embedded definition is the authoritative rebuild input for the feature.
+ */
 export type FeatureSnapshotRecord = FeatureSnapshotRecordBase & {
   /** Authoritative typed feature definition used to rebuild this feature. */
   definition: FeatureDefinition
@@ -388,8 +485,11 @@ export type FeatureSnapshotRecord = FeatureSnapshotRecordBase & {
  * Durable topology membership for a body snapshot.
  */
 export interface BodyTopologySnapshotRecord {
+  /** Durable face identities owned by the body at this revision. */
   faceIds: FaceId[]
+  /** Durable edge identities owned by the body at this revision. */
   edgeIds: EdgeId[]
+  /** Durable vertex identities owned by the body at this revision. */
   vertexIds: VertexId[]
 }
 
@@ -397,8 +497,11 @@ export interface BodyTopologySnapshotRecord {
  * Durable body snapshot record.
  */
 export interface BodySnapshotRecord extends SnapshotOwnershipRecord {
+  /** Durable body identity. */
   bodyId: BodyId
+  /** Human-readable body label. */
   label: string
+  /** Explicit topology membership owned by the body snapshot. */
   topology: BodyTopologySnapshotRecord
 }
 
@@ -406,9 +509,13 @@ export interface BodySnapshotRecord extends SnapshotOwnershipRecord {
  * Durable construction snapshot record.
  */
 export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
+  /** Durable construction identity. */
   constructionId: ConstructionId
+  /** Human-readable construction label. */
   label: string
+  /** Construction subtype for this schema version. */
   constructionType: 'plane'
+  /** Durable target represented by this construction snapshot. */
   target: PrimitiveRef
 }
 
@@ -417,10 +524,15 @@ export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
  * `id` is a view-model key only; durable identity is carried by `target`.
  */
 export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
+  /** Presentational entity key scoped to one snapshot payload. */
   id: SnapshotEntityId
+  /** Human-readable label for selection/detail surfaces. */
   label: string
+  /** Primary durable target represented by this entity row. */
   target: PrimitiveRef
+  /** Other durable targets that should be surfaced alongside `target`. */
   relatedTargets: PrimitiveRef[]
+  /** Durable features that consume or depend on this entity. */
   consumedByFeatureIds: FeatureId[]
   /**
    * Explicit durable selection semantics owned by the snapshot, not by render
@@ -444,19 +556,33 @@ export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
  * Canonical document snapshot payload for the current modeling boundary.
  */
 export interface DocumentSnapshot {
+  /** Shared top-level contract version for this snapshot payload. */
   contractVersion: ContractVersion
+  /** Snapshot schema version used to encode this payload. */
   schemaVersion: SnapshotSchemaVersion
+  /** Durable document identity represented by this snapshot. */
   documentId: DocumentId
+  /** Committed revision represented by every durable record in this payload. */
   revisionId: RevisionId
+  /** Presentational feature-tree rows derived from durable state. */
   featureTree: FeatureTreeNodeRecord[]
+  /** Presentational object-tree rows derived from durable state. */
   objects: ObjectTreeNodeRecord[]
+  /** Durable feature records owned by this revision. */
   features: FeatureSnapshotRecord[]
+  /** Durable sketch records owned by this revision. */
   sketches: SketchSnapshotRecord[]
+  /** Durable body records owned by this revision. */
   bodies: BodySnapshotRecord[]
+  /** Durable construction/reference-geometry records owned by this revision. */
   constructions: ConstructionSnapshotRecord[]
+  /** Presentational entity rows for selection and inspection surfaces. */
   entities: SnapshotEntityRecord[]
+  /** Named durable references available at this revision. */
   references: ReferenceRecord[]
+  /** Machine-readable diagnostics active at this revision. */
   diagnostics: ModelingDiagnostic[]
+  /** Renderer-neutral geometry export for this revision. */
   render: RenderExport
 }
 
@@ -464,6 +590,7 @@ export interface DocumentSnapshot {
  * Base request envelope for all modeling operations.
  */
 export interface BaseModelingRequest {
+  /** Shared top-level contract version expected by the caller. */
   contractVersion: ContractVersion
 }
 
@@ -471,6 +598,7 @@ export interface BaseModelingRequest {
  * Base request envelope scoped to a document.
  */
 export interface BaseDocumentRequest extends BaseModelingRequest {
+  /** Durable document identity against which the request is evaluated. */
   documentId: DocumentId
 }
 
@@ -478,6 +606,7 @@ export interface BaseDocumentRequest extends BaseModelingRequest {
  * Mutation request envelope scoped to a base revision.
  */
 export interface DocumentMutationRequest extends BaseDocumentRequest {
+  /** Base committed revision against which the mutation or preview is evaluated. */
   baseRevisionId: RevisionId
 }
 
@@ -485,22 +614,34 @@ export interface DocumentMutationRequest extends BaseDocumentRequest {
  * Common mutation result envelope.
  */
 export interface ModelingOperationResult {
+  /** Shared top-level contract version used to encode this result. */
   contractVersion: ContractVersion
+  /** Durable document identity against which the result was evaluated. */
   documentId: DocumentId
+  /** Revision reached or observed while producing this result. */
   revisionId: RevisionId
+  /** Explicit acceptance/conflict/rejection outcome for the base revision. */
   revisionState: MutationRevisionState
+  /** Explicit rebuild outcome for the attempted operation. */
   rebuildResult: RebuildResult
+  /** Durable targets added, updated, or otherwise materially changed by the operation. */
   changedTargets: PrimitiveRef[]
+  /** Machine-readable diagnostics emitted during evaluation or rebuild. */
   diagnostics: ModelingDiagnostic[]
 }
 
+/**
+ * Request envelope for fetching one authoritative document snapshot.
+ */
 export type GetDocumentSnapshotRequest = BaseDocumentRequest
 
 /**
  * Response envelope for a full document snapshot fetch.
  */
 export interface GetDocumentSnapshotResponse {
+  /** Shared top-level contract version used to encode this result. */
   contractVersion: ContractVersion
+  /** Full typed snapshot payload for the requested document. */
   snapshot: DocumentSnapshot
 }
 
@@ -526,6 +667,7 @@ export interface FeatureMutationRequest extends DocumentMutationRequest {
  * definition could not be committed.
  */
 export interface CreateFeatureResponse extends ModelingOperationResult {
+  /** Durable feature identity allocated or retained for the request. */
   featureId: FeatureId
 }
 
@@ -548,6 +690,7 @@ export interface UpdateFeatureRequest extends FeatureMutationRequest {
  * not commit.
  */
 export interface UpdateFeatureResponse extends ModelingOperationResult {
+  /** Durable feature identity that was targeted by the update. */
   featureId: FeatureId
 }
 
@@ -573,6 +716,10 @@ export interface ReorderFeatureResponse extends ModelingOperationResult {
   beforeFeatureId: FeatureId | null
 }
 
+/**
+ * Request to create or update a durable sketch against one base revision.
+ * The caller owns the authored definition and any explicit solver correlation.
+ */
 export interface CommitSketchRequest extends DocumentMutationRequest {
   /** Editor- or orchestrator-owned correlation IDs for explicit solver sub-requests. */
   solverCorrelation: {
@@ -587,10 +734,15 @@ export interface CommitSketchRequest extends DocumentMutationRequest {
     /** Correlation ID for explicit region derivation. */
     regionRequestId: RequestId
   } | null
+  /** Existing durable sketch to update in place, or null to create a new sketch. */
   sketchId: SketchId | null
+  /** Human-readable sketch label owned by the caller. */
   sketchLabel: string
+  /** Durable plane or planar reference that owns the sketch frame. */
   planeTarget: PrimitiveRef
+  /** Canonical plane key used by current UI/view helpers. */
   planeKey: SketchPlaneKey
+  /** Full authored sketch graph submitted for solve and commit. */
   definition: SketchRecord['definition']
 }
 
@@ -598,6 +750,7 @@ export interface CommitSketchRequest extends DocumentMutationRequest {
  * Sketch commit response.
  */
 export interface CommitSketchResponse extends ModelingOperationResult {
+  /** Durable sketch identity allocated or retained for the commit. */
   sketchId: SketchId
 }
 
@@ -605,6 +758,7 @@ export interface CommitSketchResponse extends ModelingOperationResult {
  * Feature deletion request.
  */
 export interface DeleteFeatureRequest extends DocumentMutationRequest {
+  /** Durable feature identity to remove from the document. */
   featureId: FeatureId
 }
 
@@ -612,6 +766,7 @@ export interface DeleteFeatureRequest extends DocumentMutationRequest {
  * Feature deletion response.
  */
 export interface DeleteFeatureResponse extends ModelingOperationResult {
+  /** Durable feature identity that was deleted. */
   deletedFeatureId: FeatureId
 }
 
@@ -631,12 +786,19 @@ export interface EvaluatePreviewRequest extends DocumentMutationRequest {
  * Preview evaluation response.
  */
 export interface EvaluatePreviewResponse {
+  /** Shared top-level contract version used to encode this result. */
   contractVersion: ContractVersion
+  /** Durable document identity against which the preview was evaluated. */
   documentId: DocumentId
+  /** Revision observed while evaluating the preview. */
   revisionId: RevisionId
+  /** Preview identity copied from the originating request. */
   previewId: PreviewId
+  /** Fresh/stale state for safe caller-side response handling. */
   freshness: PreviewFreshness
+  /** Renderer-neutral transient geometry export for the preview result. */
   render: RenderExport
+  /** Machine-readable diagnostics emitted during preview evaluation. */
   diagnostics: ModelingDiagnostic[]
 }
 
@@ -644,6 +806,7 @@ export interface EvaluatePreviewResponse {
  * Reference resolution request.
  */
 export interface ResolveReferenceRequest extends BaseDocumentRequest {
+  /** Durable target whose ownership and validity should be resolved. */
   target: PrimitiveRef
 }
 
@@ -656,13 +819,21 @@ export interface ResolveReferenceRequest extends BaseDocumentRequest {
  * invalidated references must report the failure in `invalidation`.
  */
 export interface ResolvedReferenceRecord {
+  /** Human-readable label owned by the modeling producer. */
   label: string
+  /** Exact durable target that was requested or found dead. */
   target: PrimitiveRef
+  /** Durable document that owns the resolved target context. */
   ownerDocumentId: DocumentId
+  /** Revision in which the target was resolved. */
   ownerRevisionId: RevisionId
+  /** Owning feature when the target belongs to feature-authored state. */
   ownerFeatureId: FeatureId | null
+  /** Owning sketch when the target belongs to sketch-authored state. */
   ownerSketchId: SketchId | null
+  /** Owning body when the target belongs to body topology. */
   ownerBodyId: BodyId | null
+  /** Explicit invalidation payload when the requested target no longer resolves. */
   invalidation: InvalidReferenceDetailPayload | null
 }
 
@@ -670,7 +841,10 @@ export interface ResolvedReferenceRecord {
  * Reference resolution response.
  */
 export interface ResolveReferenceResponse {
+  /** Shared top-level contract version used to encode this result. */
   contractVersion: ContractVersion
+  /** Exact resolution record for the requested durable target. */
   resolution: ResolvedReferenceRecord
+  /** Machine-readable diagnostics emitted while resolving the target. */
   diagnostics: ModelingDiagnostic[]
 }

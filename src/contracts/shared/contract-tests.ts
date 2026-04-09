@@ -131,6 +131,11 @@ type SnapshotRenderUsesRenderContract = Assert<
   Equals<DocumentSnapshot['render'], RenderExport>
 >
 
+/**
+ * Compile-time contract assertions that freeze the public type surface.
+ * This tuple is never consumed at runtime beyond forcing the assertions to
+ * instantiate during type-checking.
+ */
 export const CONTRACT_TYPE_TESTS: readonly [
   DurableRefKindsAreCanonical,
   FeatureTreeIdsArePresentational,
