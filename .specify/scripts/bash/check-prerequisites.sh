@@ -82,7 +82,7 @@ source "$SCRIPT_DIR/common.sh"
 _paths_output=$(get_feature_paths) || { echo "ERROR: Failed to resolve feature paths" >&2; exit 1; }
 eval "$_paths_output"
 unset _paths_output
-check_feature_branch "$CURRENT_BRANCH" "$HAS_GIT" || exit 1
+check_feature_branch "$CURRENT_BRANCH" "$HAS_GIT" "$REQUIRE_FEATURE_BRANCH" || exit 1
 
 # If paths-only mode, output paths and exit (support JSON + paths-only combined)
 if $PATHS_ONLY; then

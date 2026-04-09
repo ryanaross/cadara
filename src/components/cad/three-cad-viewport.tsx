@@ -16,6 +16,7 @@ import {
   type WorkspaceRenderScene,
 } from '@/domain/workspace/render-picking'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
+import { mapWorldPointToSketch } from '@/domain/modeling/occ/planes'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 const GIZMO_DIRECTIONS = {
@@ -328,24 +329,34 @@ export function ThreeCadViewport({
     const canvas = runtime.renderer.domElement
 
     const projectSketchPoint = (event: PointerEvent): readonly [number, number] | null => {
+      if (!sketchSession) {
+        return null
+      }
+
       const rect = canvas.getBoundingClientRect()
       runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
       runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
       runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
 
+      const { frame } = sketchSession.plane
+      runtime.sketchPlane.set(
+        new THREE.Vector3(frame.normal[0], frame.normal[1], frame.normal[2]),
+        -(
+          frame.normal[0] * frame.origin[0]
+          + frame.normal[1] * frame.origin[1]
+          + frame.normal[2] * frame.origin[2]
+        ),
+      )
+
       if (!runtime.raycaster.ray.intersectPlane(runtime.sketchPlane, runtime.sketchHitPoint)) {
         return null
       }
 
-      if (sketchSession?.planeKey === 'yz') {
-        return [runtime.sketchHitPoint.y, runtime.sketchHitPoint.z] as const
-      }
-
-      if (sketchSession?.planeKey === 'xz') {
-        return [runtime.sketchHitPoint.x, runtime.sketchHitPoint.z] as const
-      }
-
-      return [runtime.sketchHitPoint.x, runtime.sketchHitPoint.y] as const
+      return mapWorldPointToSketch(sketchSession.plane, [
+        runtime.sketchHitPoint.x,
+        runtime.sketchHitPoint.y,
+        runtime.sketchHitPoint.z,
+      ])
     }
 
     const handlePointerMove = (event: PointerEvent) => {
@@ -389,8 +400,10 @@ export function ThreeCadViewport({
       runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
       const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
       const target = resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+      const isSketchDrawingClick = sketchSession?.activeTool !== null
 
       if (
+        !isSketchDrawingClick &&
         target &&
         selectionFilterAllowsTarget(
           selectionFilterRef.current,
@@ -426,7 +439,7 @@ export function ThreeCadViewport({
       canvas.removeEventListener('pointerup', handlePointerUp)
       canvas.removeEventListener('pointerleave', handlePointerLeave)
     }
-  }, [hoverTarget, renderables, selection, sketchSession])
+  }, [renderables, selection, sketchSession])
 
   return (
     <>

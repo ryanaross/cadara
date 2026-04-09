@@ -2255,32 +2255,8 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
         requestId: input.requestId,
         baseRevisionId: input.baseRevisionId,
         sketchId: input.session.commitRequest?.sketchId ?? null,
-    sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
-        plane: ({
-          support: assertSketchPlaneSupport(input.session.commitRequest?.planeTarget ?? input.session.planeTarget),
-          frame: {
-            origin: [0, 0, 0],
-            xAxis:
-              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
-                ? [0, 1, 0]
-                : [1, 0, 0],
-            yAxis:
-              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'xz'
-                ? [0, 0, 1]
-                : (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
-                  ? [0, 0, 1]
-                  : [0, 1, 0],
-            normal:
-              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
-                ? [1, 0, 0]
-                : (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'xz'
-                  ? [0, -1, 0]
-                  : [0, 0, 1],
-            linearUnit: 'documentLength',
-            handedness: 'rightHanded',
-          },
-          key: input.session.commitRequest?.planeKey ?? input.session.planeKey,
-        }) satisfies SketchPlaneDefinition,
+        sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
+        plane: input.session.commitRequest?.plane ?? input.session.plane,
         planeTarget: assertSketchPlaneSupport(input.session.commitRequest?.planeTarget ?? input.session.planeTarget),
         planeKey: input.session.commitRequest?.planeKey ?? input.session.planeKey,
         definition: input.session.commitRequest?.definition ?? input.session.definition,

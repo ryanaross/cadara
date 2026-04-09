@@ -659,25 +659,50 @@ function buildConstructionRenderRecords(state: OccAuthoringState): RenderableEnt
     ]
 
     const target = construction.target as ConstructionRef
+    const normal = plane.frame.normal
 
-    return [{
-      id: createRenderableId(target),
-      label: construction.label,
-      ownerBodyId: null,
-      ownerFeatureId: construction.ownerFeatureId,
-      binding: {
-        pickId: createPickId(target),
-        pickPriority: CONSTRUCTION_PICK_PRIORITY,
-        target,
-        topology: null,
-        semanticClass: 'construction',
-      },
-      geometry: {
-        kind: 'polyline',
-        points,
-        isClosed: true,
-      },
-    } satisfies RenderableEntityRecord]
+    return [
+      {
+        id: createRenderableId(target),
+        label: construction.label,
+        ownerBodyId: null,
+        ownerFeatureId: construction.ownerFeatureId,
+        binding: {
+          pickId: createPickId(target),
+          pickPriority: CONSTRUCTION_PICK_PRIORITY,
+          target,
+          topology: null,
+          semanticClass: 'construction',
+        },
+        geometry: {
+          kind: 'mesh',
+          vertexPositions: points,
+          vertexNormals: [normal, normal, normal, normal],
+          triangleIndices: [
+            [0, 1, 2],
+            [0, 2, 3],
+          ],
+        },
+      } satisfies RenderableEntityRecord,
+      {
+        id: `${createRenderableId(target)}_outline` as RenderableId,
+        label: `${construction.label} outline`,
+        ownerBodyId: null,
+        ownerFeatureId: construction.ownerFeatureId,
+        binding: {
+          pickId: `${createPickId(target)}_outline` as PickId,
+          pickPriority: CONSTRUCTION_PICK_PRIORITY,
+          target,
+          topology: null,
+          semanticClass: 'construction',
+        },
+        geometry: {
+          kind: 'polyline',
+          points,
+          isClosed: true,
+        },
+      } satisfies RenderableEntityRecord,
+    ]
   })
 }
 

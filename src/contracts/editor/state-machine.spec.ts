@@ -18,6 +18,8 @@ import {
   RENDER_EXPORT_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
+import { createSketchSessionFromSnapshot, mapSketchPointToWorld } from '@/domain/editor/sketch-session'
+import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -220,6 +222,75 @@ function testSketchActivationEmitsCorrelatedOpenEffect() {
   )
 }
 
+function testSketchSessionPreservesStoredPlaneDefinition() {
+  const yzPlane: SketchPlaneDefinition = {
+    support: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+    frame: {
+      origin: [0, 0, 0],
+      xAxis: [0, 1, 0],
+      yAxis: [0, 0, 1],
+      normal: [1, 0, 0],
+      linearUnit: 'documentLength',
+      handedness: 'rightHanded',
+    },
+    key: 'yz',
+  }
+
+  const session = createSketchSessionFromSnapshot({
+    ownerDocumentId: 'doc_workspace',
+    ownerRevisionId: 'rev_1',
+    ownerFeatureId: null,
+    ownerSketchId: 'sketch_yz',
+    ownerBodyId: null,
+    sketchId: 'sketch_yz',
+    label: 'Sketch YZ',
+    plane: yzPlane,
+    planeTarget: yzPlane.support,
+    planeKey: 'yz',
+    sketch: {
+      ownerDocumentId: 'doc_workspace',
+      ownerRevisionId: 'rev_1',
+      ownerFeatureId: null,
+      ownerSketchId: 'sketch_yz',
+      ownerBodyId: null,
+      sketchId: 'sketch_yz',
+      label: 'Sketch YZ',
+      planeSupport: yzPlane.support,
+      definition: {
+        schemaVersion: 'sketch-definition/v1alpha1',
+        referenceIds: [],
+        references: [],
+        pointIds: [],
+        points: [],
+        entityIds: [],
+        entities: [],
+        constraintIds: [],
+        constraints: [],
+        dimensionIds: [],
+        dimensions: [],
+      },
+      solvedSnapshot: {
+        schemaVersion: 'solved-sketch/v1alpha1',
+        status: {
+          solveState: 'solved',
+          constraintState: 'underConstrained',
+        },
+        solvedEntities: [],
+        solvedPoints: [],
+        constraintStatuses: [],
+        dimensionStatuses: [],
+        diagnostics: [],
+      },
+      regions: [],
+    },
+  })
+
+  const worldPoint = mapSketchPointToWorld(session.plane, [2, 3])
+
+  assert(session.plane.frame.normal[0] === 1, 'Sketch sessions should retain the stored plane definition.')
+  assert(worldPoint[0] === 0 && worldPoint[1] === 2 && worldPoint[2] === 3, 'Sketch display mapping must use the stored plane definition.')
+}
+
 function testFeaturePreviewIgnoresStaleResponseIds() {
   const activation = transitionEditorState(
     {
@@ -350,6 +421,7 @@ async function testRuntimeLoopProcessesSketchOpen() {
 }
 
 testSketchActivationEmitsCorrelatedOpenEffect()
+testSketchSessionPreservesStoredPlaneDefinition()
 testFeaturePreviewIgnoresStaleResponseIds()
 testReplayIsDeterministic()
 testSelectionKeyUsesDurableRefs()

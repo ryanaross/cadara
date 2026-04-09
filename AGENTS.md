@@ -32,3 +32,10 @@ This project is a frontend scaffold for a browser CAD application inspired by On
 - Entering sketch mode is triggered by the `Sketch` tool.
 - Returning to part mode is triggered by `Finish Sketch`.
 - Keep UI, domain definitions, and future CAD behavior split cleanly; do not mix scene logic or event contracts into presentational components.
+
+## Active Technologies
+- TypeScript strict mode on React 19 + React 19, Vite 8, Bun, Three.js, Radix UI, Tailwind CSS v4, OpenCascade.js (001-sketch-stability)
+- In-memory document snapshot state via modeling service adapters (001-sketch-stability)
+
+## Recent Changes
+- 001-sketch-stability: Added TypeScript strict mode on React 19 + React 19, Vite 8, Bun, Three.js, Radix UI, Tailwind CSS v4, OpenCascade.js

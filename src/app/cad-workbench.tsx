@@ -112,6 +112,12 @@ export function CadWorkbench() {
               </span>
             </div>
             <div>
+              Sketch plane:{' '}
+              <span className="text-[var(--cad-foreground)]">
+                {sketchSession?.plane.key?.toUpperCase() ?? 'none'}
+              </span>
+            </div>
+            <div>
               Feature session:{' '}
               <span className="text-[var(--cad-foreground)]">
                 {activeEditSession

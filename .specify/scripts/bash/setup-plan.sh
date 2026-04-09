@@ -33,7 +33,7 @@ eval "$_paths_output"
 unset _paths_output
 
 # Check if we're on a proper feature branch (only for git repos)
-check_feature_branch "$CURRENT_BRANCH" "$HAS_GIT" || exit 1
+check_feature_branch "$CURRENT_BRANCH" "$HAS_GIT" "$REQUIRE_FEATURE_BRANCH" || exit 1
 
 # Ensure the feature directory exists
 mkdir -p "$FEATURE_DIR"
@@ -70,4 +70,3 @@ else
     echo "BRANCH: $CURRENT_BRANCH"
     echo "HAS_GIT: $HAS_GIT"
 fi
-

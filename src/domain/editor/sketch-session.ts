@@ -8,7 +8,7 @@ import type {
 } from '@/contracts/sketch/schema'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
 import type { SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
-import type { SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
+import type { SketchPlaneDefinition, SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 import type {
   ConstraintId,
   DimensionId,
@@ -24,6 +24,7 @@ import type {
   SketchSnapshotRecord,
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import { mapSketchPointToWorld as mapSketchPointToWorldFromPlane } from '@/domain/modeling/occ/planes'
 
 export type SketchToolId = 'line' | 'rectangle' | 'circle'
 
@@ -50,6 +51,7 @@ export type SketchDraftEntity =
 export interface SketchSessionState {
   sketchId: SketchId | null
   sketchLabel: string
+  plane: SketchPlaneDefinition
   planeTarget: SketchPlaneSupportRef
   planeKey: SketchPlaneKey
   entities: SketchDraftEntity[]
@@ -181,6 +183,7 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
   return {
     sketchId: sketch.sketchId,
     sketchLabel: sketch.label,
+    plane: sketch.plane,
     planeTarget: sketch.planeTarget,
     planeKey: sketch.planeKey ?? 'xy',
     entities,
@@ -194,6 +197,7 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
     commitRequest: buildCommitRequest({
       sketchId: sketch.sketchId,
       sketchLabel: sketch.label,
+      plane: sketch.plane,
       planeTarget: sketch.planeTarget,
       planeKey: sketch.planeKey ?? 'xy',
       definition: sketch.sketch.definition,
@@ -203,11 +207,14 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
 }
 
 export function createNewSketchSession(planeTarget: SketchPlaneSupportRef): SketchSessionState {
+  const planeKey = derivePlaneKeyFromTarget(planeTarget)
+
   return {
     sketchId: null,
     sketchLabel: 'Sketch Draft',
+    plane: createPlaneDefinition(planeTarget, planeKey),
     planeTarget,
-    planeKey: derivePlaneKeyFromTarget(planeTarget),
+    planeKey,
     entities: [],
     definition: createEmptyDefinition(),
     activeTool: null,
@@ -310,6 +317,7 @@ function mapDefinitionEntityToDraftEntity(
 function buildCommitRequest(input: {
   sketchId: SketchId | null
   sketchLabel: string
+  plane: SketchPlaneDefinition
   planeTarget: CommitSketchRequest['planeTarget']
   planeKey: SketchPlaneKey
   definition: SketchDefinition
@@ -318,21 +326,58 @@ function buildCommitRequest(input: {
     solverCorrelation: null,
     sketchId: input.sketchId,
     sketchLabel: input.sketchLabel,
-    plane: {
-      support: input.planeTarget,
-      frame: {
-        origin: [0, 0, 0],
-        xAxis: input.planeKey === 'yz' ? [0, 1, 0] : [1, 0, 0],
-        yAxis: input.planeKey === 'xy' ? [0, 1, 0] : [0, 0, 1],
-        normal: input.planeKey === 'yz' ? [1, 0, 0] : input.planeKey === 'xz' ? [0, -1, 0] : [0, 0, 1],
-        linearUnit: 'documentLength',
-        handedness: 'rightHanded',
-      },
-      key: input.planeKey,
-    },
+    plane: input.plane,
     planeTarget: input.planeTarget,
     planeKey: input.planeKey,
     definition: cloneDefinition(input.definition),
+  }
+}
+
+function createPlaneDefinition(
+  planeTarget: SketchPlaneSupportRef,
+  planeKey: SketchPlaneKey,
+): SketchPlaneDefinition {
+  switch (planeKey) {
+    case 'yz':
+      return {
+        support: planeTarget,
+        frame: {
+          origin: [0, 0, 0],
+          xAxis: [0, 1, 0],
+          yAxis: [0, 0, 1],
+          normal: [1, 0, 0],
+          linearUnit: 'documentLength',
+          handedness: 'rightHanded',
+        },
+        key: planeKey,
+      }
+    case 'xz':
+      return {
+        support: planeTarget,
+        frame: {
+          origin: [0, 0, 0],
+          xAxis: [1, 0, 0],
+          yAxis: [0, 0, 1],
+          normal: [0, -1, 0],
+          linearUnit: 'documentLength',
+          handedness: 'rightHanded',
+        },
+        key: planeKey,
+      }
+    case 'xy':
+    default:
+      return {
+        support: planeTarget,
+        frame: {
+          origin: [0, 0, 0],
+          xAxis: [1, 0, 0],
+          yAxis: [0, 1, 0],
+          normal: [0, 0, 1],
+          linearUnit: 'documentLength',
+          handedness: 'rightHanded',
+        },
+        key: planeKey,
+      }
   }
 }
 
@@ -853,6 +898,7 @@ export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint
     commitRequest: buildCommitRequest({
       sketchId: session.sketchId,
       sketchLabel: session.sketchLabel,
+      plane: session.plane,
       planeTarget: session.planeTarget,
       planeKey: session.planeKey,
       definition,
@@ -916,8 +962,8 @@ function createDisplayRenderableForEntity(
       geometry: {
         kind: 'polyline',
         points: [
-          mapSketchPointToWorld(session.planeKey, entity.start),
-          mapSketchPointToWorld(session.planeKey, entity.end),
+          mapSketchPointToWorld(session.plane, entity.start),
+          mapSketchPointToWorld(session.plane, entity.end),
         ],
         isClosed: false,
       },
@@ -927,7 +973,7 @@ function createDisplayRenderableForEntity(
   const pointCount = 48
   const points = Array.from({ length: pointCount + 1 }, (_, pointIndex) => {
     const angle = (Math.PI * 2 * pointIndex) / pointCount
-    return mapSketchPointToWorld(session.planeKey, [
+    return mapSketchPointToWorld(session.plane, [
       entity.center[0] + Math.cos(angle) * entity.radius,
       entity.center[1] + Math.sin(angle) * entity.radius,
     ])
@@ -945,16 +991,8 @@ function createDisplayRenderableForEntity(
 }
 
 export function mapSketchPointToWorld(
-  planeKey: SketchPlaneKey,
+  plane: SketchPlaneDefinition,
   point: SketchPoint,
 ): readonly [number, number, number] {
-  if (planeKey === 'yz') {
-    return [0, point[0], point[1]]
-  }
-
-  if (planeKey === 'xz') {
-    return [point[0], 0, point[1]]
-  }
-
-  return [point[0], point[1], 0]
+  return mapSketchPointToWorldFromPlane(plane, point)
 }

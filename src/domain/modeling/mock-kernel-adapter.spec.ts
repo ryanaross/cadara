@@ -417,6 +417,32 @@ async function testSnapshotRenderablesExposeSemanticBindings() {
   )
 }
 
+async function testConstructionPlanesExposeFilledRenderSurfaces() {
+  const adapter = new MockKernelAdapter()
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const constructionMeshTargets = snapshot.snapshot.render.records
+    .filter((record) => record.binding.semanticClass === 'construction' && record.geometry.kind === 'mesh')
+    .map((record) => record.binding.target)
+
+  assert(constructionMeshTargets.length >= 3, 'Construction planes should expose filled mesh records for viewport picking.')
+  assert(
+    constructionMeshTargets.some((target) => target.kind === 'construction' && target.constructionId === 'construction_plane-xy'),
+    'The XY construction plane should expose a filled mesh render record.',
+  )
+  assert(
+    constructionMeshTargets.some((target) => target.kind === 'construction' && target.constructionId === 'construction_plane-yz'),
+    'The YZ construction plane should expose a filled mesh render record.',
+  )
+  assert(
+    constructionMeshTargets.some((target) => target.kind === 'construction' && target.constructionId === 'construction_plane-xz'),
+    'The XZ construction plane should expose a filled mesh render record.',
+  )
+}
+
 function testResolvePickTargetUsesKernelPriority() {
   const edgeRenderable = {
     id: 'renderable_edge_priority',
@@ -584,5 +610,6 @@ await testPreviewStalenessReportsObservedRevision()
 await testResolveReferenceReportsMissingTargetsExplicitly()
 await testMockKernelRejectsUnsupportedContractEnvelope()
 await testSnapshotRenderablesExposeSemanticBindings()
+await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()
 testRenderValidatorRejectsInvalidGeometry()

@@ -419,6 +419,14 @@ async function testWorkspaceSnapshotBuildsContractValidRenderExport() {
   )
   assert(
     normalized.document.render.records.some((record) =>
+      record.binding.topology === null
+      && record.binding.semanticClass === 'construction'
+      && record.geometry.kind === 'mesh',
+    ),
+    'Phase 6 render export must expose filled construction-plane surfaces for viewport picking.',
+  )
+  assert(
+    normalized.document.render.records.some((record) =>
       record.binding.topology === null && record.binding.semanticClass === 'sketchCurve',
     ),
     'Phase 6 render export must include sketch-curve render bindings.',

@@ -114,13 +114,48 @@ has_git() {
     git -C "$repo_root" rev-parse --is-inside-work-tree >/dev/null 2>&1
 }
 
+feature_branch_validation_enabled() {
+    local repo_root="${1:-$(get_repo_root)}"
+    local config_file="$repo_root/.specify/extensions/git/git-config.yml"
+
+    if [[ ! -f "$config_file" ]]; then
+        echo "true"
+        return
+    fi
+
+    local value
+    value=$(
+        awk -F':' '
+            /^[[:space:]]*require_feature_branch:[[:space:]]*/ {
+                v=$2
+                sub(/[[:space:]]+#.*$/, "", v)
+                gsub(/["'\''[:space:]]/, "", v)
+                print tolower(v)
+                exit
+            }
+        ' "$config_file"
+    )
+
+    if [[ "$value" == "false" ]]; then
+        echo "false"
+    else
+        echo "true"
+    fi
+}
+
 check_feature_branch() {
     local branch="$1"
     local has_git_repo="$2"
+    local validation_enabled="${3:-true}"
 
     # For non-git repos, we can't enforce branch naming but still provide output
     if [[ "$has_git_repo" != "true" ]]; then
         echo "[specify] Warning: Git repository not detected; skipped branch validation" >&2
+        return 0
+    fi
+
+    if [[ "$validation_enabled" != "true" ]]; then
+        echo "[specify] Warning: Feature branch validation disabled; current branch: $branch" >&2
         return 0
     fi
 
@@ -140,6 +175,65 @@ check_feature_branch() {
 }
 
 get_feature_dir() { echo "$1/specs/$2"; }
+
+is_feature_branch_name() {
+    local branch="$1"
+    local is_sequential=false
+
+    if [[ "$branch" =~ ^[0-9]{3,}- ]] && [[ ! "$branch" =~ ^[0-9]{7}-[0-9]{6}- ]] && [[ ! "$branch" =~ ^[0-9]{7,8}-[0-9]{6}$ ]]; then
+        is_sequential=true
+    fi
+
+    if [[ "$is_sequential" == "true" ]] || [[ "$branch" =~ ^[0-9]{8}-[0-9]{6}- ]]; then
+        return 0
+    fi
+
+    return 1
+}
+
+find_latest_feature_dir() {
+    local repo_root="$1"
+    local specs_dir="$repo_root/specs"
+    local latest_feature=""
+    local highest=0
+    local latest_timestamp=""
+
+    if [[ ! -d "$specs_dir" ]]; then
+        return 1
+    fi
+
+    for dir in "$specs_dir"/*; do
+        if [[ ! -d "$dir" ]]; then
+            continue
+        fi
+
+        local dirname
+        dirname=$(basename "$dir")
+        if [[ "$dirname" =~ ^([0-9]{8}-[0-9]{6})- ]]; then
+            local ts="${BASH_REMATCH[1]}"
+            if [[ "$ts" > "$latest_timestamp" ]]; then
+                latest_timestamp="$ts"
+                latest_feature="$dirname"
+            fi
+        elif [[ "$dirname" =~ ^([0-9]{3,})- ]]; then
+            local number=${BASH_REMATCH[1]}
+            number=$((10#$number))
+            if [[ "$number" -gt "$highest" ]]; then
+                highest=$number
+                if [[ -z "$latest_timestamp" ]]; then
+                    latest_feature="$dirname"
+                fi
+            fi
+        fi
+    done
+
+    if [[ -n "$latest_feature" ]]; then
+        echo "$specs_dir/$latest_feature"
+        return 0
+    fi
+
+    return 1
+}
 
 # Find feature directory by numeric prefix instead of exact branch match
 # This allows multiple branches to work on the same spec (e.g., 004-fix-bug, 004-add-feature)
@@ -189,6 +283,7 @@ get_feature_paths() {
     local repo_root=$(get_repo_root)
     local current_branch=$(get_current_branch)
     local has_git_repo="false"
+    local require_feature_branch=$(feature_branch_validation_enabled "$repo_root")
 
     if has_git; then
         has_git_repo="true"
@@ -197,7 +292,8 @@ get_feature_paths() {
     # Resolve feature directory.  Priority:
     #   1. SPECIFY_FEATURE_DIRECTORY env var (explicit override)
     #   2. .specify/feature.json "feature_directory" key (persisted by /speckit.specify)
-    #   3. Branch-name-based prefix lookup (legacy fallback)
+    #   3. Latest existing feature dir when branch validation is disabled and branch is not a feature branch
+    #   4. Branch-name-based prefix lookup (legacy fallback)
     local feature_dir
     if [[ -n "${SPECIFY_FEATURE_DIRECTORY:-}" ]]; then
         feature_dir="$SPECIFY_FEATURE_DIRECTORY"
@@ -218,10 +314,14 @@ get_feature_paths() {
             feature_dir="$_fd"
             # Normalize relative paths to absolute under repo root
             [[ "$feature_dir" != /* ]] && feature_dir="$repo_root/$feature_dir"
+        elif [[ "$require_feature_branch" != "true" ]] && ! is_feature_branch_name "$current_branch" && feature_dir=$(find_latest_feature_dir "$repo_root"); then
+            :
         elif ! feature_dir=$(find_feature_dir_by_prefix "$repo_root" "$current_branch"); then
             echo "ERROR: Failed to resolve feature directory" >&2
             return 1
         fi
+    elif [[ "$require_feature_branch" != "true" ]] && ! is_feature_branch_name "$current_branch" && feature_dir=$(find_latest_feature_dir "$repo_root"); then
+        :
     elif ! feature_dir=$(find_feature_dir_by_prefix "$repo_root" "$current_branch"); then
         echo "ERROR: Failed to resolve feature directory" >&2
         return 1
@@ -232,6 +332,7 @@ get_feature_paths() {
     printf 'REPO_ROOT=%q\n' "$repo_root"
     printf 'CURRENT_BRANCH=%q\n' "$current_branch"
     printf 'HAS_GIT=%q\n' "$has_git_repo"
+    printf 'REQUIRE_FEATURE_BRANCH=%q\n' "$require_feature_branch"
     printf 'FEATURE_DIR=%q\n' "$feature_dir"
     printf 'FEATURE_SPEC=%q\n' "$feature_dir/spec.md"
     printf 'IMPL_PLAN=%q\n' "$feature_dir/plan.md"
@@ -359,4 +460,3 @@ except Exception:
     # Callers running under set -e should use: TEMPLATE=$(resolve_template ...) || true
     return 1
 }
-

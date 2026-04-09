@@ -59,6 +59,109 @@ const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
 const SKETCH_ID = 'sketch_primary' as const
+const CONSTRUCTION_PICK_PRIORITY = 5
+
+function createConstructionPlaneRenderRecords(): RenderableEntityRecord[] {
+  const planeDefinitions = [
+    {
+      id: 'xy' as const,
+      label: 'Top Plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
+      vertices: [
+        [-8, -8, 0],
+        [8, -8, 0],
+        [8, 8, 0],
+        [-8, 8, 0],
+      ] as const,
+      normal: [0, 0, 1] as const,
+      outline: [
+        [-8, -8, 0],
+        [8, -8, 0],
+        [8, 8, 0],
+        [-8, 8, 0],
+      ] as const,
+    },
+    {
+      id: 'yz' as const,
+      label: 'Right Plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+      vertices: [
+        [0, -8, -8],
+        [0, 8, -8],
+        [0, 8, 8],
+        [0, -8, 8],
+      ] as const,
+      normal: [1, 0, 0] as const,
+      outline: [
+        [0, -8, -8],
+        [0, 8, -8],
+        [0, 8, 8],
+        [0, -8, 8],
+      ] as const,
+    },
+    {
+      id: 'xz' as const,
+      label: 'Front Plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-xz' as ConstructionId },
+      vertices: [
+        [-8, 0, -8],
+        [8, 0, -8],
+        [8, 0, 8],
+        [-8, 0, 8],
+      ] as const,
+      normal: [0, -1, 0] as const,
+      outline: [
+        [-8, 0, -8],
+        [8, 0, -8],
+        [8, 0, 8],
+        [-8, 0, 8],
+      ] as const,
+    },
+  ]
+
+  return planeDefinitions.flatMap((plane) => [
+    {
+      id: `renderable_construction_${plane.id}_surface` as RenderableId,
+      label: `${plane.label} surface`,
+      ownerBodyId: null,
+      ownerFeatureId: null,
+      binding: {
+        pickId: `pick_construction_${plane.id}_surface` as PickId,
+        pickPriority: CONSTRUCTION_PICK_PRIORITY,
+        target: plane.target,
+        topology: null,
+        semanticClass: 'construction',
+      },
+      geometry: {
+        kind: 'mesh',
+        vertexPositions: plane.vertices,
+        vertexNormals: [plane.normal, plane.normal, plane.normal, plane.normal],
+        triangleIndices: [
+          [0, 1, 2],
+          [0, 2, 3],
+        ],
+      },
+    },
+    {
+      id: `renderable_construction_${plane.id}_outline` as RenderableId,
+      label: `${plane.label} outline`,
+      ownerBodyId: null,
+      ownerFeatureId: null,
+      binding: {
+        pickId: `pick_construction_${plane.id}_outline` as PickId,
+        pickPriority: CONSTRUCTION_PICK_PRIORITY,
+        target: plane.target,
+        topology: null,
+        semanticClass: 'construction',
+      },
+      geometry: {
+        kind: 'polyline',
+        points: plane.outline,
+        isClosed: true,
+      },
+    },
+  ])
+}
 
 function assertSupportedModelingRequest(request: { contractVersion: string; documentId: string }) {
   if (request.contractVersion !== CONTRACT_VERSION) {
@@ -1216,6 +1319,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
     render: {
       schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
       records: [
+        ...createConstructionPlaneRenderRecords(),
         {
           id: 'renderable_face_top' as RenderableId,
           label: 'Top face',
@@ -1397,6 +1501,26 @@ function rebuildFeatureTree(snapshot: DocumentSnapshot) {
       description: 'Primary XY reference plane',
       kind: 'plane',
       target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+      ownerFeatureId: null,
+      ownerSketchId: null,
+      sourceFeatureId: null,
+    },
+    {
+      id: 'feature_tree_node_plane_yz' as FeatureTreeNodeId,
+      label: 'Right Plane',
+      description: 'Primary YZ reference plane',
+      kind: 'plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-yz' },
+      ownerFeatureId: null,
+      ownerSketchId: null,
+      sourceFeatureId: null,
+    },
+    {
+      id: 'feature_tree_node_plane_xz' as FeatureTreeNodeId,
+      label: 'Front Plane',
+      description: 'Primary XZ reference plane',
+      kind: 'plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-xz' },
       ownerFeatureId: null,
       ownerSketchId: null,
       sourceFeatureId: null,

@@ -53,6 +53,9 @@ Configuration is stored in `.specify/extensions/git/git-config.yml`:
 # Branch numbering strategy: "sequential" or "timestamp"
 branch_numbering: sequential
 
+# Set to false to allow running Spec Kit outside a numbered feature branch
+require_feature_branch: true
+
 # Custom commit message for git init
 init_commit_message: "[Spec Kit] Initial commit"
 
@@ -64,6 +67,8 @@ auto_commit:
     enabled: true
     message: "[Spec Kit] Add specification"
 ```
+
+When `require_feature_branch: false`, Spec Kit still resolves the active feature from `.specify/feature.json`, `SPECIFY_FEATURE_DIRECTORY`, or the current branch name, but it no longer blocks commands on detached `HEAD` or non-conforming branch names.
 
 ## Installation
 
