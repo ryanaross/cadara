@@ -1,3 +1,4 @@
+import type { DurableRef } from '@/contracts/shared/references'
 import type { FeatureDefinition, SketchSnapshotRecord, SnapshotEntityRecord } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { ConstructionId, FeatureId } from '@/contracts/shared/ids'
@@ -24,6 +25,8 @@ import {
 export interface OccAuthoringFeatureRecord {
   featureId: FeatureId
   definition: FeatureDefinition
+  label?: string
+  producedTargets?: readonly DurableRef[]
 }
 
 export interface OccAuthoringState extends OccFeatureExecutionContext {
@@ -147,7 +150,14 @@ function applyFeatureResult(
   feature: OccAuthoringFeatureRecord,
   result: OccFeatureExecutionResult,
 ): OccAuthoringState {
-  const features = [...state.features, feature]
+  const features = [
+    ...state.features,
+    {
+      ...feature,
+      label: feature.label ?? feature.featureId,
+      producedTargets: [...result.producedTargets],
+    },
+  ]
   const referenceState = createOccReferenceState({
     documentId: state.documentId,
     revisionId: state.revisionId,
