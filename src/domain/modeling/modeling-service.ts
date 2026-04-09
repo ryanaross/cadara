@@ -2106,10 +2106,13 @@ function normalizeKernelDocumentSnapshot(value: unknown): KernelDocumentSnapshot
     revisionId: assertRevisionId(value.revisionId),
     settings: normalizeModelingDocumentSettings(value.settings),
     capabilities: normalizeModelingKernelCapabilities(value.capabilities),
+    featureTree: normalizeFeatureTree(value.featureTree),
+    objects: normalizeObjects(value.objects),
     features: normalizeFeatures(value.features),
     sketches: normalizeSketches(value.sketches),
     bodies: normalizeBodies(value.bodies),
     constructions: normalizeConstructions(value.constructions),
+    entities: normalizeEntities(value.entities),
     references: normalizeReferences(value.references),
     diagnostics: normalizeDiagnostics(value.diagnostics),
     render: normalizeRenderExport(value.render),
@@ -2121,9 +2124,28 @@ function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot {
     throw new Error('Invalid workspace snapshot payload.')
   }
 
+  const document = normalizeKernelDocumentSnapshot(value.document)
+  const presentation = normalizeDocumentPresentation(value.presentation)
+
   return {
-    document: normalizeKernelDocumentSnapshot(value.document),
-    presentation: normalizeDocumentPresentation(value.presentation),
+    document,
+    presentation,
+    contractVersion: document.contractVersion,
+    schemaVersion: document.schemaVersion,
+    documentId: document.documentId,
+    revisionId: document.revisionId,
+    settings: document.settings,
+    capabilities: document.capabilities,
+    featureTree: presentation.featureTree,
+    objects: presentation.objects,
+    features: document.features,
+    sketches: document.sketches,
+    bodies: document.bodies,
+    constructions: document.constructions,
+    entities: presentation.entities,
+    references: document.references,
+    diagnostics: document.diagnostics,
+    render: document.render,
   }
 }
 
@@ -2188,7 +2210,7 @@ function validateSnapshotResponse(
   assertKernelContractVersion(response.snapshot.document.contractVersion)
   assertSnapshotSchemaVersion(response.snapshot.document.schemaVersion)
   assertKernelDocumentIdMatches(response.snapshot.document.documentId, expectedDocumentId, 'Snapshot')
-  return response.snapshot
+  return normalizeWorkspaceSnapshot(response.snapshot)
 }
 
 function mapFeatureMutationResponse(

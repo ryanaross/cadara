@@ -9,7 +9,15 @@ import {
 } from './state-machine'
 import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 import type { DocumentSnapshot } from '@/contracts/modeling/schema'
-import { RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
+import type {
+  ConstructionId,
+  SnapshotEntityId,
+} from '@/contracts/shared/ids'
+import {
+  CONTRACT_VERSION,
+  RENDER_EXPORT_SCHEMA_VERSION,
+  SNAPSHOT_SCHEMA_VERSION,
+} from '@/contracts/shared/versioning'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -36,7 +44,7 @@ function createRegionSelectionCatalog(): SelectionTargetCatalog {
 function createSnapshot(): DocumentSnapshot {
   return {
     contractVersion: 'modeling-contract/v1alpha1',
-    schemaVersion: 'document-snapshot/v1alpha1',
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     documentId: 'doc_workspace',
     revisionId: 'rev_1',
     settings: {
@@ -68,10 +76,10 @@ function createSnapshot(): DocumentSnapshot {
         ownerFeatureId: null,
         ownerSketchId: null,
         ownerBodyId: null,
-        constructionId: 'construction_plane-xy',
+        constructionId: 'construction_plane-xy' as ConstructionId,
         label: 'Top Plane',
         constructionType: 'plane',
-        target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
       },
     ],
     entities: [
@@ -81,15 +89,91 @@ function createSnapshot(): DocumentSnapshot {
         ownerFeatureId: null,
         ownerSketchId: null,
         ownerBodyId: null,
-        id: 'snapshot_entity_plane_xy',
+        id: 'snapshot_entity_plane_xy' as SnapshotEntityId,
         label: 'Top Plane',
-        target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
         relatedTargets: [],
         consumedByFeatureIds: [],
         selectionSemantics: ['constructionPlane', 'planarReference'],
       },
     ],
     diagnostics: [],
+    document: {
+      contractVersion: CONTRACT_VERSION,
+      schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+      documentId: 'doc_workspace',
+      revisionId: 'rev_1',
+      settings: {
+        linearUnit: 'millimeter',
+        modelingTolerance: 0.001,
+        angularToleranceRadians: 0.0001,
+      },
+      capabilities: {
+        supportedFeatureKinds: ['extrude'],
+        previewableFeatureKinds: ['extrude'],
+        supportedProfileKinds: ['region', 'face'],
+        supportsFaceBackedSketchPlanes: true,
+        supportsDurableTopologyNaming: false,
+      },
+      featureTree: [],
+      objects: [],
+      features: [],
+      sketches: [],
+      bodies: [],
+      constructions: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          constructionId: 'construction_plane-xy' as ConstructionId,
+          label: 'Top Plane',
+          constructionType: 'plane',
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
+        },
+      ],
+      entities: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          id: 'snapshot_entity_plane_xy' as SnapshotEntityId,
+          label: 'Top Plane',
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
+          relatedTargets: [],
+          consumedByFeatureIds: [],
+          selectionSemantics: ['constructionPlane', 'planarReference'],
+        },
+      ],
+      references: [],
+      diagnostics: [],
+      render: {
+        schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
+        records: [],
+      },
+    },
+    presentation: {
+      featureTree: [],
+      objects: [],
+      entities: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          id: 'snapshot_entity_plane_xy' as SnapshotEntityId,
+          label: 'Top Plane',
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
+          relatedTargets: [],
+          consumedByFeatureIds: [],
+          selectionSemantics: ['constructionPlane', 'planarReference'],
+        },
+      ],
+    },
   }
 }
 

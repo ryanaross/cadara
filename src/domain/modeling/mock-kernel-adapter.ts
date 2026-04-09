@@ -3,6 +3,7 @@ import type { SketchSolverAdapter } from '@/contracts/solver/adapter'
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 import type {
   ConstraintId,
+  ConstructionId,
   FaceId,
   DimensionId,
   FeatureId,
@@ -42,7 +43,10 @@ import type {
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { DurableRef } from '@/contracts/shared/references'
-import { RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
+import {
+  RENDER_EXPORT_SCHEMA_VERSION,
+  SNAPSHOT_SCHEMA_VERSION,
+} from '@/contracts/shared/versioning'
 import type { ModelingCommitSketchCorrelation } from '@/domain/modeling/modeling-service'
 import {
   DEFAULT_MOCK_SKETCH_PLANE_FRAME,
@@ -998,9 +1002,9 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
     }),
   ]
 
-  const document = {
+  const document: DocumentSnapshot['document'] = {
     contractVersion: CONTRACT_VERSION,
-    schemaVersion: 'document-snapshot/v1alpha1',
+    schemaVersion: SNAPSHOT_SCHEMA_VERSION,
     documentId: DOCUMENT_ID,
     revisionId: REVISION_ID,
     settings: {
@@ -1138,7 +1142,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
           planeTarget: { kind: 'construction', constructionId: 'construction_plane-xy' },
           planeKey: 'xy',
         }),
-        planeTarget: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        planeTarget: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
         planeKey: 'xy',
         sketch: sketchRecord,
       },
@@ -1266,7 +1270,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
     },
   }
 
-  const presentation = {
+  const presentation: DocumentSnapshot['presentation'] = {
     featureTree: document.featureTree,
     objects: document.objects,
     entities,

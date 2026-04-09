@@ -7,6 +7,7 @@ import {
   type SketchDefinition,
   type SketchRecord,
 } from '@/contracts/sketch/schema'
+import type { ConstructionId } from '@/contracts/shared/ids'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
 import type { OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
 import {
@@ -192,7 +193,7 @@ function createSketchPlane(): SketchPlaneDefinition {
   return {
     support: {
       kind: 'construction',
-      constructionId: 'construction_plane-xy',
+      constructionId: 'construction_plane-xy' as ConstructionId,
     },
     frame: {
       origin: [0, 0, 0],
@@ -235,7 +236,7 @@ function createProjectedRegionLoopSegment(): Extract<RegionBoundarySegmentRecord
 function createMinimalSketchRecord(): SketchRecord {
   const planeSupport = {
     kind: 'construction' as const,
-    constructionId: 'construction_plane-xy',
+    constructionId: 'construction_plane-xy' as ConstructionId,
   }
 
   return {

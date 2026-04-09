@@ -15,6 +15,7 @@
     "test:occ-phase1-runtime": "bun x vite-node src/domain/modeling/occ/runtime.spec.ts",
     "test:occ-phase1-browser-compile": "vite build --config vite.occ-runtime-browser-smoke.config.ts",
     "test:occ-phase1": "bun run test:occ-phase1-runtime && bun run test:occ-phase1-browser-compile",
+    "test:occ-phase2": "bun x vite-node src/domain/modeling/occ/planes.spec.ts",
     "test:contract-examples": "bun x vite-node src/contracts/shared/contract-examples.spec.ts"
   },
   "dependencies": {

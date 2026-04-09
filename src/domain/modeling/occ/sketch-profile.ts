@@ -5,9 +5,11 @@ import type {
 } from '@/contracts/sketch/schema'
 import type { FaceId } from '@/contracts/shared/ids'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
+import { buildConstructionPlaneFromPlanarFace as buildConstructionPlaneFromPlanarFaceFromPlaneUtility } from '@/domain/modeling/occ/planes'
 import type { OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
 import {
   createPlaneAxes,
+  extractPlanarFaceData,
   mapSketchPointToWorld,
   midpointOnArc,
   negate,
@@ -171,18 +173,8 @@ export function getExtrusionNormalForPlanarFace(
   face: InstanceType<OpenCascadeInstance['TopoDS_Face']>,
   direction: 'positive' | 'negative',
 ) {
-  const surface = new oc.BRepAdaptor_Surface_2(face, true)
-
-  if (surface.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-    throw new Error('Face-backed profile requires a planar face.')
-  }
-
-  const plane = surface.Plane()
-  const normal = [
-    plane.Axis().Direction().X(),
-    plane.Axis().Direction().Y(),
-    plane.Axis().Direction().Z(),
-  ] as Vec3
+  const { frame } = extractPlanarFaceData(oc, face, 'Face-backed profile requires a planar face.')
+  const normal = frame.normal as Vec3
   return direction === 'positive' ? normal : negate(normal)
 }
 
@@ -192,41 +184,7 @@ export function buildConstructionPlaneFromPlanarFace(
   faceId: FaceId,
   support: SketchPlaneDefinition['support'],
 ): SketchPlaneDefinition {
-  const surface = new oc.BRepAdaptor_Surface_2(face, true)
-
-  if (surface.GetType() !== oc.GeomAbs_SurfaceType.GeomAbs_Plane) {
-    throw new Error(`Face ${faceId} is not planar.`)
-  }
-
-  const plane = surface.Plane()
-  return {
-    support,
-    frame: {
-      origin: [
-        plane.Location().X(),
-        plane.Location().Y(),
-        plane.Location().Z(),
-      ],
-      xAxis: [
-        plane.Position().XDirection().X(),
-        plane.Position().XDirection().Y(),
-        plane.Position().XDirection().Z(),
-      ],
-      yAxis: [
-        plane.Position().YDirection().X(),
-        plane.Position().YDirection().Y(),
-        plane.Position().YDirection().Z(),
-      ],
-      normal: [
-        plane.Axis().Direction().X(),
-        plane.Axis().Direction().Y(),
-        plane.Axis().Direction().Z(),
-      ],
-      linearUnit: 'documentLength',
-      handedness: 'rightHanded',
-    },
-    key: null,
-  }
+  return buildConstructionPlaneFromPlanarFaceFromPlaneUtility(oc, face, faceId, support)
 }
 
 export function buildAxisFromLineEdge(
