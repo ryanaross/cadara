@@ -20,6 +20,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   unzip \
   ripgrep \
   zsh \
+  libglib2.0-dev \
+  libnspr4-dev \
+  libnss3-dev \
+  libatk1.0-dev \
+  libatk-bridge2.0-dev \
+  libcups2-dev \
+  libxkbcommon-dev \
+  libasound2-dev \
+  libgbm-dev \
+  libpango1.0-dev \
+  libxcomposite-dev \
+  libxdamage-dev \
+  libxrandr-dev \
   && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 24
@@ -35,7 +48,8 @@ RUN mkdir -p /usr/local/share/npm-global \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install codex from npm globally
-RUN npm install -g @openai/codex && npm cache clean --force
+RUN npm install -g @openai/codex@latest @playwright/cli@latest && npm cache clean --force
+RUN playwright-cli install
 
 # Install spec-kit
 RUN uv tool install specify-cli --from git+https://github.com/github/spec-kit.git

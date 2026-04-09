@@ -12,6 +12,9 @@
     "test:solver-contract": "bun x vite-node src/contracts/solver/solver-contract.spec.ts",
     "test:mock-kernel-contract": "bun x vite-node src/domain/modeling/mock-kernel-adapter.spec.ts",
     "test:occ-phase0": "bun x vite-node src/domain/modeling/occ/implementation-policy.spec.ts",
+    "test:occ-phase1-runtime": "bun x vite-node src/domain/modeling/occ/runtime.spec.ts",
+    "test:occ-phase1-browser-compile": "vite build --config vite.occ-runtime-browser-smoke.config.ts",
+    "test:occ-phase1": "bun run test:occ-phase1-runtime && bun run test:occ-phase1-browser-compile",
     "test:contract-examples": "bun x vite-node src/contracts/shared/contract-examples.spec.ts"
   },
   "dependencies": {
