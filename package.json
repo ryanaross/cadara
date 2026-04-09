@@ -11,6 +11,7 @@
     "test:editor-state-machine": "bun x vite-node src/contracts/editor/state-machine.spec.ts",
     "test:solver-contract": "bun x vite-node src/contracts/solver/solver-contract.spec.ts",
     "test:mock-kernel-contract": "bun x vite-node src/domain/modeling/mock-kernel-adapter.spec.ts",
+    "test:occ-phase0": "bun x vite-node src/domain/modeling/occ/implementation-policy.spec.ts",
     "test:contract-examples": "bun x vite-node src/contracts/shared/contract-examples.spec.ts"
   },
   "dependencies": {

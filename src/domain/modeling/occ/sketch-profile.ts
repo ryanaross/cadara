@@ -16,6 +16,10 @@ import {
   toGpPnt,
   type Vec3,
 } from '@/domain/modeling/occ/geometry'
+import {
+  getProjectedRegionLoopRejectionMessage,
+  isProjectedRegionSegmentSourceSupported,
+} from '@/domain/modeling/occ/implementation-policy'
 
 export interface BuiltSketchProfileFace {
   face: InstanceType<OpenCascadeInstance['TopoDS_Face']>
@@ -52,7 +56,6 @@ function buildCircleEdge(
   plane: SketchPlaneDefinition,
   geometry: Extract<SolvedSketchEntityGeometryRecord, { kind: 'circle' }>,
 ) {
-  const center = mapSketchPointToWorld(plane, geometry.centerPosition)
   const { axis } = createPlaneAxes(oc, plane)
   const circle = new oc.gp_Circ_2(axis.Ax2(), geometry.solvedRadius)
   const builder = new oc.BRepBuilderAPI_MakeEdge_8(circle)
@@ -66,11 +69,10 @@ function buildArcEdge(
 ) {
   const start = mapSketchPointToWorld(plane, geometry.startPosition)
   const end = mapSketchPointToWorld(plane, geometry.endPosition)
-  const center = mapSketchPointToWorld(plane, geometry.centerPosition)
   const midpoint = midpointOnArc(
     start,
     end,
-    center,
+    mapSketchPointToWorld(plane, geometry.centerPosition),
     plane.frame.normal,
     geometry.sweepDirection,
   )
@@ -94,17 +96,13 @@ function buildLoopWire(
   sketch: SketchRecord,
   loop: RegionRecord['loops'][number],
 ) {
-  if (loop.source === undefined) {
-    throw new Error('Unexpected malformed loop payload.')
-  }
-
   const wireBuilder = new oc.BRepBuilderAPI_MakeWire_1()
 
   for (const segment of loop.segments) {
-    if (segment.source.kind === 'projectedGeometry') {
-      throw new Error(
-        `Projected region geometry ${segment.source.reference.geometryId} is not persisted on committed sketch records, so OCC profile rebuilding cannot resolve it from the current contract.`,
-      )
+    // Phase 0 red line: committed sketch payloads do not preserve enough
+    // projected-geometry data to rebuild OCC profile wires faithfully.
+    if (!isProjectedRegionSegmentSourceSupported(segment.source)) {
+      throw new Error(getProjectedRegionLoopRejectionMessage(segment.source))
     }
 
     const geometry = getSolvedEntityGeometry(sketch, segment.source.entityId)
