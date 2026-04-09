@@ -1006,6 +1006,7 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
         entry.binding.semanticClass !== 'planarFace' &&
         entry.binding.semanticClass !== 'featureEdge' &&
         entry.binding.semanticClass !== 'featureVertex' &&
+        entry.binding.semanticClass !== 'region' &&
         entry.binding.semanticClass !== 'sketchCurve' &&
         entry.binding.semanticClass !== 'sketchPoint' &&
         entry.binding.semanticClass !== 'construction') ||
@@ -1179,8 +1180,8 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       throw new Error('Vertex bindings must target durable vertices.')
     }
 
-    if (entry.binding.topology === null && target.kind !== 'construction' && target.kind !== 'sketchEntity' && target.kind !== 'sketchPoint') {
-      throw new Error('Non-topological render bindings must target durable construction or sketch refs.')
+    if (entry.binding.topology === null && target.kind !== 'construction' && target.kind !== 'region' && target.kind !== 'sketchEntity' && target.kind !== 'sketchPoint') {
+      throw new Error('Non-topological render bindings must target durable construction, region, or sketch refs.')
     }
 
     if (
@@ -1199,6 +1200,13 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
       (entry.binding.topology !== 'vertex' || target.kind !== 'vertex')
     ) {
       throw new Error('featureVertex bindings must bind to durable vertices.')
+    }
+
+    if (
+      entry.binding.semanticClass === 'region' &&
+      (entry.binding.topology !== null || target.kind !== 'region')
+    ) {
+      throw new Error('region bindings must target durable sketch regions without topology.')
     }
 
     if (
@@ -1256,6 +1264,14 @@ function normalizeRenderables(value: unknown): RenderableEntityRecord[] {
             target: target as Extract<PrimitiveRef, { kind: 'construction' }>,
             topology: null,
             semanticClass: 'construction',
+          }
+        case 'region':
+          return {
+            pickId: entry.binding.pickId as PickId,
+            pickPriority: entry.binding.pickPriority,
+            target: target as Extract<PrimitiveRef, { kind: 'region' }>,
+            topology: null,
+            semanticClass: 'region',
           }
         case 'sketchCurve':
           return {

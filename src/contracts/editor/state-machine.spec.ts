@@ -9,8 +9,12 @@ import {
 } from './state-machine'
 import type { SelectionTargetCatalog } from '@/domain/editor/schema'
 import type { DocumentSnapshot } from '@/contracts/modeling/schema'
+import type { SnapshotEntityRecord, SketchSnapshotRecord } from '@/contracts/modeling/schema'
 import type {
   ConstructionId,
+  DocumentId,
+  RevisionId,
+  SketchId,
   SnapshotEntityId,
 } from '@/contracts/shared/ids'
 import {
@@ -31,7 +35,11 @@ function assert(condition: unknown, message: string): asserts condition {
 function createSelectionCatalog(): SelectionTargetCatalog {
   return {
     existingSketchKeys: ['sketch:sketch_a'],
-    constructionPlaneKeys: ['construction:construction_plane-xy'],
+    constructionPlaneKeys: [
+      'construction:construction_plane-xy',
+      'construction:construction_plane-yz',
+      'construction:construction_plane-xz',
+    ],
     planarFaceKeys: ['face:body_a:face_top'],
   }
 }
@@ -39,7 +47,11 @@ function createSelectionCatalog(): SelectionTargetCatalog {
 function createRegionSelectionCatalog(): SelectionTargetCatalog {
   return {
     existingSketchKeys: ['sketch:sketch_a', 'region:sketch_a:region_profile_a'],
-    constructionPlaneKeys: ['construction:construction_plane-xy'],
+    constructionPlaneKeys: [
+      'construction:construction_plane-xy',
+      'construction:construction_plane-yz',
+      'construction:construction_plane-xz',
+    ],
     planarFaceKeys: ['face:body_a:face_top'],
   }
 }
@@ -225,6 +237,38 @@ function testSketchActivationEmitsCorrelatedOpenEffect() {
   )
 }
 
+function testSketchActivationAcceptsAllPrimaryConstructionPlanes() {
+  const baseState = {
+    ...initialEditorState,
+    document: {
+      documentId: 'doc_workspace' as DocumentId,
+      revisionId: 'rev_1' as RevisionId,
+    },
+    snapshot: createSnapshot(),
+    selectionCatalog: createSelectionCatalog(),
+  }
+
+  for (const constructionId of [
+    'construction_plane-xy',
+    'construction_plane-yz',
+    'construction_plane-xz',
+  ] as const) {
+    const activated = transitionEditorState(baseState, {
+      type: 'tool.activated',
+      toolId: 'sketch',
+    })
+    const openResult = transitionEditorState(activated.state, {
+      type: 'viewport.selectionRequested',
+      target: { kind: 'construction', constructionId },
+    })
+
+    assert(
+      openResult.effects[0]?.type === 'sketch.openSession',
+      `Primary construction plane ${constructionId} should emit sketch.openSession.`,
+    )
+  }
+}
+
 function testSketchSessionPreservesStoredPlaneDefinition() {
   const yzPlane: SketchPlaneDefinition = {
     support: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
@@ -292,6 +336,117 @@ function testSketchSessionPreservesStoredPlaneDefinition() {
 
   assert(session.plane.frame.normal[0] === 1, 'Sketch sessions should retain the stored plane definition.')
   assert(worldPoint[0] === 0 && worldPoint[1] === 2 && worldPoint[2] === 3, 'Sketch display mapping must use the stored plane definition.')
+}
+
+function createReopenableYzSketchSnapshot(): DocumentSnapshot {
+  const yzSketchId = 'sketch_yz' as SketchId
+  const yzPlane: SketchPlaneDefinition = {
+    support: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+    frame: {
+      origin: [0, 0, 0],
+      xAxis: [0, 1, 0],
+      yAxis: [0, 0, 1],
+      normal: [1, 0, 0],
+      linearUnit: 'documentLength',
+      handedness: 'rightHanded',
+    },
+    key: 'yz',
+  }
+
+  const yzSketch: SketchSnapshotRecord = {
+    ownerDocumentId: 'doc_workspace' as DocumentId,
+    ownerRevisionId: 'rev_1' as RevisionId,
+    ownerFeatureId: null,
+    ownerSketchId: yzSketchId,
+    ownerBodyId: null,
+    sketchId: yzSketchId,
+    label: 'Sketch YZ',
+    plane: yzPlane,
+    planeTarget: yzPlane.support,
+    planeKey: 'yz' as const,
+    sketch: {
+      ownerDocumentId: 'doc_workspace',
+      ownerRevisionId: 'rev_1',
+      ownerFeatureId: null,
+      ownerSketchId: yzSketchId,
+      ownerBodyId: null,
+      sketchId: yzSketchId,
+      label: 'Sketch YZ',
+      planeSupport: yzPlane.support,
+      definition: {
+          schemaVersion: 'sketch-definition/v1alpha1',
+        referenceIds: [],
+        references: [],
+        pointIds: [],
+        points: [],
+        entityIds: [],
+        entities: [],
+        constraintIds: [],
+        constraints: [],
+        dimensionIds: [],
+        dimensions: [],
+      },
+      solvedSnapshot: {
+        schemaVersion: 'solved-sketch/v1alpha1',
+        status: {
+          solveState: 'solved',
+          constraintState: 'underConstrained',
+        },
+        solvedEntities: [],
+        solvedPoints: [],
+        constraintStatuses: [],
+        dimensionStatuses: [],
+        diagnostics: [],
+      },
+      regions: [],
+    },
+  }
+
+  const yzSketchEntity: SnapshotEntityRecord = {
+    ownerDocumentId: 'doc_workspace' as DocumentId,
+    ownerRevisionId: 'rev_1' as RevisionId,
+    ownerFeatureId: null,
+    ownerSketchId: yzSketchId,
+    ownerBodyId: null,
+    id: 'snapshot_entity_sketch_yz' as SnapshotEntityId,
+    label: 'Sketch YZ',
+    target: { kind: 'sketch' as const, sketchId: yzSketchId },
+    relatedTargets: [],
+    consumedByFeatureIds: [],
+    selectionSemantics: ['existingSketch'] as const,
+  }
+
+  const baseSnapshot = createSnapshot()
+
+  return {
+    ...baseSnapshot,
+    sketches: [
+      ...baseSnapshot.sketches,
+      yzSketch,
+    ],
+    document: {
+      ...baseSnapshot.document,
+      sketches: [
+        ...baseSnapshot.document.sketches,
+        yzSketch,
+      ],
+      entities: [
+        ...baseSnapshot.document.entities,
+        yzSketchEntity,
+      ],
+    },
+    entities: [
+      ...baseSnapshot.entities,
+      yzSketchEntity,
+    ],
+    presentation: {
+      ...baseSnapshot.presentation,
+      entities: [
+        ...baseSnapshot.presentation.entities,
+        yzSketchEntity,
+      ],
+    },
+  }
 }
 
 function testFeaturePreviewIgnoresStaleResponseIds() {
@@ -423,9 +578,187 @@ async function testRuntimeLoopProcessesSketchOpen() {
   )
 }
 
+async function testRuntimeLoopOpensSketchFromNonXYConstruction() {
+  const runtimeSnapshot: DocumentSnapshot = {
+    ...createSnapshot(),
+    constructions: [
+      {
+        ownerDocumentId: 'doc_workspace',
+        ownerRevisionId: 'rev_1',
+        ownerFeatureId: null,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        constructionId: 'construction_plane-yz' as ConstructionId,
+        label: 'Right Plane',
+        constructionType: 'plane',
+        plane: createStandardPlaneDefinition('yz'),
+        target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+      },
+    ],
+    document: {
+      ...createSnapshot().document,
+      constructions: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          constructionId: 'construction_plane-yz' as ConstructionId,
+          label: 'Right Plane',
+          constructionType: 'plane',
+          plane: createStandardPlaneDefinition('yz'),
+          target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+        },
+      ],
+      entities: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          id: 'snapshot_entity_plane_yz' as SnapshotEntityId,
+          label: 'Right Plane',
+          target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+          relatedTargets: [],
+          consumedByFeatureIds: [],
+          selectionSemantics: ['constructionPlane', 'planarReference'],
+        },
+      ],
+    },
+    entities: [
+      {
+        ownerDocumentId: 'doc_workspace',
+        ownerRevisionId: 'rev_1',
+        ownerFeatureId: null,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        id: 'snapshot_entity_plane_yz' as SnapshotEntityId,
+        label: 'Right Plane',
+        target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+        relatedTargets: [],
+        consumedByFeatureIds: [],
+        selectionSemantics: ['constructionPlane', 'planarReference'],
+      },
+    ],
+    presentation: {
+      ...createSnapshot().presentation,
+      entities: [
+        {
+          ownerDocumentId: 'doc_workspace',
+          ownerRevisionId: 'rev_1',
+          ownerFeatureId: null,
+          ownerSketchId: null,
+          ownerBodyId: null,
+          id: 'snapshot_entity_plane_yz' as SnapshotEntityId,
+          label: 'Right Plane',
+          target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+          relatedTargets: [],
+          consumedByFeatureIds: [],
+          selectionSemantics: ['constructionPlane', 'planarReference'],
+        },
+      ],
+    },
+  }
+  const runtime: EditorEffectRuntime = {
+    getCurrentDocumentSnapshot: async () => runtimeSnapshot,
+    commitSketch: async (_input) => null,
+    evaluatePreview: async () => ({
+      revisionId: 'rev_1' as const,
+      stale: false,
+      diagnostics: [],
+      renderables: [],
+    }),
+    commitFeature: async () => ({
+      revisionId: 'rev_1' as const,
+      featureId: 'feature_alpha' as const,
+      accepted: true,
+      diagnostics: [],
+    }),
+  }
+
+  const result = await replayEditorEventsWithRuntime(
+    [
+      { type: 'session.started' },
+      {
+        type: 'effect.snapshotLoaded',
+        payload: {
+          requestId: 'request_snapshot-1',
+          documentId: 'doc_workspace',
+          revisionId: 'rev_1',
+          snapshot: runtimeSnapshot,
+          selectionCatalog: createSelectionCatalog(),
+        },
+      },
+      { type: 'tool.activated', toolId: 'sketch' },
+      {
+        type: 'viewport.selectionRequested',
+        target: { kind: 'construction', constructionId: 'construction_plane-yz' },
+      },
+    ],
+    runtime,
+  )
+
+  assert(result.state.kind === 'editingSketch', 'YZ construction plane should also open a sketch session.')
+  assert(result.state.session.plane.key === 'yz', 'Sketch session should preserve the selected YZ plane definition.')
+}
+
+async function testRuntimeLoopReopensStoredSketchPlane() {
+  const runtimeSnapshot = createReopenableYzSketchSnapshot()
+  const runtime: EditorEffectRuntime = {
+    getCurrentDocumentSnapshot: async () => runtimeSnapshot,
+    commitSketch: async (_input) => null,
+    evaluatePreview: async () => ({
+      revisionId: 'rev_1' as const,
+      stale: false,
+      diagnostics: [],
+      renderables: [],
+    }),
+    commitFeature: async () => ({
+      revisionId: 'rev_1' as const,
+      featureId: 'feature_alpha' as const,
+      accepted: true,
+      diagnostics: [],
+    }),
+  }
+
+  const result = await replayEditorEventsWithRuntime(
+    [
+      { type: 'session.started' },
+      {
+        type: 'effect.snapshotLoaded',
+        payload: {
+          requestId: 'request_snapshot-1',
+          documentId: 'doc_workspace',
+          revisionId: 'rev_1',
+          snapshot: runtimeSnapshot,
+          selectionCatalog: {
+            ...createSelectionCatalog(),
+            existingSketchKeys: ['sketch:sketch_a', 'sketch:sketch_yz'],
+          },
+        },
+      },
+      { type: 'tool.activated', toolId: 'sketch' },
+      {
+        type: 'viewport.selectionRequested',
+        target: { kind: 'sketch', sketchId: 'sketch_yz' },
+      },
+    ],
+    runtime,
+  )
+
+  assert(result.state.kind === 'editingSketch', 'Existing sketches should reopen into the sketch editor.')
+  assert(result.state.session.sketchId === 'sketch_yz', 'Reopened sketch sessions should preserve the sketch identity.')
+  assert(result.state.session.plane.key === 'yz', 'Reopened sketch sessions should preserve the stored sketch plane.')
+}
+
 testSketchActivationEmitsCorrelatedOpenEffect()
+testSketchActivationAcceptsAllPrimaryConstructionPlanes()
 testSketchSessionPreservesStoredPlaneDefinition()
 testFeaturePreviewIgnoresStaleResponseIds()
 testReplayIsDeterministic()
 testSelectionKeyUsesDurableRefs()
 await testRuntimeLoopProcessesSketchOpen()
+await testRuntimeLoopOpensSketchFromNonXYConstruction()
+await testRuntimeLoopReopensStoredSketchPlane()

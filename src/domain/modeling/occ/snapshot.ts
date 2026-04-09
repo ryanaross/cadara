@@ -35,6 +35,7 @@ import type {
   DurableRef,
   EdgeRef,
   FaceRef,
+  RegionRef,
   SketchEntityRef,
   SketchPointRef,
   VertexRef,
@@ -59,6 +60,7 @@ import {
   OCC_KERNEL_SETTINGS,
 } from '@/domain/modeling/opencascade-kernel-seed'
 import { extractPlanarFaceData } from '@/domain/modeling/occ/planes'
+import { buildRegionProfileFace } from '@/domain/modeling/occ/sketch-profile'
 import {
   getOccDurableRefKey,
   type OccTrackedBody,
@@ -68,6 +70,7 @@ const FACE_PICK_PRIORITY = 20
 const SKETCH_CURVE_PICK_PRIORITY = 12
 const EDGE_PICK_PRIORITY = 10
 const CONSTRUCTION_PICK_PRIORITY = 5
+const REGION_PICK_PRIORITY = 8
 const SKETCH_POINT_PICK_PRIORITY = 1
 const VERTEX_PICK_PRIORITY = 0
 
@@ -706,27 +709,10 @@ function buildConstructionRenderRecords(state: OccAuthoringState): RenderableEnt
   })
 }
 
-function applyLocationToPoint(
-  point: { Transformed(theT: InstanceType<OccAuthoringState['oc']['gp_Trsf']>): { X(): number; Y(): number; Z(): number } },
-  location: InstanceType<OccAuthoringState['oc']['TopLoc_Location']>,
-) {
-  return toRenderPoint(point.Transformed(location.Transformation()))
-}
-
-function getFaceOrientationIsReversed(
+function buildMeshGeometryFromFace(
   state: OccAuthoringState,
   face: InstanceType<OccAuthoringState['oc']['TopoDS_Face']>,
 ) {
-  return (face.Orientation_1() as { value?: number }).value
-    === (state.oc.TopAbs_Orientation.TopAbs_REVERSED as { value?: number }).value
-}
-
-function buildFaceRenderRecord(
-  state: OccAuthoringState,
-  body: OccTrackedBody,
-  faceId: FaceId,
-  face: InstanceType<OccAuthoringState['oc']['TopoDS_Face']>,
-): RenderableEntityRecord | null {
   const location = new state.oc.TopLoc_Location_1()
   const triangulationHandle = state.oc.BRep_Tool.Triangulation(face, location, 0 as never)
 
@@ -771,6 +757,40 @@ function buildFaceRenderRecord(
     )
   }
 
+  return {
+    vertexPositions,
+    vertexNormals: hasNormals ? vertexNormals : null,
+    triangleIndices,
+  }
+}
+
+function applyLocationToPoint(
+  point: { Transformed(theT: InstanceType<OccAuthoringState['oc']['gp_Trsf']>): { X(): number; Y(): number; Z(): number } },
+  location: InstanceType<OccAuthoringState['oc']['TopLoc_Location']>,
+) {
+  return toRenderPoint(point.Transformed(location.Transformation()))
+}
+
+function getFaceOrientationIsReversed(
+  state: OccAuthoringState,
+  face: InstanceType<OccAuthoringState['oc']['TopoDS_Face']>,
+) {
+  return (face.Orientation_1() as { value?: number }).value
+    === (state.oc.TopAbs_Orientation.TopAbs_REVERSED as { value?: number }).value
+}
+
+function buildFaceRenderRecord(
+  state: OccAuthoringState,
+  body: OccTrackedBody,
+  faceId: FaceId,
+  face: InstanceType<OccAuthoringState['oc']['TopoDS_Face']>,
+): RenderableEntityRecord | null {
+  const geometry = buildMeshGeometryFromFace(state, face)
+
+  if (!geometry) {
+    return null
+  }
+
   const target: FaceRef = createFaceTarget(body.bodyId, faceId)
   const semantics = getFaceSemanticClasses(state, face)
 
@@ -788,11 +808,64 @@ function buildFaceRenderRecord(
     },
     geometry: {
       kind: 'mesh',
-      vertexPositions,
-      vertexNormals: hasNormals ? vertexNormals : null,
-      triangleIndices,
+      vertexPositions: geometry.vertexPositions,
+      vertexNormals: geometry.vertexNormals,
+      triangleIndices: geometry.triangleIndices,
     },
   }
+}
+
+function buildRegionRenderRecords(state: OccAuthoringState) {
+  const records: RenderableEntityRecord[] = []
+
+  for (const sketch of state.sketches) {
+    for (const region of sketch.sketch.regions) {
+      let profileFace: ReturnType<typeof buildRegionProfileFace> | null = null
+
+      try {
+        profileFace = buildRegionProfileFace(state.oc, { plane: sketch.plane, sketch: sketch.sketch }, region)
+      } catch {
+        continue
+      }
+
+      new state.oc.BRepMesh_IncrementalMesh_2(
+        profileFace.face,
+        Math.max(state.modelingTolerance * 10, DEFAULT_LINEAR_DEFLECTION),
+        false,
+        DEFAULT_ANGULAR_DEFLECTION,
+        false,
+      )
+
+      const geometry = buildMeshGeometryFromFace(state, profileFace.face)
+
+      if (!geometry) {
+        continue
+      }
+
+      const target = region.target as RegionRef
+      records.push({
+        id: createRenderableId(target),
+        label: region.label,
+        ownerBodyId: region.ownerBodyId,
+        ownerFeatureId: region.ownerFeatureId,
+        binding: {
+          pickId: createPickId(target),
+          pickPriority: REGION_PICK_PRIORITY,
+          target,
+          topology: null,
+          semanticClass: 'region',
+        },
+        geometry: {
+          kind: 'mesh',
+          vertexPositions: geometry.vertexPositions,
+          vertexNormals: geometry.vertexNormals,
+          triangleIndices: geometry.triangleIndices,
+        },
+      })
+    }
+  }
+
+  return records
 }
 
 function sampleCurveByParameters(
@@ -1189,10 +1262,13 @@ function buildSketchPointRenderRecords(
 }
 
 function buildSketchRenderRecords(state: OccAuthoringState) {
-  return state.sketches.flatMap((sketch) => [
-    ...buildSketchCurveRenderRecords(state, sketch),
-    ...buildSketchPointRenderRecords(state, sketch),
-  ])
+  return [
+    ...buildRegionRenderRecords(state),
+    ...state.sketches.flatMap((sketch) => [
+      ...buildSketchCurveRenderRecords(state, sketch),
+      ...buildSketchPointRenderRecords(state, sketch),
+    ]),
+  ]
 }
 
 export function buildOccRenderExport(state: OccAuthoringState) {

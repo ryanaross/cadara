@@ -433,6 +433,15 @@ async function testWorkspaceSnapshotBuildsContractValidRenderExport() {
     ),
     'Phase 6 render export must expose filled construction-plane surfaces for viewport picking.',
   )
+  assert(
+    normalized.document.render.records.some((record) =>
+      record.binding.topology === null
+      && record.binding.semanticClass === 'region'
+      && record.binding.target.kind === 'region'
+      && record.geometry.kind === 'mesh',
+    ),
+    'Phase 6 render export must expose filled sketch-region surfaces for viewport profile picking.',
+  )
   const yzConstruction = normalized.document.constructions.find(
     (construction) => construction.constructionId === 'construction_plane-yz',
   )

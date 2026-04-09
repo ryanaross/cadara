@@ -41,6 +41,7 @@ export type SelectionSemantic =
   | 'vertex'
   | 'constructionPlane'
   | 'existingSketch'
+  | 'regionProfile'
   | 'sketchEntity'
   | 'planarFace'
   | 'planarReference'
@@ -176,7 +177,7 @@ export const extrudeSelectionFilter: SelectionFilter = {
           label: 'Extrude seed',
           description: 'Select one derived sketch region or one planar face.',
           acceptedKinds: ['region', 'face'],
-          acceptedSemantics: ['planarFace'],
+          acceptedSemantics: ['regionProfile', 'planarFace'],
         },
       ],
     },
@@ -349,7 +350,7 @@ function getTargetSemantics(
       }
       break
     case 'region':
-      semantics.push('existingSketch')
+      semantics.push('regionProfile')
       break
     case 'sketchEntity':
       semantics.push('sketchEntity')

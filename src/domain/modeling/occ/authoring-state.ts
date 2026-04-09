@@ -49,6 +49,12 @@ function createStandardConstructionState(
     createStandardPlaneDefinition('xz'),
   ]
 
+  const standardPlaneLabels = {
+    xy: 'Top Plane',
+    yz: 'Right Plane',
+    xz: 'Front Plane',
+  } as const
+
   return {
     constructions: standardPlanes.map((plane) => {
       const support = plane.support
@@ -57,6 +63,8 @@ function createStandardConstructionState(
         throw new Error('Expected standard OCC planes to be construction-backed.')
       }
 
+      const label = plane.key ? standardPlaneLabels[plane.key] : support.constructionId
+
       return {
         ownerDocumentId: documentId,
         ownerRevisionId: revisionId,
@@ -64,7 +72,7 @@ function createStandardConstructionState(
         ownerSketchId: null,
         ownerBodyId: null,
         constructionId: support.constructionId,
-        label: support.constructionId,
+        label,
         constructionType: 'plane' as const,
         plane,
         target: { kind: 'construction' as const, constructionId: support.constructionId },

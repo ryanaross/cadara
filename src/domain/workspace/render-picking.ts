@@ -18,6 +18,7 @@ export interface WorkspaceRenderScene {
 const SURFACE_COLORS = {
   bodyFace: 0x6f89aa,
   planarFace: 0x6f89aa,
+  region: 0x89b8ff,
   featureEdge: 0x9fc7ff,
   featureVertex: 0xe8f3ff,
   sketchCurve: 0x7cbcff,
@@ -352,6 +353,8 @@ function getRenderableBaseColor(semanticClass: RenderableEntityRecord['binding']
       return SURFACE_COLORS.bodyFace
     case 'planarFace':
       return SURFACE_COLORS.planarFace
+    case 'region':
+      return SURFACE_COLORS.region
     case 'featureEdge':
       return SURFACE_COLORS.featureEdge
     case 'featureVertex':
@@ -379,6 +382,10 @@ function getHighlightColor(
       return 0xe7f2ff
     }
 
+    if (semanticClass === 'region') {
+      return 0xdcecff
+    }
+
     if (semanticClass === 'sketchCurve' || semanticClass === 'featureEdge') {
       return 0xc7e1ff
     }
@@ -394,7 +401,7 @@ function getHighlightColor(
 }
 
 function isFaceSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
-  return semanticClass === 'bodyFace' || semanticClass === 'planarFace'
+  return semanticClass === 'bodyFace' || semanticClass === 'planarFace' || semanticClass === 'region'
 }
 
 function getObjectMaterial(object: THREE.Object3D) {

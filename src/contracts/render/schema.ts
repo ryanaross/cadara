@@ -1,5 +1,5 @@
 import type { BodyId, FeatureId, PickId, RenderableId } from '@/contracts/shared/ids'
-import type { DurableRef, FaceRef, EdgeRef, VertexRef, ConstructionRef, SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
+import type { DurableRef, FaceRef, EdgeRef, VertexRef, ConstructionRef, RegionRef, SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
 import type { RenderExportSchemaVersion } from '@/contracts/shared/versioning'
 
 /**
@@ -19,6 +19,7 @@ export type RenderSemanticClass =
   | 'planarFace'
   | 'featureEdge'
   | 'featureVertex'
+  | 'region'
   | 'sketchCurve'
   | 'sketchPoint'
   | 'construction'
@@ -95,6 +96,18 @@ export interface RenderSketchCurveBinding extends RenderBindingBase {
 }
 
 /**
+ * Sketch-region binding exported by the kernel.
+ */
+export interface RenderRegionBinding extends RenderBindingBase {
+  /** Durable sketch region selected when this render record is picked. */
+  target: RegionRef
+  /** Sketch-region bindings do not map to body topology primitives. */
+  topology: null
+  /** Explicit region semantic class consumed by editor selection rules. */
+  semanticClass: 'region'
+}
+
+/**
  * Sketch-point binding exported by the kernel.
  */
 export interface RenderSketchPointBinding extends RenderBindingBase {
@@ -114,6 +127,7 @@ export type RenderSemanticBinding =
   | RenderEdgeBinding
   | RenderVertexBinding
   | RenderConstructionBinding
+  | RenderRegionBinding
   | RenderSketchCurveBinding
   | RenderSketchPointBinding
 

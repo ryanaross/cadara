@@ -80,7 +80,7 @@ type RenderGeometryUnionIsSemanticExport = Assert<
 
 type NonTopologicalBindingsAreExplicit = Assert<
   Equals<
-    Extract<RenderableEntityRecord['binding'], { semanticClass: 'construction' | 'sketchCurve' | 'sketchPoint' }>['topology'],
+    Extract<RenderableEntityRecord['binding'], { semanticClass: 'construction' | 'region' | 'sketchCurve' | 'sketchPoint' }>['topology'],
     null
   >
 >

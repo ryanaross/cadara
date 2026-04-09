@@ -6,7 +6,7 @@ test('starts a sketch from the viewport on the primary top plane', async ({ page
 
   await workbench.open()
   await workbench.activateTool('Start a new sketch.')
-  await workbench.clickViewportAt({ x: 240, y: 220 })
+  await workbench.clickViewportTarget('construction_plane-xy')
 
   await workbench.expectMachine('editingSketch')
   await workbench.expectSketchSessionActive()

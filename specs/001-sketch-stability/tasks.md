@@ -30,7 +30,7 @@
 **⚠️ CRITICAL**: No user story work should begin until these tasks are complete.
 
 - [X] T004 Extend sketch session and plane contracts to carry explicit plane definitions in `/app/src/contracts/shared/sketch-plane.ts`, `/app/src/contracts/sketch/schema.ts`, and `/app/src/domain/editor/schema.ts`
-- [ ] T005 [P] Update editor state-machine effects and catalog semantics for construction planes and reopened sketches in `/app/src/contracts/editor/state-machine.ts` and `/app/src/contracts/editor/state-machine.spec.ts`
+- [X] T005 [P] Update editor state-machine effects and catalog semantics for construction planes and reopened sketches in `/app/src/contracts/editor/state-machine.ts` and `/app/src/contracts/editor/state-machine.spec.ts`
 - [X] T006 [P] Enrich modeling snapshot render exports with selectable filled construction-plane surfaces in `/app/src/domain/modeling/occ/snapshot.ts`, `/app/src/contracts/render/schema.ts`, and `/app/src/domain/modeling/document-snapshot-view.ts`
 - [ ] T007 Align workspace picking helpers with construction-plane priority and durable bindings in `/app/src/domain/workspace/render-picking.ts` and `/app/src/domain/workspace/scene-factory.ts`
 
@@ -75,7 +75,7 @@
 
 ### Implementation for User Story 2
 
-- [ ] T018 [P] [US2] Store the active `SketchPlaneDefinition` throughout sketch session lifecycle in `/app/src/domain/editor/sketch-session.ts` and `/app/src/domain/editor/sketch-session-controller.ts`
+- [X] T018 [P] [US2] Store the active `SketchPlaneDefinition` throughout sketch session lifecycle in `/app/src/domain/editor/sketch-session.ts` and `/app/src/domain/editor/sketch-session-controller.ts`
 - [ ] T019 [P] [US2] Rework pointer projection and preview world-mapping to use shared plane math in `/app/src/domain/modeling/occ/planes.ts` and `/app/src/components/cad/three-cad-viewport.tsx`
 - [ ] T020 [US2] Render live sketch previews and committed geometry from the active session plane in `/app/src/components/cad/three-cad-viewport.tsx` and `/app/src/hooks/editor-provider.tsx`
 
@@ -91,13 +91,13 @@
 
 ### Tests for User Story 3
 
-- [ ] T021 [P] [US3] Add reopened-sketch and mixed-entry contract coverage in `/app/src/contracts/editor/state-machine.spec.ts`
+- [X] T021 [P] [US3] Add reopened-sketch and mixed-entry contract coverage in `/app/src/contracts/editor/state-machine.spec.ts`
 - [ ] T022 [P] [US3] Add stored-plane snapshot parity coverage in `/app/src/domain/modeling/mock-kernel-adapter.spec.ts` and `/app/src/domain/modeling/occ/snapshot.spec.ts`
 - [X] T023 [P] [US3] Add Playwright regression coverage for feature-tree, viewport, and reopen parity in `/app/e2e/sketch-entry-parity.spec.ts`
 
 ### Implementation for User Story 3
 
-- [ ] T024 [P] [US3] Resolve sketch-session plane state from stored sketch and construction targets in `/app/src/domain/editor/sketch-session-controller.ts` and `/app/src/domain/modeling/modeling-service.ts`
+- [X] T024 [P] [US3] Resolve sketch-session plane state from stored sketch and construction targets in `/app/src/domain/editor/sketch-session-controller.ts` and `/app/src/domain/modeling/modeling-service.ts`
 - [ ] T025 [P] [US3] Preserve sketch plane identity and orientation when reopening sketches in `/app/src/domain/modeling/mock-kernel-adapter.ts` and `/app/src/domain/modeling/occ/snapshot.ts`
 - [ ] T026 [US3] Normalize sketch-entry behavior across feature-tree and viewport workflows in `/app/src/app/cad-workbench.tsx`, `/app/src/components/layout/feature-sidebar.tsx`, and `/app/src/components/cad/three-cad-viewport.tsx`
 

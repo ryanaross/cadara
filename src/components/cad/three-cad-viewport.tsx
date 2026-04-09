@@ -60,6 +60,7 @@ interface ViewportRuntime {
   pointer: THREE.Vector2
   sketchPlane: THREE.Plane
   sketchHitPoint: THREE.Vector3
+  primaryPointerDown: { x: number; y: number } | null
   animationFrameId: number
 }
 
@@ -78,6 +79,7 @@ export function ThreeCadViewport({
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
   const sketchDisplayGroupRef = useRef<THREE.Group | null>(null)
   const hoverRef = useRef(onHover)
+  const lastPickedTargetRef = useRef<RenderableEntityRecord['binding']['target'] | null>(null)
   const selectRef = useRef(onSelect)
   const clearHoverRef = useRef(onClearHover)
   const sketchMoveRef = useRef(onSketchMove)
@@ -133,7 +135,7 @@ export function ThreeCadViewport({
     controls.dampingFactor = 0.08
     controls.screenSpacePanning = true
     controls.mouseButtons = {
-      LEFT: THREE.MOUSE.ROTATE,
+      LEFT: -1 as THREE.MOUSE,
       MIDDLE: THREE.MOUSE.PAN,
       RIGHT: THREE.MOUSE.ROTATE,
     }
@@ -177,6 +179,7 @@ export function ThreeCadViewport({
       pointer: new THREE.Vector2(),
       sketchPlane: new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
       sketchHitPoint: new THREE.Vector3(),
+      primaryPointerDown: null,
       animationFrameId: 0,
     }
 
@@ -328,6 +331,15 @@ export function ThreeCadViewport({
 
     const canvas = runtime.renderer.domElement
 
+    const getPickTargetFromClientPoint = (clientX: number, clientY: number) => {
+      const rect = canvas.getBoundingClientRect()
+      runtime.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
+      runtime.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
+      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
+      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
+      return resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+    }
+
     const projectSketchPoint = (event: PointerEvent): readonly [number, number] | null => {
       if (!sketchSession) {
         return null
@@ -360,13 +372,7 @@ export function ThreeCadViewport({
     }
 
     const handlePointerMove = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-
-      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
-      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
-      const target = resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+      const target = getPickTargetFromClientPoint(event.clientX, event.clientY)
 
       if (
         target &&
@@ -377,8 +383,10 @@ export function ThreeCadViewport({
           selectionCatalogRef.current,
         )
       ) {
+        lastPickedTargetRef.current = target.target
         hoverRef.current(target.target)
       } else {
+        lastPickedTargetRef.current = null
         clearHoverRef.current()
       }
 
@@ -393,26 +401,54 @@ export function ThreeCadViewport({
       }
     }
 
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) {
+        return
+      }
+
+      runtime.primaryPointerDown = {
+        x: event.clientX,
+        y: event.clientY,
+      }
+    }
+
     const handlePointerUp = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      runtime.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-      runtime.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-      runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
-      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
-      const target = resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+      if (event.button !== 0) {
+        runtime.primaryPointerDown = null
+        return
+      }
+
+      const pointerDown = runtime.primaryPointerDown
+      runtime.primaryPointerDown = null
+
+      if (pointerDown) {
+        const dragDistance = Math.hypot(
+          event.clientX - pointerDown.x,
+          event.clientY - pointerDown.y,
+        )
+
+        if (dragDistance > 6) {
+          return
+        }
+      }
+
       const isSketchDrawingClick = sketchSession?.activeTool !== null
+      const lastPickedTarget = lastPickedTargetRef.current
+      const resolvedTarget = lastPickedTarget
+        ? { target: lastPickedTarget }
+        : getPickTargetFromClientPoint(event.clientX, event.clientY)
 
       if (
         !isSketchDrawingClick &&
-        target &&
+        resolvedTarget &&
         selectionFilterAllowsTarget(
           selectionFilterRef.current,
           selectionRef.current,
-          target.target,
+          resolvedTarget.target,
           selectionCatalogRef.current,
         )
       ) {
-        selectRef.current(target.target)
+        selectRef.current(resolvedTarget.target)
       }
 
       if (!sketchSession) {
@@ -427,25 +463,30 @@ export function ThreeCadViewport({
     }
 
     const handlePointerLeave = () => {
+      runtime.primaryPointerDown = null
+      lastPickedTargetRef.current = null
       clearHoverRef.current()
     }
 
+    canvas.addEventListener('pointerdown', handlePointerDown, true)
     canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerup', handlePointerUp)
+    canvas.addEventListener('pointerup', handlePointerUp, true)
     canvas.addEventListener('pointerleave', handlePointerLeave)
 
     return () => {
+      canvas.removeEventListener('pointerdown', handlePointerDown, true)
       canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerup', handlePointerUp)
+      canvas.removeEventListener('pointerup', handlePointerUp, true)
       canvas.removeEventListener('pointerleave', handlePointerLeave)
     }
   }, [renderables, selection, sketchSession])
 
   return (
     <>
-      <div ref={viewportRef} className="h-full w-full" />
+      <div ref={viewportRef} data-testid="cad-viewport" className="h-full w-full" />
       <div
         ref={gizmoRef}
+        data-testid="view-cube"
         className="pointer-events-auto absolute right-4 top-4 h-[120px] w-[120px] overflow-hidden rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.78)] shadow-[var(--cad-panel-shadow)]"
       />
     </>

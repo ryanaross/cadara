@@ -268,6 +268,20 @@ async function testAcceptedSketchCommitMutatesCommittedSnapshot() {
     after.snapshot.sketches.some((sketch) => sketch.sketchId === committed.sketchId),
     'Accepted sketch commits must appear in subsequent committed snapshots.',
   )
+
+  const reopenedSketch = after.snapshot.sketches.find((sketch) => sketch.sketchId === committed.sketchId)
+  assert(reopenedSketch, 'Committed sketch snapshots must remain available for reopen flows.')
+  assert(
+    reopenedSketch.planeTarget.kind === sourceSketch.planeTarget.kind
+    && reopenedSketch.plane.key === sourceSketch.plane.key,
+    'Committed sketch snapshots must preserve their stored plane identity for later reopen.',
+  )
+  assert(
+    reopenedSketch.plane.frame.normal.every(
+      (component, index) => component === sourceSketch.plane.frame.normal[index],
+    ),
+    'Committed sketch snapshots must preserve the authored plane orientation.',
+  )
 }
 
 async function testMissingMutationTargetsAreRejected() {

@@ -9,10 +9,6 @@
 - Styling: Tailwind CSS v4 + project CSS variables
 - 3D viewport: Three.js
 
-## Purpose
-
-This project is a frontend scaffold for a browser CAD application inspired by Onshape. Current behavior is intentionally limited to UI structure, typed tool dispatch, and a navigable 3D workspace. CAD operations do not execute yet; tool actions only emit typed events and log to the console.
-
 ## Interface Overview
 
 - Top toolbar: icon-only CAD tools with tooltips, search, undo/redo on the left, mode-aware tool switching between `part` and `sketch`, and dropdown support for tool families like pattern variants.
