@@ -56,7 +56,7 @@ RUN uv tool install specify-cli --from git+https://github.com/github/spec-kit.gi
 
 # Set npm global config for any user
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
-ENV PATH=$PATH:/usr/local/share/npm-global/bin
+ENV PATH=$PATH:/usr/local/share/npm-global/bin:/root/.local/bin
 
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
