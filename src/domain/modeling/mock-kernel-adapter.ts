@@ -53,8 +53,21 @@ import {
 const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
-const CURRENT_REVISION_ID = 'rev_0002' as const
 const SKETCH_ID = 'sketch_primary' as const
+
+function assertSupportedModelingRequest(request: { contractVersion: string; documentId: string }) {
+  if (request.contractVersion !== CONTRACT_VERSION) {
+    throw new Error(
+      `Unsupported contract version ${request.contractVersion}; expected ${CONTRACT_VERSION}.`,
+    )
+  }
+
+  if (request.documentId !== DOCUMENT_ID) {
+    throw new Error(
+      `Unsupported document ${request.documentId}; expected ${DOCUMENT_ID}.`,
+    )
+  }
+}
 
 function createRebuildResult(
   input:
@@ -134,6 +147,44 @@ function createUnsupportedFeatureDiagnostic(
     message,
     target: null,
     detail: null,
+  }
+}
+
+function createMissingFeatureDiagnostic(featureId: FeatureId) {
+  return {
+    code: 'mock-missing-feature',
+    severity: 'error' as const,
+    message: `Feature ${featureId} does not resolve in the current revision.`,
+    target: { kind: 'feature' as const, featureId },
+    detail: {
+      kind: 'invalidReference' as const,
+      reference: {
+        reason: 'mock-missing-feature',
+        target: { kind: 'feature' as const, featureId },
+        ownerFeatureId: featureId,
+        ownerSketchId: null,
+        sourceTarget: null,
+      },
+    },
+  }
+}
+
+function createMissingFeatureAnchorDiagnostic(featureId: FeatureId) {
+  return {
+    code: 'mock-missing-reorder-anchor',
+    severity: 'error' as const,
+    message: `Reorder anchor ${featureId} does not resolve in the current revision.`,
+    target: { kind: 'feature' as const, featureId },
+    detail: {
+      kind: 'invalidReference' as const,
+      reference: {
+        reason: 'mock-missing-reorder-anchor',
+        target: { kind: 'feature' as const, featureId },
+        ownerFeatureId: featureId,
+        ownerSketchId: null,
+        sourceTarget: null,
+      },
+    },
   }
 }
 
@@ -367,20 +418,20 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
     : []
 }
 
-function hasRevisionConflict(baseRevisionId: string) {
-  return baseRevisionId !== REVISION_ID
+function hasRevisionConflict(baseRevisionId: RevisionId, currentRevisionId: RevisionId) {
+  return baseRevisionId !== currentRevisionId
 }
 
-function createRevisionConflictDiagnostic(baseRevisionId: string) {
+function createRevisionConflictDiagnostic(baseRevisionId: RevisionId, currentRevisionId: RevisionId) {
   return {
     code: 'mock-revision-conflict',
     severity: 'error' as const,
-    message: `Request revision ${baseRevisionId} does not match current revision ${REVISION_ID}.`,
+    message: `Request revision ${baseRevisionId} does not match current revision ${currentRevisionId}.`,
     target: null,
     detail: {
       kind: 'revisionConflict' as const,
       expectedRevisionId: baseRevisionId as `rev_${string}`,
-      actualRevisionId: REVISION_ID,
+      actualRevisionId: currentRevisionId,
     },
   }
 }
@@ -1183,6 +1234,44 @@ function entity(
   }
 }
 
+function updateSketchRecordRevision(sketch: SketchRecord, revisionId: RevisionId) {
+  sketch.ownerRevisionId = revisionId
+  sketch.solvedSnapshot.constraintStatuses = [...sketch.solvedSnapshot.constraintStatuses]
+  sketch.solvedSnapshot.dimensionStatuses = [...sketch.solvedSnapshot.dimensionStatuses]
+  sketch.solvedSnapshot.solvedEntities = [...sketch.solvedSnapshot.solvedEntities]
+  sketch.solvedSnapshot.solvedPoints = [...sketch.solvedSnapshot.solvedPoints]
+  sketch.regions = sketch.regions.map((region) => ({ ...region, ownerRevisionId: revisionId }))
+}
+
+function stampSnapshotRevision(snapshot: DocumentSnapshot, revisionId: RevisionId) {
+  snapshot.revisionId = revisionId
+
+  for (const feature of snapshot.features) {
+    feature.ownerRevisionId = revisionId
+  }
+
+  for (const sketch of snapshot.sketches) {
+    sketch.ownerRevisionId = revisionId
+    updateSketchRecordRevision(sketch.sketch, revisionId)
+  }
+
+  for (const body of snapshot.bodies) {
+    body.ownerRevisionId = revisionId
+  }
+
+  for (const construction of snapshot.constructions) {
+    construction.ownerRevisionId = revisionId
+  }
+
+  for (const entityRecord of snapshot.entities) {
+    entityRecord.ownerRevisionId = revisionId
+  }
+
+  for (const reference of snapshot.references) {
+    reference.ownerRevisionId = revisionId
+  }
+}
+
 function getSelectionSemanticsForTarget(target: SnapshotEntityRecord['target']): SnapshotEntityRecord['selectionSemantics'] {
   switch (target.kind) {
     case 'body':
@@ -1206,16 +1295,87 @@ function getSelectionSemanticsForTarget(target: SnapshotEntityRecord['target']):
   }
 }
 
+function updateFeatureEntityRelationship(
+  snapshot: DocumentSnapshot,
+  featureId: FeatureId,
+  changedTargets: PrimitiveRef[],
+) {
+  const changedKeys = new Set(changedTargets.map((target) => getPrimitiveRefKey(target)))
+
+  for (const entityRecord of snapshot.entities) {
+    const entityKey = getPrimitiveRefKey(entityRecord.target)
+    if (changedKeys.has(entityKey) && !entityRecord.consumedByFeatureIds.includes(featureId)) {
+      entityRecord.consumedByFeatureIds = [...entityRecord.consumedByFeatureIds, featureId]
+    }
+  }
+}
+
+function rebuildFeatureTree(snapshot: DocumentSnapshot) {
+  snapshot.featureTree = [
+    {
+      id: 'feature_tree_node_plane_xy' as FeatureTreeNodeId,
+      label: 'Top Plane',
+      description: 'Primary XY reference plane',
+      kind: 'plane',
+      target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+      ownerFeatureId: null,
+      ownerSketchId: null,
+      sourceFeatureId: null,
+    },
+    ...snapshot.sketches.map((sketch, index) => ({
+      id: (index === 0 ? 'feature_tree_node_sketch_1' : `feature_tree_node_sketch_${index + 1}`) as FeatureTreeNodeId,
+      label: sketch.label,
+      description: `Sketch on ${sketch.planeKey.toUpperCase()} plane`,
+      kind: 'sketch' as const,
+      target: { kind: 'sketch' as const, sketchId: sketch.sketchId },
+      ownerFeatureId: null,
+      ownerSketchId: sketch.sketchId,
+      sourceFeatureId: null,
+    })),
+    ...snapshot.features.map((feature) => ({
+      id: `feature_tree_node_${feature.featureId}` as FeatureTreeNodeId,
+      label: feature.label,
+      description: `${feature.definition.kind} feature`,
+      kind: 'feature' as const,
+      target: { kind: 'feature' as const, featureId: feature.featureId },
+      ownerFeatureId: feature.featureId,
+      ownerSketchId: null,
+      sourceFeatureId: null,
+    })),
+  ]
+}
+
+function allocateFeatureId(snapshot: DocumentSnapshot, kind: FeatureDefinition['kind']): FeatureId {
+  const prefix = `feature_${kind}-`
+  let nextOrdinal = 1
+
+  for (const feature of snapshot.features) {
+    if (!feature.featureId.startsWith(prefix)) {
+      continue
+    }
+
+    const ordinalText = feature.featureId.slice(prefix.length)
+    const ordinal = Number.parseInt(ordinalText, 10)
+    if (Number.isFinite(ordinal)) {
+      nextOrdinal = Math.max(nextOrdinal, ordinal + 1)
+    }
+  }
+
+  return `${prefix}${nextOrdinal}` as FeatureId
+}
+
 export class MockKernelAdapter implements ModelingKernelAdapter {
   private readonly solverAdapter: SketchSolverAdapter
 
   private snapshotPromise: Promise<DocumentSnapshot> | null = null
+  private currentRevisionId: RevisionId = REVISION_ID
+  private revisionSequence = 1
 
   constructor(options?: { solverAdapter?: SketchSolverAdapter }) {
     this.solverAdapter = options?.solverAdapter ?? new MockSketchSolverAdapter()
   }
 
-  private getSnapshot() {
+  private async getSnapshot() {
     if (!this.snapshotPromise) {
       this.snapshotPromise = buildSnapshot(this.solverAdapter)
     }
@@ -1223,27 +1383,40 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
     return this.snapshotPromise
   }
 
+  private async mutateSnapshot<TResponse>(mutate: (snapshot: DocumentSnapshot, nextRevisionId: RevisionId) => TResponse): Promise<TResponse> {
+    const snapshot = await this.getSnapshot()
+    this.revisionSequence += 1
+    const nextRevisionId = `rev_${String(this.revisionSequence).padStart(4, '0')}` as RevisionId
+    const response = mutate(snapshot, nextRevisionId)
+    stampSnapshotRevision(snapshot, nextRevisionId)
+    this.currentRevisionId = nextRevisionId
+    return response
+  }
+
   async getDocumentSnapshot(_request: GetDocumentSnapshotRequest): Promise<GetDocumentSnapshotResponse> {
+    assertSupportedModelingRequest(_request)
+
     return {
       contractVersion: CONTRACT_VERSION,
-      snapshot: await this.getSnapshot(),
+      snapshot: structuredClone(await this.getSnapshot()),
     }
   }
 
   async createFeature(request: CreateFeatureRequest): Promise<CreateFeatureResponse> {
+    assertSupportedModelingRequest(request)
     const snapshot = await this.getSnapshot()
 
-    if (hasRevisionConflict(request.baseRevisionId)) {
-      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
-        revisionId: REVISION_ID,
+        revisionId: this.currentRevisionId,
         featureId: `feature_${getFeatureDefinitionLabel(request.definition)}-preview`,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
-          actualRevisionId: REVISION_ID,
+          actualRevisionId: this.currentRevisionId,
         },
         rebuildResult: createRebuildResult({
           kind: 'skipped',
@@ -1278,54 +1451,88 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
-    const diagnostics = [
-      {
-        code: 'mock-create-feature',
-        severity: 'info' as const,
-        message: 'Mock kernel accepted the feature create request without mutating committed state.',
-        target: getFeatureDefinitionChangedTargets(request.definition)[0] ?? null,
-        detail: null,
-      },
-    ]
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      const featureId = allocateFeatureId(mutableSnapshot, request.definition.kind)
+      const featureIndex = mutableSnapshot.features.filter((feature) => feature.definition.kind === request.definition.kind).length + 1
+      const changedTargets = getFeatureDefinitionChangedTargets(request.definition)
 
-    return {
-      contractVersion: CONTRACT_VERSION,
-      documentId: request.documentId,
-      revisionId: request.baseRevisionId,
-      featureId: `feature_${getFeatureDefinitionLabel(request.definition)}-preview`,
-      revisionState: {
-        kind: 'accepted',
-        baseRevisionId: request.baseRevisionId,
-      },
-      rebuildResult: createRebuildResult({
-        kind: 'rebuilt',
-        revisionId: request.baseRevisionId,
+      mutableSnapshot.features.push({
+        ownerDocumentId: DOCUMENT_ID,
+        ownerRevisionId: nextRevisionId,
+        ownerFeatureId: featureId,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        featureId,
+        label: `${request.definition.kind[0]!.toUpperCase()}${request.definition.kind.slice(1)} ${featureIndex}`,
+        definition: request.definition,
+        producedTargets: changedTargets,
+      })
+
+      mutableSnapshot.entities.push(entity({
+        ownerFeatureId: featureId,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        id: `snapshot_entity_${featureId}` as SnapshotEntityId,
+        label: `${request.definition.kind[0]!.toUpperCase()}${request.definition.kind.slice(1)} ${featureIndex}`,
+        target: { kind: 'feature', featureId },
+        relatedTargets: changedTargets,
+        consumedByFeatureIds: [],
+      }))
+
+      updateFeatureEntityRelationship(mutableSnapshot, featureId, changedTargets)
+      rebuildFeatureTree(mutableSnapshot)
+
+      const diagnostics = [
+        {
+          code: 'mock-create-feature',
+          severity: 'info' as const,
+          message: 'Mock kernel committed the feature create request into the current revision.',
+          target: changedTargets[0] ?? null,
+          detail: null,
+        },
+      ]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: nextRevisionId,
+        featureId,
+        revisionState: {
+          kind: 'accepted' as const,
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets,
         diagnostics,
-      }),
-      changedTargets: getFeatureDefinitionChangedTargets(request.definition),
-      diagnostics,
-    }
+      }
+    })
   }
 
   async commitSketch(request: CommitSketchRequest): Promise<CommitSketchResponse> {
-    const sketchId = request.sketchId ?? 'sketch_primary'
+    assertSupportedModelingRequest(request)
+    const snapshot = await this.getSnapshot()
+    const sketchId = request.sketchId ?? (`sketch_${snapshot.sketches.length + 1}` as SketchId)
     const solverCorrelation = getCommitSolverCorrelation(request)
     const referenceFrame = createSketchReferenceFrame({
       planeTarget: request.planeTarget,
       planeKey: request.planeKey,
     })
 
-    if (hasRevisionConflict(request.baseRevisionId)) {
-      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
-        revisionId: REVISION_ID,
+        revisionId: this.currentRevisionId,
         sketchId,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
-          actualRevisionId: REVISION_ID,
+          actualRevisionId: this.currentRevisionId,
         },
         rebuildResult: createRebuildResult({
           kind: 'skipped',
@@ -1388,62 +1595,198 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       definition: request.definition,
     })
 
-    const diagnostics = [
+    const commitDiagnostics = [
       ...projection.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
       ...validation.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
       ...solved.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
       ...regions.diagnostics.map((diagnostic) => mapSketchSolverDiagnostic(sketchId, diagnostic)),
-      {
-        code: 'mock-commit-sketch',
-        severity: 'info' as const,
-        message: 'Mock kernel accepted the sketch definition commit request without mutating the document.',
-        target: createSketchTarget(sketchId),
-        detail: null,
-      },
     ]
 
-    return {
-      contractVersion: CONTRACT_VERSION,
-      documentId: request.documentId,
-      revisionId: request.baseRevisionId,
-      sketchId,
-      revisionState: {
-        kind: 'accepted',
-        baseRevisionId: request.baseRevisionId,
-      },
-      rebuildResult: createRebuildResult({
-        kind: 'rebuilt',
-        revisionId: request.baseRevisionId,
-        diagnostics,
-      }),
-      changedTargets: [
-        createSketchTarget(sketchId),
-        ...solved.derivedRegions.map((region) => region.target),
-        ...request.definition.entities.map((entity) => entity.target),
-        ...request.definition.points.map((point) => point.target),
-      ],
-      diagnostics,
-    }
-  }
-
-  async updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse> {
-    const snapshot = await this.getSnapshot()
-
-    if (hasRevisionConflict(request.baseRevisionId)) {
-      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
+    if (!validation.isValid || solved.status === 'inconsistent') {
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
-        revisionId: REVISION_ID,
+        revisionId: this.currentRevisionId,
+        sketchId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-invalid-sketch',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics: commitDiagnostics,
+        }),
+        changedTargets: [],
+        diagnostics: commitDiagnostics,
+      }
+    }
+
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      const sketchRecord: SketchRecord = {
+        ownerDocumentId: DOCUMENT_ID,
+        ownerRevisionId: nextRevisionId,
+        ownerFeatureId: null,
+        ownerSketchId: sketchId,
+        ownerBodyId: null,
+        sketchId,
+        label: request.sketchLabel,
+        definition: request.definition,
+        solvedSnapshot: solved.solvedSnapshot,
+        regions: regions.regions.map((region) => ({ ...region, ownerRevisionId: nextRevisionId })),
+      }
+
+      const changedTargets = [
+        createSketchTarget(sketchId),
+        ...regions.regions.map((region) => ({ ...region.target, sketchId })),
+        ...request.definition.entities.map((entity) => ({ ...entity.target, sketchId })),
+        ...request.definition.points.map((point) => ({ ...point.target, sketchId })),
+      ]
+
+      const existingIndex = mutableSnapshot.sketches.findIndex((entry) => entry.sketchId === sketchId)
+      const snapshotSketch: DocumentSnapshot['sketches'][number] = {
+        ownerDocumentId: DOCUMENT_ID,
+        ownerRevisionId: nextRevisionId,
+        ownerFeatureId: null,
+        ownerSketchId: sketchId,
+        ownerBodyId: null,
+        sketchId,
+        label: request.sketchLabel,
+        planeTarget: request.planeTarget,
+        planeKey: request.planeKey,
+        sketch: sketchRecord,
+      }
+
+      if (existingIndex >= 0) {
+        mutableSnapshot.sketches[existingIndex] = snapshotSketch
+      } else {
+        mutableSnapshot.sketches.push(snapshotSketch)
+      }
+
+      mutableSnapshot.entities = mutableSnapshot.entities.filter((entry) => entry.ownerSketchId !== sketchId)
+      mutableSnapshot.entities.push(entity({
+        ownerFeatureId: null,
+        ownerSketchId: sketchId,
+        ownerBodyId: null,
+        id: `snapshot_entity_${sketchId}` as SnapshotEntityId,
+        label: request.sketchLabel,
+        target: { kind: 'sketch', sketchId },
+        relatedTargets: [request.planeTarget, ...sketchRecord.regions.map((region) => region.target)],
+        consumedByFeatureIds: [],
+      }))
+      mutableSnapshot.entities.push(...sketchRecord.regions.map((region, index) =>
+        entity({
+          ownerFeatureId: null,
+          ownerSketchId: sketchId,
+          ownerBodyId: null,
+          id: `snapshot_entity_${sketchId}_region_${index}` as SnapshotEntityId,
+          label: region.label,
+          target: region.target,
+          relatedTargets: [{ kind: 'sketch', sketchId }],
+          consumedByFeatureIds: [],
+        }),
+      ))
+      mutableSnapshot.entities.push(...request.definition.entities.map((entry, index) =>
+        entity({
+          ownerFeatureId: null,
+          ownerSketchId: sketchId,
+          ownerBodyId: null,
+          id: `snapshot_entity_${sketchId}_entity_${index}` as SnapshotEntityId,
+          label: entry.label,
+          target: { ...entry.target, sketchId },
+          relatedTargets: [{ kind: 'sketch', sketchId }],
+          consumedByFeatureIds: [],
+        }),
+      ))
+      mutableSnapshot.entities.push(...request.definition.points.map((point, index) =>
+        entity({
+          ownerFeatureId: null,
+          ownerSketchId: sketchId,
+          ownerBodyId: null,
+          id: `snapshot_entity_${sketchId}_point_${index}` as SnapshotEntityId,
+          label: point.label,
+          target: { ...point.target, sketchId },
+          relatedTargets: [{ kind: 'sketch', sketchId }],
+          consumedByFeatureIds: [],
+        }),
+      ))
+
+      rebuildFeatureTree(mutableSnapshot)
+
+      const diagnostics = [
+        ...commitDiagnostics,
+        {
+          code: 'mock-commit-sketch',
+          severity: 'info' as const,
+          message: 'Mock kernel committed the sketch definition into the current revision.',
+          target: createSketchTarget(sketchId),
+          detail: null,
+        },
+      ]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: nextRevisionId,
+        sketchId,
+        revisionState: {
+          kind: 'accepted' as const,
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets,
+        diagnostics,
+      }
+    })
+  }
+
+  async updateFeature(request: UpdateFeatureRequest): Promise<UpdateFeatureResponse> {
+    assertSupportedModelingRequest(request)
+    const snapshot = await this.getSnapshot()
+
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
         featureId: request.featureId,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
-          actualRevisionId: REVISION_ID,
+          actualRevisionId: this.currentRevisionId,
         },
         rebuildResult: createRebuildResult({
           kind: 'skipped',
           reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
+        changedTargets: [],
+        diagnostics,
+      }
+    }
+
+    const existingFeatureIndex = snapshot.features.findIndex((feature) => feature.featureId === request.featureId)
+    if (existingFeatureIndex < 0) {
+      const diagnostics = [createMissingFeatureDiagnostic(request.featureId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
+        featureId: request.featureId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-missing-feature',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
           diagnostics,
         }),
         changedTargets: [],
@@ -1474,39 +1817,67 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
-    const diagnostics: UpdateFeatureResponse['diagnostics'] = []
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      const mutableFeature = mutableSnapshot.features.find((feature) => feature.featureId === request.featureId)!
+      mutableFeature.definition = request.definition
+      mutableFeature.ownerRevisionId = nextRevisionId
+      mutableFeature.producedTargets = getFeatureDefinitionChangedTargets(request.definition)
+      mutableFeature.label = mutableFeature.label
 
-    return {
-      contractVersion: CONTRACT_VERSION,
-      documentId: request.documentId,
-      revisionId: request.baseRevisionId,
-      featureId: request.featureId,
-      revisionState: {
-        kind: 'accepted',
-        baseRevisionId: request.baseRevisionId,
-      },
-      rebuildResult: createRebuildResult({
-        kind: 'rebuilt',
-        revisionId: request.baseRevisionId,
-        diagnostics,
-      }),
-      changedTargets: getFeatureDefinitionChangedTargets(request.definition),
-      diagnostics,
-    }
-  }
+      const featureEntity = mutableSnapshot.entities.find(
+        (entry) => entry.target.kind === 'feature' && entry.target.featureId === request.featureId,
+      )
+      if (featureEntity) {
+        featureEntity.relatedTargets = mutableFeature.producedTargets
+      }
 
-  async deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse> {
-    if (hasRevisionConflict(request.baseRevisionId)) {
-      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
+      updateFeatureEntityRelationship(mutableSnapshot, request.featureId, mutableFeature.producedTargets)
+      rebuildFeatureTree(mutableSnapshot)
+
+      const diagnostics: UpdateFeatureResponse['diagnostics'] = [
+        {
+          code: 'mock-update-feature',
+          severity: 'info',
+          message: 'Mock kernel committed the feature update into the current revision.',
+          target: mutableFeature.producedTargets[0] ?? { kind: 'feature', featureId: request.featureId },
+          detail: null,
+        },
+      ]
+
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
-        revisionId: REVISION_ID,
+        revisionId: nextRevisionId,
+        featureId: request.featureId,
+        revisionState: {
+          kind: 'accepted',
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets: mutableFeature.producedTargets,
+        diagnostics,
+      }
+    })
+  }
+
+  async deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse> {
+    assertSupportedModelingRequest(request)
+    const snapshot = await this.getSnapshot()
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
         deletedFeatureId: request.featureId,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
-          actualRevisionId: REVISION_ID,
+          actualRevisionId: this.currentRevisionId,
         },
         rebuildResult: createRebuildResult({
           kind: 'skipped',
@@ -1518,40 +1889,84 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
-    const diagnostics: DeleteFeatureResponse['diagnostics'] = []
-
-    return {
-      contractVersion: CONTRACT_VERSION,
-      documentId: request.documentId,
-      revisionId: request.baseRevisionId,
-      deletedFeatureId: request.featureId,
-      revisionState: {
-        kind: 'accepted',
-        baseRevisionId: request.baseRevisionId,
-      },
-      rebuildResult: createRebuildResult({
-        kind: 'rebuilt',
-        revisionId: request.baseRevisionId,
-        diagnostics,
-      }),
-      changedTargets: [{ kind: 'feature', featureId: request.featureId }],
-      diagnostics,
-    }
-  }
-
-  async reorderFeature(request: ReorderFeatureRequest): Promise<ReorderFeatureResponse> {
-    if (hasRevisionConflict(request.baseRevisionId)) {
-      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId)]
+    const existingFeature = snapshot.features.find((feature) => feature.featureId === request.featureId)
+    if (!existingFeature) {
+      const diagnostics = [createMissingFeatureDiagnostic(request.featureId)]
       return {
         contractVersion: CONTRACT_VERSION,
         documentId: request.documentId,
-        revisionId: REVISION_ID,
+        revisionId: this.currentRevisionId,
+        deletedFeatureId: request.featureId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-missing-feature',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics,
+        }),
+        changedTargets: [],
+        diagnostics,
+      }
+    }
+
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      mutableSnapshot.features = mutableSnapshot.features.filter((feature) => feature.featureId !== request.featureId)
+      mutableSnapshot.entities = mutableSnapshot.entities.filter(
+        (entry) => !(entry.target.kind === 'feature' && entry.target.featureId === request.featureId),
+      )
+      for (const entityRecord of mutableSnapshot.entities) {
+        entityRecord.consumedByFeatureIds = entityRecord.consumedByFeatureIds.filter((featureId) => featureId !== request.featureId)
+      }
+      rebuildFeatureTree(mutableSnapshot)
+
+      const diagnostics: DeleteFeatureResponse['diagnostics'] = [
+        {
+          code: 'mock-delete-feature',
+          severity: 'info',
+          message: 'Mock kernel committed the feature deletion into the current revision.',
+          target: { kind: 'feature', featureId: request.featureId },
+          detail: null,
+        },
+      ]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: nextRevisionId,
+        deletedFeatureId: request.featureId,
+        revisionState: {
+          kind: 'accepted',
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets: [{ kind: 'feature', featureId: request.featureId }],
+        diagnostics,
+      }
+    })
+  }
+
+  async reorderFeature(request: ReorderFeatureRequest): Promise<ReorderFeatureResponse> {
+    assertSupportedModelingRequest(request)
+    const snapshot = await this.getSnapshot()
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
         featureId: request.featureId,
         beforeFeatureId: request.beforeFeatureId,
         revisionState: {
           kind: 'conflict',
           expectedRevisionId: request.baseRevisionId,
-          actualRevisionId: REVISION_ID,
+          actualRevisionId: this.currentRevisionId,
         },
         rebuildResult: createRebuildResult({
           kind: 'skipped',
@@ -1563,42 +1978,107 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       }
     }
 
-    const diagnostics: ReorderFeatureResponse['diagnostics'] = []
-
-    return {
-      contractVersion: CONTRACT_VERSION,
-      documentId: request.documentId,
-      revisionId: request.baseRevisionId,
-      featureId: request.featureId,
-      beforeFeatureId: request.beforeFeatureId,
-      revisionState: {
-        kind: 'accepted',
-        baseRevisionId: request.baseRevisionId,
-      },
-      rebuildResult: createRebuildResult({
-        kind: 'rebuilt',
-        revisionId: request.baseRevisionId,
+    if (!snapshot.features.some((feature) => feature.featureId === request.featureId)) {
+      const diagnostics = [createMissingFeatureDiagnostic(request.featureId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
+        featureId: request.featureId,
+        beforeFeatureId: request.beforeFeatureId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-missing-feature',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics,
+        }),
+        changedTargets: [],
         diagnostics,
-      }),
-      changedTargets: [{ kind: 'feature', featureId: request.featureId }],
-      diagnostics,
+      }
     }
+
+    if (request.beforeFeatureId !== null && !snapshot.features.some((feature) => feature.featureId === request.beforeFeatureId)) {
+      const diagnostics = [createMissingFeatureAnchorDiagnostic(request.beforeFeatureId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
+        featureId: request.featureId,
+        beforeFeatureId: request.beforeFeatureId,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-missing-reorder-anchor',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics,
+        }),
+        changedTargets: [],
+        diagnostics,
+      }
+    }
+
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      const fromIndex = mutableSnapshot.features.findIndex((feature) => feature.featureId === request.featureId)
+      const [moved] = mutableSnapshot.features.splice(fromIndex, 1)
+      const targetIndex = request.beforeFeatureId === null
+        ? mutableSnapshot.features.length
+        : mutableSnapshot.features.findIndex((feature) => feature.featureId === request.beforeFeatureId)
+      mutableSnapshot.features.splice(targetIndex, 0, moved!)
+      rebuildFeatureTree(mutableSnapshot)
+
+      const diagnostics: ReorderFeatureResponse['diagnostics'] = [
+        {
+          code: 'mock-reorder-feature',
+          severity: 'info',
+          message: 'Mock kernel committed the feature reorder into the current revision.',
+          target: { kind: 'feature', featureId: request.featureId },
+          detail: null,
+        },
+      ]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: nextRevisionId,
+        featureId: request.featureId,
+        beforeFeatureId: request.beforeFeatureId,
+        revisionState: {
+          kind: 'accepted',
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets: [{ kind: 'feature', featureId: request.featureId }],
+        diagnostics,
+      }
+    })
   }
 
   async evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse> {
+    assertSupportedModelingRequest(request)
     const snapshot = await this.getSnapshot()
     const validation = validateFeatureDefinitionAgainstSnapshot(request.definition, snapshot)
     return {
       contractVersion: CONTRACT_VERSION,
       documentId: request.documentId,
-      revisionId: request.baseRevisionId,
+      revisionId: request.baseRevisionId === this.currentRevisionId ? request.baseRevisionId : this.currentRevisionId,
       previewId: request.previewId,
-      freshness: request.baseRevisionId === REVISION_ID
+      freshness: request.baseRevisionId === this.currentRevisionId
         ? { kind: 'fresh', baseRevisionId: request.baseRevisionId }
         : {
             kind: 'stale',
             requestedRevisionId: request.baseRevisionId,
-            currentRevisionId: CURRENT_REVISION_ID,
+            currentRevisionId: this.currentRevisionId,
           },
       render: {
         schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
@@ -1609,6 +2089,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
   }
 
   async resolveReference(request: ResolveReferenceRequest): Promise<ResolveReferenceResponse> {
+    assertSupportedModelingRequest(request)
     const snapshot = await this.getSnapshot()
     const entityRecord = snapshot.entities.find((entry) => getPrimitiveRefKey(entry.target) === getPrimitiveRefKey(request.target))
 
@@ -1618,13 +2099,40 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         label: entityRecord?.label ?? 'Resolved target',
         target: request.target,
         ownerDocumentId: DOCUMENT_ID,
-        ownerRevisionId: REVISION_ID,
+        ownerRevisionId: this.currentRevisionId,
         ownerFeatureId: entityRecord?.ownerFeatureId ?? null,
         ownerSketchId: entityRecord?.ownerSketchId ?? null,
         ownerBodyId: entityRecord?.ownerBodyId ?? null,
-        invalidation: null,
+        invalidation: entityRecord
+          ? null
+          : {
+              reason: 'mock-missing-reference',
+              target: request.target,
+              ownerFeatureId: null,
+              ownerSketchId: null,
+              sourceTarget: null,
+            },
       },
-      diagnostics: [],
+      diagnostics: entityRecord
+        ? []
+        : [
+            {
+              code: 'mock-invalid-reference',
+              severity: 'error',
+              message: 'Requested durable reference does not resolve in the current snapshot.',
+              target: request.target,
+              detail: {
+                kind: 'invalidReference',
+                reference: {
+                  reason: 'mock-missing-reference',
+                  target: request.target,
+                  ownerFeatureId: null,
+                  ownerSketchId: null,
+                  sourceTarget: null,
+                },
+              },
+            },
+          ],
     }
   }
 }

@@ -125,6 +125,7 @@ async function testMutationResponsesReportRebuildResults() {
     contractVersion: 'modeling-contract/v1alpha1',
     documentId: 'doc_workspace',
   })
+  const initialRevisionId = snapshot.snapshot.revisionId
   const extrude = snapshot.snapshot.features.find(
     (feature) => feature.featureId === 'feature_extrude-1' && feature.definition.kind === 'extrude',
   )
@@ -149,8 +150,8 @@ async function testMutationResponsesReportRebuildResults() {
 
   assert(accepted.rebuildResult.kind === 'rebuilt', 'Accepted feature creates must report a rebuilt result.')
   assert(
-    accepted.rebuildResult.revisionId === 'rev_0001',
-    'Accepted feature creates must report the rebuild revision ID.',
+    accepted.rebuildResult.revisionId === accepted.revisionId && accepted.revisionId !== initialRevisionId,
+    'Accepted feature creates must report the new rebuild revision ID.',
   )
 
   const conflict = await adapter.deleteFeature({
@@ -164,6 +165,213 @@ async function testMutationResponsesReportRebuildResults() {
     conflict.rebuildResult.kind === 'skipped' && conflict.rebuildResult.reasonCode === 'revisionConflict',
     'Revision conflicts must report a skipped rebuild result.',
   )
+}
+
+async function testAcceptedCreateMutatesCommittedSnapshot() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const beforeRevisionId = before.snapshot.revisionId
+  const seedExtrude = before.snapshot.features.find(
+    (feature) => feature.featureId === 'feature_extrude-1' && feature.definition.kind === 'extrude',
+  )
+
+  if (!seedExtrude || seedExtrude.definition.kind !== 'extrude') {
+    throw new Error('Seed extrude feature must exist for create-mutation coverage.')
+  }
+
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: {
+      kind: 'extrude',
+      featureTypeVersion: 'feature-type/v1alpha1',
+      parameters: {
+        ...seedExtrude.definition.parameters,
+        depth: 16,
+      },
+    },
+  })
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Accepted creates must report accepted revision state.')
+  assert(created.revisionId === after.snapshot.revisionId, 'Accepted creates must advance the committed snapshot revision.')
+  assert(after.snapshot.revisionId !== beforeRevisionId, 'Accepted creates must change the committed revision basis.')
+  assert(
+    after.snapshot.features.some((feature) => feature.featureId === created.featureId),
+    'Accepted creates must appear in subsequent committed snapshots.',
+  )
+}
+
+async function testAcceptedSketchCommitMutatesCommittedSnapshot() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const beforeRevisionId = before.snapshot.revisionId
+  const sourceSketch = before.snapshot.sketches[0]
+
+  if (!sourceSketch) {
+    throw new Error('Seed sketch must exist for sketch commit coverage.')
+  }
+
+  const committed = await adapter.commitSketch({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    solverCorrelation: {
+      requestId: 'request_commit_1',
+      projectionRequestId: 'request_commit_1:project',
+      validationRequestId: 'request_commit_1:validate',
+      solveRequestId: 'request_commit_1:solve',
+      regionRequestId: 'request_commit_1:regions',
+    },
+    sketchId: 'sketch_phase8',
+    sketchLabel: 'Phase 8 Sketch',
+    planeTarget: sourceSketch.planeTarget,
+    planeKey: sourceSketch.planeKey,
+    definition: sourceSketch.sketch.definition,
+  })
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  assert(committed.revisionState.kind === 'accepted', 'Accepted sketch commits must report accepted revision state.')
+  assert(after.snapshot.revisionId === committed.revisionId, 'Committed sketch revisions must match the observed snapshot revision.')
+  assert(after.snapshot.revisionId !== beforeRevisionId, 'Accepted sketch commits must change the committed revision basis.')
+  assert(
+    after.snapshot.sketches.some((sketch) => sketch.sketchId === committed.sketchId),
+    'Accepted sketch commits must appear in subsequent committed snapshots.',
+  )
+}
+
+async function testMissingMutationTargetsAreRejected() {
+  const adapter = new MockKernelAdapter()
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const missingUpdate = await adapter.updateFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: snapshot.snapshot.revisionId,
+    featureId: 'feature_missing',
+    definition: {
+      kind: 'plane',
+      featureTypeVersion: 'feature-type/v1alpha1',
+      parameters: {
+        mode: 'coplanar',
+        reference: {
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        },
+      },
+    },
+  })
+
+  const missingDelete = await adapter.deleteFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: snapshot.snapshot.revisionId,
+    featureId: 'feature_missing',
+  })
+
+  const missingReorder = await adapter.reorderFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: snapshot.snapshot.revisionId,
+    featureId: 'feature_extrude-1',
+    beforeFeatureId: 'feature_missing',
+  })
+
+  assert(missingUpdate.revisionState.kind === 'rejected', 'Updates targeting missing features must be rejected.')
+  assert(missingDelete.revisionState.kind === 'rejected', 'Deletes targeting missing features must be rejected.')
+  assert(missingReorder.revisionState.kind === 'rejected', 'Reorders targeting missing anchors must be rejected.')
+}
+
+async function testPreviewStalenessReportsObservedRevision() {
+  const adapter = new MockKernelAdapter()
+
+  const stalePreview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: 'rev_stale',
+    previewId: 'preview_stale_1',
+    definition: {
+      kind: 'plane',
+      featureTypeVersion: 'feature-type/v1alpha1',
+      parameters: {
+        mode: 'coplanar',
+        reference: {
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        },
+      },
+    },
+  })
+
+  assert(stalePreview.freshness.kind === 'stale', 'Stale previews must report stale freshness explicitly.')
+  assert(
+    stalePreview.freshness.currentRevisionId === stalePreview.revisionId,
+    'Stale preview freshness must report the same observed current revision as the response revision.',
+  )
+}
+
+async function testResolveReferenceReportsMissingTargetsExplicitly() {
+  const adapter = new MockKernelAdapter()
+
+  const resolution = await adapter.resolveReference({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    target: { kind: 'face', bodyId: 'body_part-1', faceId: 'face_missing' },
+  })
+
+  assert(
+    resolution.resolution.invalidation?.reason === 'mock-missing-reference',
+    'Missing durable references must carry explicit invalidation payloads.',
+  )
+  assert(
+    resolution.diagnostics.some((diagnostic) => diagnostic.code === 'mock-invalid-reference'),
+    'Missing durable references must emit machine-readable diagnostics.',
+  )
+}
+
+async function testMockKernelRejectsUnsupportedContractEnvelope() {
+  const adapter = new MockKernelAdapter()
+  let contractRejected = false
+
+  try {
+    await adapter.getDocumentSnapshot({
+      contractVersion: 'modeling-contract/v0' as never,
+      documentId: 'doc_workspace',
+    })
+  } catch (error) {
+    contractRejected = error instanceof Error && error.message.includes('Unsupported contract version')
+  }
+
+  assert(contractRejected, 'Mock kernel must reject unsupported contract versions.')
+
+  let documentRejected = false
+
+  try {
+    await adapter.getDocumentSnapshot({
+      contractVersion: 'modeling-contract/v1alpha1',
+      documentId: 'doc_other' as never,
+    })
+  } catch (error) {
+    documentRejected = error instanceof Error && error.message.includes('Unsupported document')
+  }
+
+  assert(documentRejected, 'Mock kernel must reject unsupported document IDs.')
 }
 
 async function testSnapshotRenderablesExposeSemanticBindings() {
@@ -354,6 +562,12 @@ function testRenderValidatorRejectsInvalidGeometry() {
 await testExtrudePreviewDependsOnDefinition()
 await testUnsupportedFeatureDefinitionsAreRejectedByMock()
 await testMutationResponsesReportRebuildResults()
+await testAcceptedCreateMutatesCommittedSnapshot()
+await testAcceptedSketchCommitMutatesCommittedSnapshot()
+await testMissingMutationTargetsAreRejected()
+await testPreviewStalenessReportsObservedRevision()
+await testResolveReferenceReportsMissingTargetsExplicitly()
+await testMockKernelRejectsUnsupportedContractEnvelope()
 await testSnapshotRenderablesExposeSemanticBindings()
 testResolvePickTargetUsesKernelPriority()
 testRenderValidatorRejectsInvalidGeometry()
