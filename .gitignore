@@ -10,7 +10,9 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+build
 *.local
+.env*
 
 # Editor directories and files
 .vscode/*
@@ -26,3 +28,5 @@ node_modules
 .codex
 .playwright-cli/
 .playwright/
+playwright-report/
+test-results/

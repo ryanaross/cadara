@@ -2034,6 +2034,7 @@ function normalizeConstructions(value: unknown): ConstructionSnapshotRecord[] {
       constructionId: entry.constructionId as ConstructionSnapshotRecord['constructionId'],
       label: entry.label,
       constructionType: entry.constructionType,
+      plane: normalizeSketchPlaneDefinition(entry.plane),
       target: assertDurableRef(entry.target),
     }
   })

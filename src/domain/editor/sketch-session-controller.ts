@@ -1,6 +1,7 @@
 import type { PrimitiveRef, RevisionId } from '@/domain/editor/schema'
 import {
   createNewSketchSession,
+  createNewSketchSessionFromSupport,
   createSketchSessionFromSnapshot,
   getSketchSessionDisplayRenderables,
   type SketchSessionDisplayRenderable,
@@ -29,7 +30,15 @@ export function openSketchSessionFromSelection(
   }
 
   if (primary.kind === 'construction') {
-    return createNewSketchSession(primary)
+    const construction = snapshot?.document.constructions.find(
+      (entry) => entry.constructionId === primary.constructionId,
+    )
+
+    if (construction) {
+      return createNewSketchSession(construction.plane)
+    }
+
+    return createNewSketchSessionFromSupport(primary)
   }
 
   return null

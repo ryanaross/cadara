@@ -649,6 +649,7 @@ function executePlaneFeature(
     constructionId,
     label: ownerFeatureId,
     constructionType: 'plane',
+    plane,
     target: { kind: 'construction', constructionId },
   } satisfies ConstructionSnapshotRecord
 

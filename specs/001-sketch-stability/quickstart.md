@@ -25,12 +25,31 @@ Use `playwright-cli eval` and `playwright-cli screenshot` to confirm that sketch
 
 Add a dedicated Playwright regression test for this feature so plane selection and sketch preview stability are checked by automation, not only by ad hoc CLI inspection.
 
+Automated Playwright specs now live in:
+
+- `e2e/sketch-plane-selection.spec.ts`
+- `e2e/sketch-preview-stability.spec.ts`
+- `e2e/sketch-entry-parity.spec.ts`
+
+Before running them locally for the first time, install browser binaries:
+
+```bash
+bun x playwright install chromium
+```
+
+Then run:
+
+```bash
+bun run test:e2e
+```
+
 ## Targeted Tests
 
 Run the targeted specs that cover the edited surface:
 
 ```bash
 bun run test:editor-state-machine
-bun x vite-node src/domain/modeling/mock-kernel-adapter.spec.ts
-bun x vite-node src/domain/modeling/occ/snapshot.spec.ts
+bun run test:mock-kernel-contract
+bun run test:occ-phase2
+bun run test:occ-phase6
 ```

@@ -20,6 +20,7 @@ import {
 } from '@/contracts/shared/versioning'
 import { createSketchSessionFromSnapshot, mapSketchPointToWorld } from '@/domain/editor/sketch-session'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
+import { createStandardPlaneDefinition } from '@/domain/modeling/opencascade-kernel-seed'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -81,6 +82,7 @@ function createSnapshot(): DocumentSnapshot {
         constructionId: 'construction_plane-xy' as ConstructionId,
         label: 'Top Plane',
         constructionType: 'plane',
+        plane: createStandardPlaneDefinition('xy'),
         target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
       },
     ],
@@ -132,6 +134,7 @@ function createSnapshot(): DocumentSnapshot {
           constructionId: 'construction_plane-xy' as ConstructionId,
           label: 'Top Plane',
           constructionType: 'plane',
+          plane: createStandardPlaneDefinition('xy'),
           target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
         },
       ],

@@ -25,6 +25,10 @@ import type {
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import { mapSketchPointToWorld as mapSketchPointToWorldFromPlane } from '@/domain/modeling/occ/planes'
+import {
+  createStandardPlaneDefinition,
+  deriveStandardPlaneKeyFromConstructionId,
+} from '@/domain/modeling/opencascade-kernel-seed'
 
 export type SketchToolId = 'line' | 'rectangle' | 'circle'
 
@@ -53,7 +57,7 @@ export interface SketchSessionState {
   sketchLabel: string
   plane: SketchPlaneDefinition
   planeTarget: SketchPlaneSupportRef
-  planeKey: SketchPlaneKey
+  planeKey: SketchPlaneKey | null
   entities: SketchDraftEntity[]
   definition: SketchDefinition
   activeTool: SketchToolId | null
@@ -72,20 +76,12 @@ export interface SketchSessionDisplayRenderable {
   geometry: RenderableEntityRecord['geometry']
 }
 
-export function derivePlaneKeyFromTarget(target: SketchPlaneSupportRef): SketchPlaneKey {
+export function derivePlaneKeyFromTarget(target: SketchPlaneSupportRef): SketchPlaneKey | null {
   if (target.kind !== 'construction') {
-    return 'xy'
+    return null
   }
 
-  if (target.constructionId.endsWith('plane-yz')) {
-    return 'yz'
-  }
-
-  if (target.constructionId.endsWith('plane-xz')) {
-    return 'xz'
-  }
-
-  return 'xy'
+  return deriveStandardPlaneKeyFromConstructionId(target.constructionId)
 }
 
 function createPointId(sequence: number, suffix: string): SketchPointId {
@@ -206,14 +202,14 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
   }
 }
 
-export function createNewSketchSession(planeTarget: SketchPlaneSupportRef): SketchSessionState {
-  const planeKey = derivePlaneKeyFromTarget(planeTarget)
+export function createNewSketchSession(plane: SketchPlaneDefinition): SketchSessionState {
+  const planeKey = plane.key
 
   return {
     sketchId: null,
     sketchLabel: 'Sketch Draft',
-    plane: createPlaneDefinition(planeTarget, planeKey),
-    planeTarget,
+    plane,
+    planeTarget: plane.support,
     planeKey,
     entities: [],
     definition: createEmptyDefinition(),
@@ -319,7 +315,7 @@ function buildCommitRequest(input: {
   sketchLabel: string
   plane: SketchPlaneDefinition
   planeTarget: CommitSketchRequest['planeTarget']
-  planeKey: SketchPlaneKey
+  planeKey: SketchPlaneKey | null
   definition: SketchDefinition
 }): SketchSessionState['commitRequest'] {
   return {
@@ -333,52 +329,18 @@ function buildCommitRequest(input: {
   }
 }
 
-function createPlaneDefinition(
-  planeTarget: SketchPlaneSupportRef,
-  planeKey: SketchPlaneKey,
-): SketchPlaneDefinition {
-  switch (planeKey) {
-    case 'yz':
-      return {
-        support: planeTarget,
-        frame: {
-          origin: [0, 0, 0],
-          xAxis: [0, 1, 0],
-          yAxis: [0, 0, 1],
-          normal: [1, 0, 0],
-          linearUnit: 'documentLength',
-          handedness: 'rightHanded',
-        },
-        key: planeKey,
-      }
-    case 'xz':
-      return {
-        support: planeTarget,
-        frame: {
-          origin: [0, 0, 0],
-          xAxis: [1, 0, 0],
-          yAxis: [0, 0, 1],
-          normal: [0, -1, 0],
-          linearUnit: 'documentLength',
-          handedness: 'rightHanded',
-        },
-        key: planeKey,
-      }
-    case 'xy':
-    default:
-      return {
-        support: planeTarget,
-        frame: {
-          origin: [0, 0, 0],
-          xAxis: [1, 0, 0],
-          yAxis: [0, 1, 0],
-          normal: [0, 0, 1],
-          linearUnit: 'documentLength',
-          handedness: 'rightHanded',
-        },
-        key: planeKey,
-      }
-  }
+export function createNewSketchSessionFromSupport(planeTarget: SketchPlaneSupportRef): SketchSessionState {
+  const planeKey = derivePlaneKeyFromTarget(planeTarget)
+  const plane =
+    planeTarget.kind === 'construction' && planeKey
+      ? createStandardPlaneDefinition(planeKey)
+      : {
+          support: planeTarget,
+          frame: createStandardPlaneDefinition('xy').frame,
+          key: planeKey,
+        }
+
+  return createNewSketchSession(plane)
 }
 
 function createPointDefinition(

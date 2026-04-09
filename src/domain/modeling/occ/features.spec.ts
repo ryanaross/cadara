@@ -74,6 +74,13 @@ function entityId(name: string) {
 }
 
 function createConstructionSnapshot(constructionId: ConstructionId, ownerFeatureId: FeatureId | null = null): ConstructionSnapshotRecord {
+  const standardKey =
+    constructionId === 'construction_plane-xy'
+      ? 'xy'
+      : constructionId === 'construction_plane-yz'
+        ? 'yz'
+        : 'xz'
+
   return {
     ownerDocumentId: OCC_KERNEL_DOCUMENT_ID,
     ownerRevisionId: OCC_KERNEL_INITIAL_REVISION_ID,
@@ -83,6 +90,7 @@ function createConstructionSnapshot(constructionId: ConstructionId, ownerFeature
     constructionId,
     label: constructionId,
     constructionType: 'plane',
+    plane: createStandardPlaneDefinition(standardKey),
     target: { kind: 'construction', constructionId },
   }
 }

@@ -78,6 +78,24 @@ function createPlaneFrame(key: SketchPlaneKey) {
   }
 }
 
+export function deriveStandardPlaneKeyFromConstructionId(
+  constructionId: ConstructionId,
+): SketchPlaneKey | null {
+  if (constructionId === OCC_KERNEL_CONSTRUCTION_IDS.xy) {
+    return 'xy'
+  }
+
+  if (constructionId === OCC_KERNEL_CONSTRUCTION_IDS.yz) {
+    return 'yz'
+  }
+
+  if (constructionId === OCC_KERNEL_CONSTRUCTION_IDS.xz) {
+    return 'xz'
+  }
+
+  return null
+}
+
 export function createStandardPlaneDefinition(
   planeKey: SketchPlaneKey,
 ): SketchPlaneDefinition {

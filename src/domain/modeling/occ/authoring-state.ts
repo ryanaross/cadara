@@ -66,6 +66,7 @@ function createStandardConstructionState(
         constructionId: support.constructionId,
         label: support.constructionId,
         constructionType: 'plane' as const,
+        plane,
         target: { kind: 'construction' as const, constructionId: support.constructionId },
       }
     }),

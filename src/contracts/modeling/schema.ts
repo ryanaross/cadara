@@ -589,6 +589,8 @@ export interface ConstructionSnapshotRecord extends SnapshotOwnershipRecord {
   label: string
   /** Construction subtype for this schema version. */
   constructionType: 'plane'
+  /** Explicit plane definition exported for construction-plane selection and sketch session entry. */
+  plane: SketchPlaneDefinition
   /** Durable target represented by this construction snapshot. */
   target: PrimitiveRef
 }

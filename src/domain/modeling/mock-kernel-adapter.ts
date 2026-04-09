@@ -54,6 +54,7 @@ import {
   MockSketchSolverAdapter,
   evaluateMockSketchDefinition,
 } from '@/domain/solver/mock-sketch-solver-adapter'
+import { createStandardPlaneDefinition } from '@/domain/modeling/opencascade-kernel-seed'
 
 const CONTRACT_VERSION = 'modeling-contract/v1alpha1' as const
 const REVISION_ID = 'rev_0001' as const
@@ -66,7 +67,7 @@ function createConstructionPlaneRenderRecords(): RenderableEntityRecord[] {
     {
       id: 'xy' as const,
       label: 'Top Plane',
-      target: { kind: 'construction', constructionId: 'construction_plane-xy' as ConstructionId },
+      target: { kind: 'construction' as const, constructionId: 'construction_plane-xy' as ConstructionId },
       vertices: [
         [-8, -8, 0],
         [8, -8, 0],
@@ -84,7 +85,7 @@ function createConstructionPlaneRenderRecords(): RenderableEntityRecord[] {
     {
       id: 'yz' as const,
       label: 'Right Plane',
-      target: { kind: 'construction', constructionId: 'construction_plane-yz' as ConstructionId },
+      target: { kind: 'construction' as const, constructionId: 'construction_plane-yz' as ConstructionId },
       vertices: [
         [0, -8, -8],
         [0, 8, -8],
@@ -102,7 +103,7 @@ function createConstructionPlaneRenderRecords(): RenderableEntityRecord[] {
     {
       id: 'xz' as const,
       label: 'Front Plane',
-      target: { kind: 'construction', constructionId: 'construction_plane-xz' as ConstructionId },
+      target: { kind: 'construction' as const, constructionId: 'construction_plane-xz' as ConstructionId },
       vertices: [
         [-8, 0, -8],
         [8, 0, -8],
@@ -1276,6 +1277,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         constructionId: 'construction_plane-xy',
         label: 'Top Plane',
         constructionType: 'plane',
+        plane: createStandardPlaneDefinition('xy'),
         target: { kind: 'construction', constructionId: 'construction_plane-xy' },
       },
       {
@@ -1287,6 +1289,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         constructionId: 'construction_plane-yz',
         label: 'Right Plane',
         constructionType: 'plane',
+        plane: createStandardPlaneDefinition('yz'),
         target: { kind: 'construction', constructionId: 'construction_plane-yz' },
       },
       {
@@ -1298,6 +1301,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         constructionId: 'construction_plane-xz',
         label: 'Front Plane',
         constructionType: 'plane',
+        plane: createStandardPlaneDefinition('xz'),
         target: { kind: 'construction', constructionId: 'construction_plane-xz' },
       },
     ],

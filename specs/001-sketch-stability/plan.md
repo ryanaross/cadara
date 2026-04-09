@@ -127,3 +127,9 @@ Planned contract and implementation updates:
 ## Complexity Tracking
 
 No constitution violations require justification.
+
+## Implementation Diagnostics
+
+- Added explicit Playwright test entry points and a reusable browser harness, but local `bun run test:e2e` currently requires `bun x playwright install chromium` because the Chromium binary is not present in this environment.
+- Construction snapshots now carry explicit `plane: SketchPlaneDefinition` data so sketch-session entry can reuse durable snapshot-owned plane definitions instead of reconstructing them from UI-only conventions.
+- The editor/runtime path now opens new sketch sessions from construction snapshot plane definitions while preserving existing sketch reopen behavior.

@@ -8,6 +8,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:sketch-stability": "bun run test:editor-state-machine && bun run test:mock-kernel-contract && bun run test:occ-phase2 && bun run test:occ-phase6 && bun run test:e2e",
     "test:editor-state-machine": "bun x vite-node src/contracts/editor/state-machine.spec.ts",
     "test:solver-contract": "bun x vite-node src/contracts/solver/solver-contract.spec.ts",
     "test:mock-kernel-contract": "bun x vite-node src/domain/modeling/mock-kernel-adapter.spec.ts",
@@ -39,6 +42,7 @@
     "three": "^0.183.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@eslint/js": "^9.39.4",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^24.12.2",
@@ -54,6 +58,7 @@
     "tsx": "^4.21.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.0",
+    "vite-node": "^3.2.4",
     "vite": "^8.0.4"
   }
 }

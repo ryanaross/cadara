@@ -441,6 +441,16 @@ async function testConstructionPlanesExposeFilledRenderSurfaces() {
     constructionMeshTargets.some((target) => target.kind === 'construction' && target.constructionId === 'construction_plane-xz'),
     'The XZ construction plane should expose a filled mesh render record.',
   )
+
+  const yzPlane = snapshot.snapshot.constructions.find(
+    (construction) => construction.constructionId === 'construction_plane-yz',
+  )?.plane
+
+  assert(yzPlane?.frame.normal[0] === 1, 'Construction snapshots should expose explicit plane definitions for sketch entry.')
+  assert(
+    yzPlane?.key === 'yz',
+    'Construction snapshot plane definitions should preserve their primary-plane key when available.',
+  )
 }
 
 function testResolvePickTargetUsesKernelPriority() {

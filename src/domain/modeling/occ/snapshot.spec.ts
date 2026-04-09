@@ -251,6 +251,13 @@ function createRectangleSketch(
 }
 
 function createConstructionSnapshot(constructionId: ConstructionSnapshotRecord['constructionId']): ConstructionSnapshotRecord {
+  const standardKey =
+    constructionId === 'construction_plane-xy'
+      ? 'xy'
+      : constructionId === 'construction_plane-yz'
+        ? 'yz'
+        : 'xz'
+
   return {
     ownerDocumentId: OCC_KERNEL_DOCUMENT_ID,
     ownerRevisionId: OCC_KERNEL_INITIAL_REVISION_ID,
@@ -260,6 +267,7 @@ function createConstructionSnapshot(constructionId: ConstructionSnapshotRecord['
     constructionId,
     label: constructionId,
     constructionType: 'plane',
+    plane: createStandardPlaneDefinition(standardKey),
     target: { kind: 'construction', constructionId },
   }
 }
@@ -424,6 +432,14 @@ async function testWorkspaceSnapshotBuildsContractValidRenderExport() {
       && record.geometry.kind === 'mesh',
     ),
     'Phase 6 render export must expose filled construction-plane surfaces for viewport picking.',
+  )
+  const yzConstruction = normalized.document.constructions.find(
+    (construction) => construction.constructionId === 'construction_plane-yz',
+  )
+  assert(yzConstruction, 'Phase 6 snapshot must include the standard YZ construction plane.')
+  assert(
+    yzConstruction.plane.key === 'yz' && yzConstruction.plane.frame.normal[0] === 1,
+    'Construction snapshots must carry explicit plane definitions for non-XY sketch entry.',
   )
   assert(
     normalized.document.render.records.some((record) =>

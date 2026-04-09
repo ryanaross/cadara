@@ -1070,13 +1070,9 @@ function emitSketchCommit(state: SketchEditorState): EditorTransitionResult {
 }
 
 function deriveSketchPointFromWorld(
-  planeKey: SketchSessionState['planeKey'],
+  _plane: SketchSessionState['plane'],
   point: readonly [number, number],
 ) {
-  if (planeKey === 'yz' || planeKey === 'xz' || planeKey === 'xy') {
-    return point
-  }
-
   return point
 }
 
@@ -1442,7 +1438,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       {
         const session = updateSketchPointer(
           state.session,
-          deriveSketchPointFromWorld(state.session.planeKey, event.point),
+          deriveSketchPointFromWorld(state.session.plane, event.point),
         )
 
         return {
@@ -1471,7 +1467,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       }
 
       {
-        const point = deriveSketchPointFromWorld(state.session.planeKey, event.point)
+        const point = deriveSketchPointFromWorld(state.session.plane, event.point)
         const session =
           state.session.status === 'drawing'
             ? acceptSketchDraw(state.session, point)
