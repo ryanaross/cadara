@@ -228,7 +228,7 @@ function collectTopologyHistoryInvalidations(
       return
     }
 
-    let reason = OCC_REFERENCE_INVALIDATION_REASONS.missing
+    let reason: OccReferenceInvalidationRecord['reason'] = OCC_REFERENCE_INVALIDATION_REASONS.missing
 
     if (historySource.IsDeleted(shape)) {
       reason = OCC_REFERENCE_INVALIDATION_REASONS.topologyDeleted

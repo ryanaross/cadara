@@ -49,6 +49,7 @@ import {
   type OccAuthoringState,
 } from '@/domain/modeling/occ/authoring-state'
 import { extractPlanarFaceData } from '@/domain/modeling/occ/planes'
+import { OCC_CONTRACT_GAP_CODES } from '@/domain/modeling/occ/implementation-policy'
 import { getOpenCascadeInstance, type OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
 import { buildOccWorkspaceSnapshot } from '@/domain/modeling/occ/snapshot'
 import {
@@ -61,7 +62,6 @@ import {
   OCC_KERNEL_PRIMARY_SKETCH_ID,
   OCC_KERNEL_SETTINGS,
 } from '@/domain/modeling/opencascade-kernel-seed'
-import { MockSketchSolverAdapter } from '@/domain/solver/mock-sketch-solver-adapter'
 
 interface OpenCascadeKernelAdapterOptions {
   solverAdapter: SketchSolverAdapter
@@ -88,6 +88,7 @@ const OCC_MISSING_FEATURE_CODE = 'occ-missing-feature'
 const OCC_MISSING_REORDER_ANCHOR_CODE = 'occ-missing-reorder-anchor'
 const OCC_REBUILD_FAILURE_CODE = 'occ-rebuild-failure'
 const OCC_STALE_PREVIEW_CODE = 'occ-stale-preview'
+const OCC_REBUILD_DIAGNOSTIC_CODES = new Set<string>(Object.values(OCC_CONTRACT_GAP_CODES))
 
 function assertSupportedModelingRequest(
   request: {
@@ -195,12 +196,13 @@ function createInvalidReferenceDiagnostic(
 }
 
 function createRebuildFailureDiagnostic(
+  code: string,
   message: string,
   affectedFeatureIds: FeatureId[],
   affectedTargets: NonNullable<ModelingDiagnostic['target']>[],
 ): ModelingDiagnostic {
   return createDiagnostic(
-    OCC_REBUILD_FAILURE_CODE,
+    code,
     'error',
     message,
     affectedTargets[0] ?? null,
@@ -442,7 +444,14 @@ function deriveRebuildFailureCode(error: unknown) {
   }
 
   const match = /^([a-z0-9-]+):\s+/i.exec(error.message)
-  return match?.[1] ?? OCC_REBUILD_FAILURE_CODE
+
+  if (!match) {
+    return OCC_REBUILD_FAILURE_CODE
+  }
+
+  return OCC_REBUILD_DIAGNOSTIC_CODES.has(match[1]!)
+    ? match[1]!
+    : OCC_REBUILD_FAILURE_CODE
 }
 
 function getFeatureConsumedTargets(definition: FeatureDefinition) {
@@ -525,13 +534,6 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
   private getSolverAdapter(revisionId: RevisionId) {
     if (this.solverAdapterFactory) {
       return this.solverAdapterFactory(revisionId)
-    }
-
-    if (this.solverAdapter instanceof MockSketchSolverAdapter) {
-      return new MockSketchSolverAdapter({
-        documentId: this.documentId,
-        revisionId,
-      })
     }
 
     return this.solverAdapter
@@ -858,6 +860,7 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
           reasonCode: deriveRebuildFailureCode(error),
           diagnostics: [
             createRebuildFailureDiagnostic(
+              deriveRebuildFailureCode(error),
               error instanceof Error ? error.message : 'OCC rebuild failed.',
               [feature.featureId],
               uniqueTargets(consumedTargets),

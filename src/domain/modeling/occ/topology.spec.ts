@@ -1,6 +1,7 @@
 import type { ConstructionSnapshotRecord, FeatureDefinition, SketchSnapshotRecord } from '@/contracts/modeling/schema'
 import type { ConstructionId, SketchEntityId, SketchId, SketchPointId } from '@/contracts/shared/ids'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
+import { PLANE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import {
   SOLVED_SKETCH_SCHEMA_VERSION,
   SKETCH_SCHEMA_VERSION,
@@ -211,7 +212,7 @@ async function testBodySnapshotsAndReferenceStateExposeLiveTopology() {
     featureId: 'feature_probe',
     definition: {
       kind: 'plane',
-      featureTypeVersion: 'plane-feature/v1alpha1',
+      featureTypeVersion: PLANE_FEATURE_SCHEMA_VERSION,
       parameters: {
         mode: 'coplanar',
         reference: {

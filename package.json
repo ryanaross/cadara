@@ -20,7 +20,9 @@
     "test:occ-phase4": "bun x vite-node src/domain/modeling/occ/features.spec.ts",
     "test:occ-phase5": "bun x vite-node src/domain/modeling/occ/topology.spec.ts",
     "test:occ-phase6": "bun x vite-node src/domain/modeling/occ/snapshot.spec.ts",
-    "test:occ-phase7": "npx tsx --tsconfig tsconfig.test.json src/domain/modeling/opencascade-kernel-adapter.spec.ts",
+    "test:occ-phase7": "TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx src/domain/modeling/opencascade-kernel-adapter.spec.ts",
+    "test:occ-phase8": "TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx src/domain/modeling/opencascade-kernel-adapter.spec.ts",
+    "test:occ-phase9": "bun run test:occ-phase1-browser-compile && bun run test:occ-phase8 && bun run build",
     "test:contract-examples": "bun x vite-node src/contracts/shared/contract-examples.spec.ts"
   },
   "dependencies": {

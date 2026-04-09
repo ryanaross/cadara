@@ -1,12 +1,10 @@
 import type {
   BodyId,
-  ConstructionId,
   EdgeId,
   FaceId,
   FeatureId,
   RevisionId,
   SketchEntityId,
-  SketchId,
   SketchPointId,
   VertexId,
 } from '@/contracts/shared/ids'
@@ -79,7 +77,7 @@ export const OCC_REFERENCE_INVALIDATION_REASONS = {
   missing: 'occ-missing-reference',
   topologyDeleted: 'occ-topology-deleted',
   topologyModified: 'occ-topology-modified',
-} as const
+} as const satisfies Record<string, string>
 
 const OCC_INVALID_REFERENCE_DIAGNOSTIC_CODE = 'occ-invalid-reference'
 const INITIAL_TOPOLOGY_TOKEN_NUMBER = 1

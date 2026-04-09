@@ -20,6 +20,7 @@ import {
   type Vec3,
 } from '@/domain/modeling/occ/geometry'
 import {
+  OCC_CONTRACT_GAP_CODES,
   getProjectedRegionLoopRejectionMessage,
   isProjectedRegionSegmentSourceSupported,
 } from '@/domain/modeling/occ/implementation-policy'
@@ -347,7 +348,9 @@ function buildLoopWire(
     // Phase 0 red line: committed sketch payloads do not preserve enough
     // projected-geometry data to rebuild OCC profile wires faithfully.
     if (!isProjectedRegionSegmentSourceSupported(segment.source)) {
-      throw new Error(getProjectedRegionLoopRejectionMessage(segment.source))
+      throw new Error(
+        `${OCC_CONTRACT_GAP_CODES.projectedRegionGeometryUnavailable}: ${getProjectedRegionLoopRejectionMessage(segment.source)}`,
+      )
     }
 
     const geometry = getSolvedEntityGeometry(sketch, segment.source.entityId)

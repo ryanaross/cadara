@@ -19,7 +19,6 @@ import type {
 } from '@/contracts/render/schema'
 import type {
   BodyId,
-  ConstructionId,
   EdgeId,
   FaceId,
   FeatureId,
@@ -28,12 +27,18 @@ import type {
   PickId,
   ReferenceId,
   RenderableId,
-  SketchEntityId,
-  SketchPointId,
   SnapshotEntityId,
   VertexId,
 } from '@/contracts/shared/ids'
-import type { DurableRef } from '@/contracts/shared/references'
+import type {
+  ConstructionRef,
+  DurableRef,
+  EdgeRef,
+  FaceRef,
+  SketchEntityRef,
+  SketchPointRef,
+  VertexRef,
+} from '@/contracts/shared/references'
 import {
   CONTRACT_VERSION,
   EXTRUDE_FEATURE_SCHEMA_VERSION,
@@ -47,7 +52,7 @@ import {
   OCC_CONTRACT_GAP_CODES,
   OCC_PHASE0_IMPLEMENTATION_NOTES,
 } from '@/domain/modeling/occ/implementation-policy'
-import { mapSketchPointToWorld, toVec3FromGpPoint } from '@/domain/modeling/occ/geometry'
+import { mapSketchPointToWorld } from '@/domain/modeling/occ/geometry'
 import type { OccAuthoringState } from '@/domain/modeling/occ/authoring-state'
 import {
   OCC_KERNEL_CAPABILITIES,
@@ -105,15 +110,15 @@ function createObjectTreeNodeId(prefix: string, target: DurableRef) {
   return `object_tree_node_occ_${prefix}_${sanitizeIdSegment(getOccDurableRefKey(target))}` as ObjectTreeNodeId
 }
 
-function createFaceTarget(bodyId: BodyId, faceId: FaceId): DurableRef {
+function createFaceTarget(bodyId: BodyId, faceId: FaceId): FaceRef {
   return { kind: 'face', bodyId, faceId }
 }
 
-function createEdgeTarget(bodyId: BodyId, edgeId: EdgeId): DurableRef {
+function createEdgeTarget(bodyId: BodyId, edgeId: EdgeId): EdgeRef {
   return { kind: 'edge', bodyId, edgeId }
 }
 
-function createVertexTarget(bodyId: BodyId, vertexId: VertexId): DurableRef {
+function createVertexTarget(bodyId: BodyId, vertexId: VertexId): VertexRef {
   return { kind: 'vertex', bodyId, vertexId }
 }
 
@@ -653,15 +658,17 @@ function buildConstructionRenderRecords(state: OccAuthoringState): RenderableEnt
       ],
     ]
 
+    const target = construction.target as ConstructionRef
+
     return [{
-      id: createRenderableId(construction.target),
+      id: createRenderableId(target),
       label: construction.label,
       ownerBodyId: null,
       ownerFeatureId: construction.ownerFeatureId,
       binding: {
-        pickId: createPickId(construction.target),
+        pickId: createPickId(target),
         pickPriority: CONSTRUCTION_PICK_PRIORITY,
-        target: construction.target,
+        target,
         topology: null,
         semanticClass: 'construction',
       },
@@ -739,7 +746,7 @@ function buildFaceRenderRecord(
     )
   }
 
-  const target = createFaceTarget(body.bodyId, faceId)
+  const target: FaceRef = createFaceTarget(body.bodyId, faceId)
   const semantics = getFaceSemanticClasses(state, face)
 
   return {
@@ -883,7 +890,7 @@ function buildEdgeRenderRecord(
     return null
   }
 
-  const target = createEdgeTarget(body.bodyId, edgeId)
+  const target: EdgeRef = createEdgeTarget(body.bodyId, edgeId)
 
   return {
     id: createRenderableId(target),
@@ -911,7 +918,7 @@ function buildVertexRenderRecord(
   vertexId: VertexId,
   vertex: InstanceType<OccAuthoringState['oc']['TopoDS_Vertex']>,
 ): RenderableEntityRecord {
-  const target = createVertexTarget(body.bodyId, vertexId)
+  const target: VertexRef = createVertexTarget(body.bodyId, vertexId)
 
   return {
     id: createRenderableId(target),
@@ -1062,15 +1069,15 @@ function sampleArcPoints(
 }
 
 function buildSketchCurveRenderRecords(
-  state: OccAuthoringState,
+  _state: OccAuthoringState,
   sketch: SketchSnapshotRecord,
 ) {
   return sketch.sketch.solvedSnapshot.solvedEntities.flatMap((entity) => {
-    const target = {
+    const target: SketchEntityRef = {
       kind: 'sketchEntity',
       sketchId: sketch.sketchId,
       entityId: entity.entityId,
-    } as const
+    }
 
     if (entity.kind === 'point') {
       return []
@@ -1120,7 +1127,7 @@ function buildSketchCurveRenderRecords(
 }
 
 function buildSketchPointRenderRecords(
-  state: OccAuthoringState,
+  _state: OccAuthoringState,
   sketch: SketchSnapshotRecord,
 ) {
   const solvedPointById = new Map(
@@ -1128,11 +1135,11 @@ function buildSketchPointRenderRecords(
   )
 
   return sketch.sketch.definition.points.map((point) => {
-    const target = {
+    const target: SketchPointRef = {
       kind: 'sketchPoint',
       sketchId: sketch.sketchId,
       pointId: point.pointId,
-    } as const
+    }
     const position = solvedPointById.get(point.pointId) ?? point.position
 
     return {
@@ -1164,14 +1171,16 @@ function buildSketchRenderRecords(state: OccAuthoringState) {
 }
 
 export function buildOccRenderExport(state: OccAuthoringState) {
+  const records: RenderableEntityRecord[] = [
+    ...buildConstructionRenderRecords(state),
+    ...buildSketchRenderRecords(state),
+    ...state.bodies.flatMap((body) => buildBodyRenderRecords(state, body)),
+  ]
+
   return {
     schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
-    records: [
-      ...buildConstructionRenderRecords(state),
-      ...buildSketchRenderRecords(state),
-      ...state.bodies.flatMap((body) => buildBodyRenderRecords(state, body)),
-    ],
-  } as const
+    records,
+  }
 }
 
 export function buildOccKernelDocumentSnapshot(
