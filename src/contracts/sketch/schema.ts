@@ -1,7 +1,9 @@
 import type {
   ConstraintId,
   DimensionId,
+  ProjectedGeometryId,
   RegionId,
+  RegionLoopId,
   ReferenceId,
   SketchEntityId,
   SketchId,
@@ -18,6 +20,7 @@ import type {
   SketchRef,
   VertexRef,
 } from '@/contracts/shared/references'
+import type { SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 
 /**
  * Declarative sketch-space point coordinates expressed in sketch plane units.
@@ -247,6 +250,24 @@ export interface SketchDefinition {
 }
 
 /**
+ * Explicit authored-graph invariants that every producer must satisfy.
+ * These rules exist here so solver/kernel implementers do not need to infer
+ * hidden editor assumptions from tests or runtime code.
+ */
+export const SKETCH_DEFINITION_INVARIANTS = {
+  /** Every ordered ID array must be unique and bijective with its record array. */
+  orderedIdsAreBijective: true,
+  /** All point/entity targets must resolve to the containing `sketchId`. */
+  localTargetsMustMatchOwningSketch: true,
+  /** Every referenced point/entity/constraint/dimension ID must exist exactly once. */
+  graphReferencesMustResolve: true,
+  /** Construction-only geometry must not contribute to derived profile regions. */
+  constructionGeometryExcludedFromRegions: true,
+  /** Derived regions are solver/kernel outputs only and never authored input. */
+  regionsAreDerivedOnly: true,
+} as const
+
+/**
  * Solver-owned solved point position for an authored sketch point.
  */
 export interface SolvedSketchPointRecord {
@@ -259,16 +280,31 @@ export interface SolvedSketchPointRecord {
 }
 
 /**
- * Solver-owned solved sketch status summary.
+ * Solver-owned solve validity for one sketch evaluation.
  */
-export type SolvedSketchStatus =
-  | 'unsolved'
-  | 'solved'
+export type SolvedSketchSolveState = 'notEvaluated' | 'solved' | 'partiallySolved' | 'failed'
+
+/**
+ * Solver-owned constrainedness classification for one sketch evaluation.
+ */
+export type SolvedSketchConstraintState =
+  | 'unknown'
   | 'underConstrained'
-  | 'fullyConstrained'
+  | 'wellConstrained'
   | 'overConstrained'
   | 'inconsistent'
-  | 'partiallySolved'
+
+/**
+ * Solver-owned solved sketch status summary.
+ * `solveState` answers whether usable geometry was produced.
+ * `constraintState` answers how the constraint system classified the result.
+ */
+export interface SolvedSketchStatus {
+  /** Whether the solver produced a usable solved state for this evaluation. */
+  solveState: SolvedSketchSolveState
+  /** Constraint-system classification for the evaluated sketch graph. */
+  constraintState: SolvedSketchConstraintState
+}
 
 /**
  * Solver-owned solved entity geometry.
@@ -361,6 +397,48 @@ export interface SketchSolveDiagnostic {
 }
 
 /**
+ * Stable projected-geometry reference owned by one external sketch reference.
+ */
+export interface ProjectedSketchGeometryRef {
+  /** Authored external reference that produced the projected geometry. */
+  referenceId: ReferenceId
+  /** Stable projected geometry identity scoped to `referenceId`. */
+  geometryId: ProjectedGeometryId
+}
+
+/**
+ * Region boundary segment record in traversal order around one loop.
+ */
+export interface RegionBoundarySegmentRecord {
+  /** Boundary entity or projected geometry used for this loop segment. */
+  source:
+    | { kind: 'entity'; entityId: SketchEntityId }
+    | { kind: 'projectedGeometry'; reference: ProjectedSketchGeometryRef }
+  /** Boundary start point when the segment starts at an authored point. */
+  startPointId: SketchPointId | null
+  /** Boundary end point when the segment ends at an authored point. */
+  endPointId: SketchPointId | null
+}
+
+/**
+ * Solver- or kernel-derived boundary loop record for one region.
+ */
+export interface RegionLoopRecord {
+  /** Durable derived loop identity scoped to one region. */
+  loopId: RegionLoopId
+  /** Declares whether this loop bounds material or a void within the region. */
+  role: 'outer' | 'inner'
+  /** Traversal orientation of the loop in sketch-plane coordinates. */
+  orientation: 'clockwise' | 'counterClockwise'
+  /** Ordered boundary segments around the loop perimeter. */
+  segments: RegionBoundarySegmentRecord[]
+  /** Ordered authored boundary points visited by the loop when available. */
+  boundaryPointIds: SketchPointId[]
+  /** False when the producer is reporting an incomplete loop candidate. */
+  isClosed: boolean
+}
+
+/**
  * Solver-owned solved sketch snapshot.
  * This record is derived output and may differ from authored input positions.
  */
@@ -394,10 +472,8 @@ export interface RegionRecord extends OwnershipRecord {
   target: RegionRef
   /** Owning sketch from which the region was derived. */
   sourceSketch: SketchRef
-  /** Boundary entities in traversal order around the region perimeter. */
-  boundaryEntityIds: SketchEntityId[]
-  /** Boundary points in traversal order paired with `boundaryEntityIds`. */
-  boundaryPointIds: SketchPointId[]
+  /** Ordered boundary loops that define the region, including interior voids. */
+  loops: RegionLoopRecord[]
   /** False when the producer is reporting an incomplete or invalid derived region candidate. */
   isClosed: boolean
 }
@@ -411,6 +487,8 @@ export interface SketchRecord extends OwnershipRecord {
   sketchId: SketchId
   /** Human-readable sketch label owned by the modeling layer. */
   label: string
+  /** Explicit planar support from which the sketch coordinate system is derived. */
+  planeSupport: SketchPlaneSupportRef
   /** Durable authored sketch graph submitted for solving and downstream feature use. */
   definition: SketchDefinition
   /** Solver-owned solved state corresponding to `definition` at the current revision. */

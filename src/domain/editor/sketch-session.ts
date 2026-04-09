@@ -7,7 +7,8 @@ import type {
   SketchPointDefinition,
 } from '@/contracts/sketch/schema'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import type { DurableRef, SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
+import type { SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
+import type { SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 import type {
   ConstraintId,
   DimensionId,
@@ -49,7 +50,7 @@ export type SketchDraftEntity =
 export interface SketchSessionState {
   sketchId: SketchId | null
   sketchLabel: string
-  planeTarget: DurableRef
+  planeTarget: SketchPlaneSupportRef
   planeKey: SketchPlaneKey
   entities: SketchDraftEntity[]
   definition: SketchDefinition
@@ -69,7 +70,7 @@ export interface SketchSessionDisplayRenderable {
   geometry: RenderableEntityRecord['geometry']
 }
 
-export function derivePlaneKeyFromTarget(target: DurableRef): SketchPlaneKey {
+export function derivePlaneKeyFromTarget(target: SketchPlaneSupportRef): SketchPlaneKey {
   if (target.kind !== 'construction') {
     return 'xy'
   }
@@ -181,7 +182,7 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
     sketchId: sketch.sketchId,
     sketchLabel: sketch.label,
     planeTarget: sketch.planeTarget,
-    planeKey: sketch.planeKey,
+    planeKey: sketch.planeKey ?? 'xy',
     entities,
     definition: cloneDefinition(sketch.sketch.definition),
     activeTool: null,
@@ -194,14 +195,14 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
       sketchId: sketch.sketchId,
       sketchLabel: sketch.label,
       planeTarget: sketch.planeTarget,
-      planeKey: sketch.planeKey,
+      planeKey: sketch.planeKey ?? 'xy',
       definition: sketch.sketch.definition,
     }),
     validationMessage: null,
   }
 }
 
-export function createNewSketchSession(planeTarget: DurableRef): SketchSessionState {
+export function createNewSketchSession(planeTarget: SketchPlaneSupportRef): SketchSessionState {
   return {
     sketchId: null,
     sketchLabel: 'Sketch Draft',
@@ -309,7 +310,7 @@ function mapDefinitionEntityToDraftEntity(
 function buildCommitRequest(input: {
   sketchId: SketchId | null
   sketchLabel: string
-  planeTarget: DurableRef
+  planeTarget: CommitSketchRequest['planeTarget']
   planeKey: SketchPlaneKey
   definition: SketchDefinition
 }): SketchSessionState['commitRequest'] {
@@ -317,6 +318,18 @@ function buildCommitRequest(input: {
     solverCorrelation: null,
     sketchId: input.sketchId,
     sketchLabel: input.sketchLabel,
+    plane: {
+      support: input.planeTarget,
+      frame: {
+        origin: [0, 0, 0],
+        xAxis: input.planeKey === 'yz' ? [0, 1, 0] : [1, 0, 0],
+        yAxis: input.planeKey === 'xy' ? [0, 1, 0] : [0, 0, 1],
+        normal: input.planeKey === 'yz' ? [1, 0, 0] : input.planeKey === 'xz' ? [0, -1, 0] : [0, 0, 1],
+        linearUnit: 'documentLength',
+        handedness: 'rightHanded',
+      },
+      key: input.planeKey,
+    },
     planeTarget: input.planeTarget,
     planeKey: input.planeKey,
     definition: cloneDefinition(input.definition),

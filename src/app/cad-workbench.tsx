@@ -43,7 +43,7 @@ export function CadWorkbench() {
 
   const { commitFeature, cancelFeature } = useFeatureEditing()
   const viewportRenderables = useMemo(
-    () => mergeSketchRenderables(previewRenderables ?? snapshot?.render.records ?? [], sketchSession),
+    () => mergeSketchRenderables(previewRenderables ?? snapshot?.document.render.records ?? [], sketchSession),
     [previewRenderables, sketchSession, snapshot],
   )
 
@@ -97,11 +97,11 @@ export function CadWorkbench() {
             </div>
             <div>
               Revision:{' '}
-              <span className="text-[var(--cad-foreground)]">{snapshot?.revisionId ?? 'loading'}</span>
+              <span className="text-[var(--cad-foreground)]">{snapshot?.document.revisionId ?? 'loading'}</span>
             </div>
             <div>
               Snapshot diagnostics:{' '}
-              <span className="text-[var(--cad-foreground)]">{snapshot?.diagnostics.length ?? 0}</span>
+              <span className="text-[var(--cad-foreground)]">{snapshot?.document.diagnostics.length ?? 0}</span>
             </div>
             <div>
               Sketch session:{' '}

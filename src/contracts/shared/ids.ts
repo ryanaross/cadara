@@ -82,9 +82,19 @@ export type DimensionId = `dimension_${string}`
 export type RegionId = `region_${string}`
 
 /**
+ * Durable loop identifier scoped to one derived sketch region.
+ */
+export type RegionLoopId = `region_loop_${string}`
+
+/**
  * Durable resolved-reference identifier tracked by the modeling boundary.
  */
 export type ReferenceId = `ref_${string}`
+
+/**
+ * Durable projected-geometry identifier scoped to one external sketch reference.
+ */
+export type ProjectedGeometryId = `projected_geometry_${string}`
 
 /**
  * Transient preview identifier owned by a preview/evaluation workflow.

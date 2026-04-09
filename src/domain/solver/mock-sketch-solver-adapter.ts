@@ -19,7 +19,9 @@ import {
 } from '@/contracts/solver/schema'
 import {
   SOLVED_SKETCH_SCHEMA_VERSION,
+  type ProjectedSketchGeometryRef,
   type RegionRecord,
+  type RegionLoopRecord,
   type SketchDefinition,
   type SketchEntityDefinition,
   type SketchPoint2D,
@@ -32,8 +34,10 @@ import type {
   ConstraintId,
   DimensionId,
   DocumentId,
+  ProjectedGeometryId,
   ReferenceId,
   RegionId,
+  RegionLoopId,
   RequestId,
   RevisionId,
   SketchEntityId,
@@ -175,6 +179,13 @@ function entityRecordMap(definition: SketchDefinition) {
   return new Map(definition.entities.map((entity) => [entity.entityId, entity]))
 }
 
+function createProjectedGeometryId(
+  referenceId: ReferenceId,
+  ordinal: number,
+): ProjectedGeometryId {
+  return `projected_geometry_${referenceId}_${ordinal}` as ProjectedGeometryId
+}
+
 function projectedGeometryForReference(reference: ProjectSketchExternalReferencesRequest['references'][number]) {
   if (reference.reference.kind === 'constructionPlane') {
     return {
@@ -187,7 +198,11 @@ function projectedGeometryForReference(reference: ProjectSketchExternalReference
   if (reference.reference.source.kind === 'vertex') {
     return {
       status: 'projected' as const,
-      geometry: [{ kind: 'point' as const, position: [0, 0] as SketchPoint2D }],
+      geometry: [{
+        geometryId: createProjectedGeometryId(reference.referenceId, 0),
+        kind: 'point' as const,
+        position: [0, 0] as SketchPoint2D,
+      }],
       diagnostics: [] as SketchSolveDiagnostic[],
     }
   }
@@ -197,6 +212,7 @@ function projectedGeometryForReference(reference: ProjectSketchExternalReference
       status: 'projected' as const,
       geometry: [
         {
+          geometryId: createProjectedGeometryId(reference.referenceId, 0),
           kind: 'lineSegment' as const,
           startPosition: [-2, 0] as SketchPoint2D,
           endPosition: [2, 0] as SketchPoint2D,
@@ -210,6 +226,7 @@ function projectedGeometryForReference(reference: ProjectSketchExternalReference
     status: 'projected' as const,
     geometry: [
       {
+        geometryId: createProjectedGeometryId(reference.referenceId, 0),
         kind: 'circle' as const,
         centerPosition: [0, 0] as SketchPoint2D,
         radius: 1,
@@ -554,11 +571,20 @@ function solveDefinition(
 
   let status: SolvedSketchStatus
   if (errorCount > 0) {
-    status = partialSolvePolicy === 'bestEffort' ? 'partiallySolved' : 'inconsistent'
+    status = {
+      solveState: partialSolvePolicy === 'bestEffort' ? 'partiallySolved' : 'failed',
+      constraintState: 'inconsistent',
+    }
   } else if (definition.constraints.length + definition.dimensions.length === 0) {
-    status = definition.entities.length === 0 ? 'unsolved' : 'underConstrained'
+    status = {
+      solveState: definition.entities.length === 0 ? 'notEvaluated' : 'solved',
+      constraintState: definition.entities.length === 0 ? 'unknown' : 'underConstrained',
+    }
   } else {
-    status = 'fullyConstrained'
+    status = {
+      solveState: 'solved',
+      constraintState: 'wellConstrained',
+    }
   }
 
   const solvedSnapshot: SolvedSketchSnapshot = {
@@ -581,6 +607,10 @@ function solveDefinition(
 function createRegionId(sketchId: SketchId, ordinal: number): RegionId {
   const suffix = sketchId.startsWith('sketch_') ? sketchId.slice('sketch_'.length) : sketchId
   return (ordinal === 0 ? `region_${suffix}-outer` : `region_${suffix}-loop-${ordinal + 1}`) as RegionId
+}
+
+function createRegionLoopId(regionId: RegionId, ordinal: number): RegionLoopId {
+  return `region_loop_${regionId}_${ordinal}` as RegionLoopId
 }
 
 function deriveClosedLineLoops(definition: SketchDefinition) {
@@ -638,7 +668,10 @@ function deriveRegions(
   solvedSnapshot: SolvedSketchSnapshot,
   definition: SketchDefinition,
 ) {
-  if (solvedSnapshot.status === 'inconsistent' || solvedSnapshot.status === 'unsolved') {
+  if (
+    solvedSnapshot.status.solveState === 'failed'
+    || solvedSnapshot.status.solveState === 'notEvaluated'
+  ) {
     return {
       regions: [] as RegionRecord[],
       diagnostics: [
@@ -650,6 +683,19 @@ function deriveRegions(
   const loops = deriveClosedLineLoops(definition)
   const regions = loops.map((loop, index) => {
     const regionId = createRegionId(sketchId, index)
+    const loopRecord: RegionLoopRecord = {
+      loopId: createRegionLoopId(regionId, 0),
+      role: 'outer',
+      orientation: 'counterClockwise',
+      segments: loop.boundaryEntityIds.map((entityId, segmentIndex) => ({
+        source: { kind: 'entity', entityId },
+        startPointId: loop.boundaryPointIds[segmentIndex] ?? null,
+        endPointId: loop.boundaryPointIds[(segmentIndex + 1) % loop.boundaryPointIds.length] ?? null,
+      })),
+      boundaryPointIds: loop.boundaryPointIds,
+      isClosed: true,
+    }
+
     return {
       ownerDocumentId: documentId,
       ownerRevisionId: revisionId,
@@ -660,8 +706,7 @@ function deriveRegions(
       label: index === 0 ? 'Outer region' : `Loop region ${index + 1}`,
       target: { kind: 'region', sketchId, regionId },
       sourceSketch: { kind: 'sketch', sketchId },
-      boundaryEntityIds: loop.boundaryEntityIds,
-      boundaryPointIds: loop.boundaryPointIds,
+      loops: [loopRecord],
       isClosed: true,
     } satisfies RegionRecord
   })
@@ -832,6 +877,25 @@ export class MockSketchSolverAdapter implements SketchSolverAdapter {
   ): Promise<ResolveSketchReferenceResponse> {
     assertSupportedRequest(request, this.options)
     const base = makeResponseBase(request)
+
+    if ('referenceId' in request.target && 'geometryId' in request.target) {
+      const target: ProjectedSketchGeometryRef = request.target
+      const projectedGeometryExists = request.definition.references.some((reference) =>
+        reference.referenceId === target.referenceId,
+      )
+
+      return {
+        ...base,
+        resolution: {
+          target,
+          label: `Projected geometry ${target.geometryId}`,
+          isValid: projectedGeometryExists,
+          invalidationReason: projectedGeometryExists ? null : 'missingProjectedGeometry',
+        },
+        diagnostics: [],
+      }
+    }
+
     switch (request.target.kind) {
       case 'sketch':
         return {

@@ -43,6 +43,7 @@ import type {
   ModelingDiagnostic,
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import type { SketchPlaneDefinition, SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 import type {
   CommandSessionId,
   DocumentId,
@@ -1077,6 +1078,14 @@ function deriveSketchPointFromWorld(
   }
 
   return point
+}
+
+function assertSketchPlaneSupport(target: PrimitiveRef): SketchPlaneSupportRef {
+  if (target.kind === 'construction' || target.kind === 'face') {
+    return target
+  }
+
+  throw new Error('Sketch commits require a construction plane or planar face target.')
 }
 
 function updateStateDocument(state: EditorState, payload: SnapshotLoadedPayload): EditorState {
@@ -2172,6 +2181,7 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
     sketchLabel: SketchSessionState['commitRequest'] extends null
       ? never
       : NonNullable<SketchSessionState['commitRequest']>['sketchLabel']
+    plane: SketchPlaneDefinition
     planeTarget: SketchSessionState['commitRequest'] extends null
       ? never
       : NonNullable<SketchSessionState['commitRequest']>['planeTarget']
@@ -2245,8 +2255,33 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
         requestId: input.requestId,
         baseRevisionId: input.baseRevisionId,
         sketchId: input.session.commitRequest?.sketchId ?? null,
-        sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
-        planeTarget: input.session.commitRequest?.planeTarget ?? input.session.planeTarget,
+    sketchLabel: input.session.commitRequest?.sketchLabel ?? input.session.sketchLabel,
+        plane: ({
+          support: assertSketchPlaneSupport(input.session.commitRequest?.planeTarget ?? input.session.planeTarget),
+          frame: {
+            origin: [0, 0, 0],
+            xAxis:
+              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
+                ? [0, 1, 0]
+                : [1, 0, 0],
+            yAxis:
+              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'xz'
+                ? [0, 0, 1]
+                : (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
+                  ? [0, 0, 1]
+                  : [0, 1, 0],
+            normal:
+              (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'yz'
+                ? [1, 0, 0]
+                : (input.session.commitRequest?.planeKey ?? input.session.planeKey) === 'xz'
+                  ? [0, -1, 0]
+                  : [0, 0, 1],
+            linearUnit: 'documentLength',
+            handedness: 'rightHanded',
+          },
+          key: input.session.commitRequest?.planeKey ?? input.session.planeKey,
+        }) satisfies SketchPlaneDefinition,
+        planeTarget: assertSketchPlaneSupport(input.session.commitRequest?.planeTarget ?? input.session.planeTarget),
         planeKey: input.session.commitRequest?.planeKey ?? input.session.planeKey,
         definition: input.session.commitRequest?.definition ?? input.session.definition,
         solverCorrelation: modelingService.sketchSolver

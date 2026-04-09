@@ -150,7 +150,7 @@ export function FeatureInspector({
             Operation
           </p>
           <div className="grid grid-cols-3 gap-2">
-            {(['newBody', 'add', 'remove'] as const).map((operation) => (
+            {(['newBody', 'join', 'cut'] as const).map((operation) => (
               <button
                 key={operation}
                 type="button"

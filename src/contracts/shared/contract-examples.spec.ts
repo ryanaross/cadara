@@ -19,7 +19,11 @@ import {
   SKETCH_SCHEMA_VERSION,
   type SketchDefinition,
 } from '@/contracts/sketch/schema'
-import { CONTRACT_VERSION, FEATURE_TYPE_VERSION, RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
+import {
+  CONTRACT_VERSION,
+  EXTRUDE_FEATURE_SCHEMA_VERSION,
+  RENDER_EXPORT_SCHEMA_VERSION,
+} from '@/contracts/shared/versioning'
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -163,10 +167,16 @@ const solveSketchResponse: SolveSketchResponse = {
   documentId: solveSketchRequest.documentId,
   revisionId: solveSketchRequest.revisionId,
   sketchId: solveSketchRequest.sketchId,
-  status: 'fullyConstrained',
+  status: {
+    solveState: 'solved',
+    constraintState: 'wellConstrained',
+  },
   solvedSnapshot: {
     schemaVersion: SOLVED_SKETCH_SCHEMA_VERSION,
-    status: 'fullyConstrained',
+    status: {
+      solveState: 'solved',
+      constraintState: 'wellConstrained',
+    },
     solvedEntities: [
       {
         entityId: 'sketch_entity_bottom',
@@ -219,8 +229,7 @@ const solveSketchResponse: SolveSketchResponse = {
     dimensionStatuses: [],
     diagnostics: [],
   },
-  derivedRegions: [
-    {
+  derivedRegions: [{
       ownerDocumentId: 'doc_workspace',
       ownerRevisionId: 'rev_7',
       ownerFeatureId: null,
@@ -237,21 +246,28 @@ const solveSketchResponse: SolveSketchResponse = {
         kind: 'sketch',
         sketchId: 'sketch_profile',
       },
-      boundaryEntityIds: [
-        'sketch_entity_bottom',
-        'sketch_entity_right',
-        'sketch_entity_top',
-        'sketch_entity_left',
-      ],
-      boundaryPointIds: [
-        'sketch_point_a',
-        'sketch_point_b',
-        'sketch_point_c',
-        'sketch_point_d',
+      loops: [
+        {
+          loopId: 'region_loop_outer',
+          role: 'outer',
+          orientation: 'counterClockwise',
+          segments: [
+            { source: { kind: 'entity', entityId: 'sketch_entity_bottom' }, startPointId: 'sketch_point_a', endPointId: 'sketch_point_b' },
+            { source: { kind: 'entity', entityId: 'sketch_entity_right' }, startPointId: 'sketch_point_b', endPointId: 'sketch_point_c' },
+            { source: { kind: 'entity', entityId: 'sketch_entity_top' }, startPointId: 'sketch_point_c', endPointId: 'sketch_point_d' },
+            { source: { kind: 'entity', entityId: 'sketch_entity_left' }, startPointId: 'sketch_point_d', endPointId: 'sketch_point_a' },
+          ],
+          boundaryPointIds: [
+            'sketch_point_a',
+            'sketch_point_b',
+            'sketch_point_c',
+            'sketch_point_d',
+          ],
+          isClosed: true,
+        },
       ],
       isClosed: true,
-    },
-  ],
+    }],
   diagnostics: [],
 }
 
@@ -261,16 +277,27 @@ const createExtrudeRequest: CreateFeatureRequest = {
   baseRevisionId: 'rev_7',
   definition: {
     kind: 'extrude',
-    featureTypeVersion: FEATURE_TYPE_VERSION,
+    featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
       profile: {
         kind: 'region',
         sketchId: 'sketch_profile',
         regionId: 'region_outer',
       },
+      startExtent: {
+        kind: 'profilePlane',
+      },
+      endExtent: {
+        kind: 'blind',
+        direction: 'positive',
+        distance: 12,
+      },
       depth: 12,
       direction: 'oneSided',
       operation: 'newBody',
+      booleanScope: {
+        kind: 'standalone',
+      },
     },
   },
 }
@@ -392,16 +419,27 @@ const topologyChangingRebuildRequest: UpdateFeatureRequest = {
   featureId: 'feature_extrude_1',
   definition: {
     kind: 'extrude',
-    featureTypeVersion: FEATURE_TYPE_VERSION,
+    featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
       profile: {
         kind: 'region',
         sketchId: 'sketch_profile',
         regionId: 'region_outer',
       },
+      startExtent: {
+        kind: 'profilePlane',
+      },
+      endExtent: {
+        kind: 'blind',
+        direction: 'positive',
+        distance: 18,
+      },
       depth: 18,
       direction: 'oneSided',
       operation: 'newBody',
+      booleanScope: {
+        kind: 'standalone',
+      },
     },
   },
 }
@@ -489,7 +527,7 @@ function testSolveSketchExampleIsFullyTyped() {
 function testCreateExtrudeExampleUsesTypedProfileRef() {
   assert(createExtrudeRequest.definition.kind === 'extrude', 'Create-extrude example must use the extrude feature family.')
   assert(createExtrudeRequest.definition.parameters.profile.kind === 'region', 'Create-extrude example must use an explicit derived region reference.')
-  assert(createExtrudeRequest.definition.parameters.depth > 0, 'Create-extrude example must use a positive depth.')
+  assert(createExtrudeRequest.definition.parameters.endExtent.distance > 0, 'Create-extrude example must use a positive blind end extent distance.')
   assert(createExtrudeResponse.revisionState.kind === 'accepted', 'Create-extrude response must report explicit revision acceptance.')
   assert(createExtrudeResponse.rebuildResult.kind === 'rebuilt', 'Create-extrude response must report explicit rebuild success.')
 }

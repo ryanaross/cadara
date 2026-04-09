@@ -2,6 +2,7 @@ import type {
   ConstraintId,
   DimensionId,
   DocumentId,
+  ProjectedGeometryId,
   ReferenceId,
   RequestId,
   RevisionId,
@@ -16,8 +17,10 @@ import type {
   SketchRef,
 } from '@/contracts/shared/references'
 import type { ContractVersion } from '@/contracts/shared/versioning'
+import type { SketchPlaneFrame } from '@/contracts/shared/sketch-plane'
 import type {
   RegionRecord,
+  ProjectedSketchGeometryRef,
   SketchDefinition,
   SketchPoint2D,
   SketchReferenceDefinition,
@@ -36,6 +39,7 @@ export type SolverSchemaVersion = 'sketch-solver/v1alpha1'
  * Current sketch solver schema version literal.
  */
 export const SOLVER_SCHEMA_VERSION: SolverSchemaVersion = 'sketch-solver/v1alpha1'
+export type { SketchPlaneFrame }
 
 /**
  * Declares how the solver should treat incomplete or conflicting edits.
@@ -44,26 +48,6 @@ export const SOLVER_SCHEMA_VERSION: SolverSchemaVersion = 'sketch-solver/v1alpha
  * is not available.
  */
 export type SolverPartialSolvePolicy = 'bestEffort' | 'failOnConflict'
-
-/**
- * Sketch-plane coordinate frame submitted to the solver.
- * The editor/kernel owns the world-space embedding; the solver owns only the
- * 2D coordinates expressed in this frame.
- */
-export interface SketchPlaneFrame {
-  /** World-space origin of the sketch plane expressed in document modeling units. */
-  origin: readonly [number, number, number]
-  /** Unit vector for the sketch-space positive X axis expressed in world space. */
-  xAxis: readonly [number, number, number]
-  /** Unit vector for the sketch-space positive Y axis expressed in world space. */
-  yAxis: readonly [number, number, number]
-  /** Unit vector normal to the sketch plane following the declared handedness. */
-  normal: readonly [number, number, number]
-  /** World-space unit convention for all coordinates and tolerances in this request. */
-  linearUnit: 'documentLength'
-  /** Declares the orientation convention of `xAxis`, `yAxis`, and `normal`. */
-  handedness: 'rightHanded'
-}
 
 /**
  * Explicit tolerance policy used when validating, projecting, and solving.
@@ -120,6 +104,8 @@ export interface SolverExternalReferenceInput {
  * Coordinates are expressed in the sketch plane frame of the containing request.
  */
 export interface ProjectedSketchPointGeometry {
+  /** Stable projected-geometry identity scoped to one authored reference. */
+  geometryId: ProjectedGeometryId
   /** Geometry discriminant for a projected point result. */
   kind: 'point'
   /** Projected point coordinates in sketch-plane units. */
@@ -131,6 +117,8 @@ export interface ProjectedSketchPointGeometry {
  * Coordinates are expressed in the sketch plane frame of the containing request.
  */
 export interface ProjectedSketchLineSegmentGeometry {
+  /** Stable projected-geometry identity scoped to one authored reference. */
+  geometryId: ProjectedGeometryId
   /** Geometry discriminant for a projected line result. */
   kind: 'lineSegment'
   /** Projected line start in sketch-plane units. */
@@ -144,6 +132,8 @@ export interface ProjectedSketchLineSegmentGeometry {
  * Coordinates are expressed in the sketch plane frame of the containing request.
  */
 export interface ProjectedSketchCircleGeometry {
+  /** Stable projected-geometry identity scoped to one authored reference. */
+  geometryId: ProjectedGeometryId
   /** Geometry discriminant for a projected circle result. */
   kind: 'circle'
   /** Projected circle center in sketch-plane units. */
@@ -157,6 +147,8 @@ export interface ProjectedSketchCircleGeometry {
  * Coordinates are expressed in the sketch plane frame of the containing request.
  */
 export interface ProjectedSketchArcGeometry {
+  /** Stable projected-geometry identity scoped to one authored reference. */
+  geometryId: ProjectedGeometryId
   /** Geometry discriminant for a projected arc result. */
   kind: 'arc'
   /** Projected arc center in sketch-plane units. */
@@ -204,6 +196,20 @@ export interface ProjectedSketchReferenceRecord {
   geometry: ProjectedSketchReferenceGeometry[]
   /** Diagnostics specific to this external reference projection. */
   diagnostics: SketchSolveDiagnostic[]
+}
+
+/**
+ * Explicit solver-owned projected geometry resolution record.
+ */
+export interface ResolvedProjectedSketchGeometryRecord {
+  /** Stable projected geometry requested by the caller. */
+  reference: ProjectedSketchGeometryRef
+  /** Human-readable label owned by the solver/kernel producer. */
+  label: string
+  /** Requested projected geometry is still valid at `revisionId`. */
+  isValid: boolean
+  /** Machine-readable invalidation reason when `isValid` is false. */
+  invalidationReason: SolverReferenceInvalidationReason | null
 }
 
 /**
@@ -364,6 +370,7 @@ export type SolverResolvableSketchRef =
   | SketchEntityRef
   | SketchPointRef
   | RegionRef
+  | ProjectedSketchGeometryRef
 
 /**
  * Machine-readable invalidation reason for sketch-local reference resolution.
@@ -374,6 +381,7 @@ export type SolverReferenceInvalidationReason =
   | 'missingEntity'
   | 'missingPoint'
   | 'missingRegion'
+  | 'missingProjectedGeometry'
   | 'revisionMismatch'
 
 /**

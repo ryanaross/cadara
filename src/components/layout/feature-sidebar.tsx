@@ -24,11 +24,11 @@ const treeIconMap = {
 
 function formatReferenceOwner(snapshot: DocumentSnapshot, featureId: string | null, sketchId: string | null) {
   if (featureId) {
-    return snapshot.features.find((feature) => feature.featureId === featureId)?.label ?? featureId
+    return snapshot.document.features.find((feature) => feature.featureId === featureId)?.label ?? featureId
   }
 
   if (sketchId) {
-    return snapshot.sketches.find((sketch) => sketch.sketchId === sketchId)?.label ?? sketchId
+    return snapshot.document.sketches.find((sketch) => sketch.sketchId === sketchId)?.label ?? sketchId
   }
 
   return 'Document root'
@@ -76,7 +76,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
       ? 'No feature selected'
       : activeEditSession.mode === 'create'
         ? 'New extrude'
-        : snapshot?.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
+        : snapshot?.document.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
           activeEditSession.featureId
 
   return (
@@ -95,7 +95,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
         </header>
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-1 px-3 py-3">
-            {(snapshot?.featureTree ?? []).map((item) => {
+            {(snapshot?.presentation.featureTree ?? []).map((item) => {
               const Icon = treeIconMap[item.kind]
               const target = item.target
               const isSelected =
@@ -145,7 +145,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           </header>
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-1 px-3 py-3">
-              {(snapshot?.objects ?? []).map((item) => {
+              {(snapshot?.presentation.objects ?? []).map((item) => {
                 const target = item.target
                 const isSelected =
                   selection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(target))
@@ -196,7 +196,7 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
           </header>
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-2 px-3 py-3">
-              {(snapshot?.references ?? []).map((reference) => (
+              {(snapshot?.document.references ?? []).map((reference) => (
                 <div
                   key={reference.id}
                   className={`rounded-md border px-2 py-2 ${
@@ -230,8 +230,8 @@ export function FeatureSidebar({ snapshot, onSelectTarget }: FeatureSidebarProps
         </header>
         <ScrollArea className="min-h-0 flex-1">
           <div className="space-y-2 px-3 py-3">
-            {snapshot?.diagnostics.length ? (
-              snapshot.diagnostics.map((diagnostic) => (
+            {snapshot?.document.diagnostics.length ? (
+              snapshot.document.diagnostics.map((diagnostic) => (
                 <div
                   key={`${diagnostic.code}-${diagnostic.message}`}
                   className={`rounded-md border px-2 py-2 ${

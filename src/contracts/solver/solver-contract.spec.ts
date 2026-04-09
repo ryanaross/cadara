@@ -21,14 +21,14 @@ function assert(condition: unknown, message: string): asserts condition {
 
 const sketchDefinition: SketchDefinition = {
   schemaVersion: 'sketch-definition/v1alpha1',
-  referenceIds: ['ref_plane_xy'],
+  referenceIds: ['ref_model_edge_1'],
   references: [
     {
-      referenceId: 'ref_plane_xy',
-      kind: 'constructionPlane',
-      label: 'Top plane',
-      source: { kind: 'construction', constructionId: 'construction_plane-xy' },
-      projectionMode: 'coplanar',
+      referenceId: 'ref_model_edge_1',
+      kind: 'modelReference',
+      label: 'Seed edge',
+      source: { kind: 'edge', bodyId: 'body_seed', edgeId: 'edge_seed_1' },
+      projectionMode: 'projectAlongPlaneNormal',
     },
   ],
   pointIds: [
@@ -187,7 +187,7 @@ async function testProjectionAndSolveFlow() {
   const projection = await adapter.projectExternalReferences(createProjectRequest())
 
   assert(projection.requestId === 'request_project_1', 'Projection must echo the originating request ID.')
-  assert(projection.projectedReferences.length === 1, 'Projection should return the authored external reference.')
+  assert(projection.projectedReferences.length === sketchDefinition.references.length, 'Projection should return one record per authored external reference.')
 
   const validation = await adapter.validateSketch({
     ...createValidateRequest(),
@@ -196,8 +196,17 @@ async function testProjectionAndSolveFlow() {
   assert(validation.isValid, 'Well-formed sketch definition should validate successfully.')
 
   const solved = await adapter.solveSketch(createSolveRequest(projection.projectedReferences))
-  assert(solved.status === 'fullyConstrained', 'Mock solve should return a machine-readable solve status.')
+  assert(
+    solved.status.solveState === 'solved' && solved.status.constraintState === 'wellConstrained',
+    'Mock solve should return a machine-readable solved and constrained status.',
+  )
   assert(solved.solvedSnapshot.solvedEntities.length === 4, 'Mock solve should return solved entity geometry.')
+  assert(
+    projection.projectedReferences.every((reference) =>
+      reference.geometry.every((geometry) => geometry.geometryId.startsWith('projected_geometry_')),
+    ),
+    'Projected geometry records must expose stable projected-geometry IDs.',
+  )
 
   const regions = await adapter.deriveSketchRegions({
     contractVersion: CONTRACT_VERSION,
@@ -226,8 +235,41 @@ async function testProjectionAndSolveFlow() {
   }
 
   const resolution = await adapter.resolveSketchReference(resolutionRequest)
-  assert(resolution.resolution.target.kind === 'region', 'Solver reference resolution should be explicit for derived regions.')
+  assert('kind' in resolution.resolution.target && resolution.resolution.target.kind === 'region', 'Solver reference resolution should be explicit for derived regions.')
   assert(resolution.resolution.isValid, 'Derived regions returned by the solver should resolve as valid.')
+
+  const projectedGeometryTarget = projection.projectedReferences
+    .flatMap((reference) => reference.geometry.map((geometry) => ({
+      referenceId: reference.referenceId,
+      geometryId: geometry.geometryId,
+    })))
+    .at(0)
+
+  if (!projectedGeometryTarget) {
+    throw new Error('Mock projection must expose one projected-geometry target for resolution coverage.')
+  }
+
+  const projectedResolution = await adapter.resolveSketchReference({
+    contractVersion: CONTRACT_VERSION,
+    solverSchemaVersion: SOLVER_SCHEMA_VERSION,
+    requestId: 'request_resolve_projected_1',
+    documentId: 'doc_workspace',
+    revisionId: 'rev_0001',
+    sketchId: 'sketch_primary',
+    target: projectedGeometryTarget,
+    definition: sketchDefinition,
+    solvedSnapshot: solved.solvedSnapshot,
+    regions: regions.regions,
+  })
+
+  assert(
+    'geometryId' in projectedResolution.resolution.target,
+    'Projected-geometry resolution should preserve the explicit projected target.',
+  )
+  assert(
+    projectedResolution.resolution.isValid,
+    'Projected geometry returned by the solver should resolve as valid.',
+  )
 }
 
 async function testRevisionDiagnosticsAreExplicit() {

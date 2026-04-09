@@ -9,9 +9,10 @@ import type {
   ModelingDiagnostic,
   PreviewId,
 } from '@/contracts/modeling/schema'
+import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 
 export const EXTRUDE_FEATURE_TYPE = 'extrude' as const
-export const FEATURE_TYPE_VERSION = 'feature-type/v1alpha1' as const
+export const FEATURE_TYPE_VERSION = EXTRUDE_FEATURE_SCHEMA_VERSION
 
 export interface ExtrudeFeatureParameterDraft {
   profileTarget: ExtrudeProfileRef | null
@@ -101,8 +102,8 @@ export function createExtrudeDraftFromFeature(
 
   return {
     profileTarget: assertExtrudeProfileRef(payload.profile),
-    depth: payload.depth,
-    direction: payload.direction,
+    depth: payload.endExtent.distance,
+    direction: payload.direction ?? 'oneSided',
     operation: payload.operation,
   }
 }
@@ -126,9 +127,21 @@ export function buildExtrudeFeatureParameters(
 
   return {
     profile: draft.profileTarget,
+    startExtent: {
+      kind: 'profilePlane',
+    },
+    endExtent: {
+      kind: 'blind',
+      direction: 'positive',
+      distance: draft.depth,
+    },
     depth: draft.depth,
     direction: draft.direction,
     operation: draft.operation,
+    booleanScope:
+      draft.operation === 'newBody'
+        ? { kind: 'standalone' }
+        : { kind: 'targetBodies', bodyIds: [] },
   }
 }
 

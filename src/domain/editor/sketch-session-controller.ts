@@ -24,7 +24,7 @@ export function openSketchSessionFromSelection(
   }
 
   if (primary.kind === 'sketch' && snapshot) {
-    const sketch = snapshot.sketches.find((entry) => entry.sketchId === primary.sketchId)
+    const sketch = snapshot.document.sketches.find((entry) => entry.sketchId === primary.sketchId)
     return sketch ? createSketchSessionFromSnapshot(sketch) : null
   }
 
@@ -44,7 +44,7 @@ export function canStartSketchFromTarget(target: PrimitiveRef, snapshot: Documen
     return false
   }
 
-  return snapshot.sketches.some((entry) => entry.sketchId === target.sketchId)
+  return snapshot.document.sketches.some((entry) => entry.sketchId === target.sketchId)
 }
 
 export async function commitActiveSketchSession(input: {

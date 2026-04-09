@@ -15,20 +15,20 @@ export interface DocumentSelectionDetail {
 }
 
 function getFeatureLabel(snapshot: DocumentSnapshot, featureId: DocumentSelectionDetail['label']) {
-  return snapshot.features.find((feature) => feature.featureId === featureId)?.label ?? null
+  return snapshot.document.features.find((feature) => feature.featureId === featureId)?.label ?? null
 }
 
 function getSketchLabel(snapshot: DocumentSnapshot, sketchId: DocumentSelectionDetail['label']) {
-  return snapshot.sketches.find((sketch) => sketch.sketchId === sketchId)?.label ?? null
+  return snapshot.document.sketches.find((sketch) => sketch.sketchId === sketchId)?.label ?? null
 }
 
 function getBodyLabel(snapshot: DocumentSnapshot, bodyId: DocumentSelectionDetail['label']) {
-  return snapshot.bodies.find((body) => body.bodyId === bodyId)?.label ?? null
+  return snapshot.document.bodies.find((body) => body.bodyId === bodyId)?.label ?? null
 }
 
 export function getEntityRecordForTarget(snapshot: DocumentSnapshot, target: PrimitiveRef) {
   const targetKey = getPrimitiveRefKey(target)
-  return snapshot.entities.find((entity) => getPrimitiveRefKey(entity.target) === targetKey) ?? null
+  return snapshot.presentation.entities.find((entity) => getPrimitiveRefKey(entity.target) === targetKey) ?? null
 }
 
 function getOwnerLabel(snapshot: DocumentSnapshot, entity: SnapshotEntityRecord) {
@@ -79,11 +79,11 @@ export function getFeatureSnapshot(
   snapshot: DocumentSnapshot,
   featureId: FeatureSnapshotRecord['featureId'],
 ) {
-  return snapshot.features.find((feature) => feature.featureId === featureId) ?? null
+  return snapshot.document.features.find((feature) => feature.featureId === featureId) ?? null
 }
 
 export function buildSelectionTargetCatalog(snapshot: DocumentSnapshot): SelectionTargetCatalog {
-  const entries = snapshot.entities.map((entity) => ({
+  const entries = snapshot.presentation.entities.map((entity) => ({
     key: getPrimitiveRefKey(entity.target),
     semantics: entity.selectionSemantics,
   }))

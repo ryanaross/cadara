@@ -39,6 +39,18 @@ function createSnapshot(): DocumentSnapshot {
     schemaVersion: 'document-snapshot/v1alpha1',
     documentId: 'doc_workspace',
     revisionId: 'rev_1',
+    settings: {
+      linearUnit: 'millimeter',
+      modelingTolerance: 0.001,
+      angularToleranceRadians: 0.0001,
+    },
+    capabilities: {
+      supportedFeatureKinds: ['extrude'],
+      previewableFeatureKinds: ['extrude'],
+      supportedProfileKinds: ['region', 'face'],
+      supportsFaceBackedSketchPlanes: true,
+      supportsDurableTopologyNaming: false,
+    },
     featureTree: [],
     objects: [],
     references: [],

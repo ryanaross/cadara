@@ -42,6 +42,7 @@ import type {
   ModelingDiagnosticDetail,
   MutationRevisionState,
   ObjectTreeNodeRecord,
+  KernelDocumentSnapshot,
   PreviewId,
   PreviewFreshness,
   RebuildResult,
@@ -55,6 +56,7 @@ import type {
   SnapshotEntityRecord,
   UpdateFeatureResponse,
   UpdateFeatureRequest,
+  WorkspaceSnapshot,
   PlaneFeatureParameters,
   RevolveAxisRef,
   RevolveFeatureParameters,
@@ -84,6 +86,13 @@ import type {
 import type { SketchSolverAdapter as SketchSolverBoundary } from '@/contracts/solver/adapter'
 import type { DurableRef } from '@/contracts/shared/references'
 import type { ConstraintId, DimensionId, RegionId, RequestId, SketchEntityId, SketchPointId } from '@/contracts/shared/ids'
+import type { SketchPlaneDefinition, SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
+import {
+  EXTRUDE_FEATURE_SCHEMA_VERSION,
+  FILLET_FEATURE_SCHEMA_VERSION,
+  PLANE_FEATURE_SCHEMA_VERSION,
+  REVOLVE_FEATURE_SCHEMA_VERSION,
+} from '@/contracts/shared/versioning'
 
 export interface ModelingService {
   readonly currentDocumentId: DocumentId
@@ -375,6 +384,59 @@ function assertDurableRef(value: unknown): DurableRef {
   return assertPrimitiveRef(value)
 }
 
+function assertSketchPlaneSupportRef(value: unknown): SketchPlaneSupportRef {
+  const target = assertPrimitiveRef(value)
+
+  if (target.kind !== 'construction' && target.kind !== 'face') {
+    throw new Error('Invalid sketch-plane support payload.')
+  }
+
+  return target
+}
+
+function normalizeSketchPlaneKey(value: unknown): SketchPlaneDefinition['key'] {
+  if (value === null) {
+    return null
+  }
+
+  if (value === 'xy' || value === 'yz' || value === 'xz') {
+    return value
+  }
+
+  throw new Error('Invalid sketch plane key payload.')
+}
+
+function normalizeSketchPlaneDefinition(value: unknown): SketchPlaneDefinition {
+  if (!isRecord(value) || !isRecord(value.frame)) {
+    throw new Error('Invalid sketch plane payload.')
+  }
+
+  return {
+    support: assertSketchPlaneSupportRef(value.support),
+    frame: {
+      origin: normalizePoint3(value.frame.origin),
+      xAxis: normalizePoint3(value.frame.xAxis),
+      yAxis: normalizePoint3(value.frame.yAxis),
+      normal: normalizePoint3(value.frame.normal),
+      linearUnit: value.frame.linearUnit === 'documentLength' ? value.frame.linearUnit : (() => {
+        throw new Error('Invalid sketch plane linear unit payload.')
+      })(),
+      handedness: value.frame.handedness === 'rightHanded' ? value.frame.handedness : (() => {
+        throw new Error('Invalid sketch plane handedness payload.')
+      })(),
+    },
+    key: normalizeSketchPlaneKey(value.key),
+  }
+}
+
+function normalizePoint3(value: unknown): readonly [number, number, number] {
+  if (!Array.isArray(value) || value.length !== 3 || value.some((entry) => typeof entry !== 'number')) {
+    throw new Error('Invalid 3D point payload.')
+  }
+
+  return [value[0], value[1], value[2]]
+}
+
 function assertExtrudeProfileRef(value: unknown): ExtrudeProfileRef {
   const target = assertPrimitiveRef(value)
 
@@ -408,27 +470,55 @@ function assertRevolveAxisRef(value: unknown): RevolveAxisRef {
 }
 
 function normalizeExtrudeFeatureParameters(value: unknown): ExtrudeFeatureParameters {
-  if (!isRecord(value) || typeof value.depth !== 'number') {
+  if (!isRecord(value)) {
     throw new Error('Invalid extrude feature parameters payload.')
   }
 
-  if (value.depth <= 0) {
+  const distance =
+    isRecord(value.extent) && value.extent.kind === 'blind' && typeof value.extent.distance === 'number'
+      ? value.extent.distance
+      : typeof value.depth === 'number'
+        ? value.depth
+        : null
+
+  if (distance === null) {
+    throw new Error('Invalid extrude feature parameters payload.')
+  }
+
+  if (distance <= 0) {
     throw new Error('Extrude depth must be positive.')
   }
 
-  if (value.direction !== 'oneSided') {
+  if (value.direction !== undefined && value.direction !== 'oneSided') {
     throw new Error('Invalid extrude direction payload.')
   }
 
-  if (value.operation !== 'newBody' && value.operation !== 'add' && value.operation !== 'remove') {
+  if (value.operation !== 'newBody' && value.operation !== 'join' && value.operation !== 'cut' && value.operation !== 'intersect') {
     throw new Error('Invalid extrude operation payload.')
   }
 
   return {
     profile: assertExtrudeProfileRef(value.profile),
-    depth: value.depth,
-    direction: value.direction,
+    startExtent: { kind: 'profilePlane' },
+    endExtent: {
+      kind: 'blind',
+      direction:
+        isRecord(value.endExtent) && (value.endExtent.direction === 'positive' || value.endExtent.direction === 'negative')
+          ? value.endExtent.direction
+          : isRecord(value.extent) && (value.extent.direction === 'positive' || value.extent.direction === 'negative')
+            ? value.extent.direction
+            : 'positive',
+      distance,
+    },
+    depth: distance,
+    direction: 'oneSided',
     operation: value.operation,
+    booleanScope:
+      isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBody' && isString(value.booleanScope.bodyId)
+        ? { kind: 'targetBody', bodyId: value.booleanScope.bodyId as BodyId }
+        : isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBodies' && Array.isArray(value.booleanScope.bodyIds)
+          ? { kind: 'targetBodies', bodyIds: value.booleanScope.bodyIds.map((bodyId) => assertBodyId(bodyId)) }
+          : { kind: 'standalone' },
   }
 }
 
@@ -471,24 +561,50 @@ function normalizePlaneFeatureParameters(value: unknown): PlaneFeatureParameters
 }
 
 function normalizeRevolveFeatureParameters(value: unknown): RevolveFeatureParameters {
-  if (!isRecord(value) || typeof value.angle !== 'number') {
+  if (!isRecord(value)) {
     throw new Error('Invalid revolve feature parameters payload.')
   }
 
-  if (value.operation !== 'newBody' && value.operation !== 'add' && value.operation !== 'remove') {
+  const radians =
+    isRecord(value.extent) && value.extent.kind === 'angle' && typeof value.extent.radians === 'number'
+      ? value.extent.radians
+      : typeof value.angle === 'number'
+        ? value.angle
+        : null
+
+  if (radians === null) {
+    throw new Error('Invalid revolve feature parameters payload.')
+  }
+
+  if (value.operation !== 'newBody' && value.operation !== 'join' && value.operation !== 'cut' && value.operation !== 'intersect') {
     throw new Error('Invalid revolve operation payload.')
   }
 
   return {
     profile: assertExtrudeProfileRef(value.profile),
     axis: assertRevolveAxisRef(value.axis),
-    angle: value.angle,
+    startAngle: typeof value.startAngle === 'number' ? value.startAngle : 0,
+    extent: {
+      kind: 'angle',
+      direction:
+        isRecord(value.extent) && (value.extent.direction === 'clockwise' || value.extent.direction === 'counterClockwise')
+          ? value.extent.direction
+          : 'counterClockwise',
+      radians,
+    },
+    angle: radians,
     operation: value.operation,
+    booleanScope:
+      isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBody' && isString(value.booleanScope.bodyId)
+        ? { kind: 'targetBody', bodyId: value.booleanScope.bodyId as BodyId }
+        : isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBodies' && Array.isArray(value.booleanScope.bodyIds)
+          ? { kind: 'targetBodies', bodyIds: value.booleanScope.bodyIds.map((bodyId) => assertBodyId(bodyId)) }
+          : { kind: 'standalone' },
   }
 }
 
 function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
-  if (!isRecord(value) || !isString(value.kind) || value.featureTypeVersion !== 'feature-type/v1alpha1') {
+  if (!isRecord(value) || !isString(value.kind) || !isString(value.featureTypeVersion)) {
     throw new Error('Invalid feature definition payload.')
   }
 
@@ -496,25 +612,37 @@ function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
     case 'extrude':
       return {
         kind: 'extrude',
-        featureTypeVersion: value.featureTypeVersion,
+        featureTypeVersion:
+          value.featureTypeVersion === EXTRUDE_FEATURE_SCHEMA_VERSION
+            ? value.featureTypeVersion
+            : EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: normalizeExtrudeFeatureParameters(value.parameters),
       }
     case 'fillet':
       return {
         kind: 'fillet',
-        featureTypeVersion: value.featureTypeVersion,
+        featureTypeVersion:
+          value.featureTypeVersion === FILLET_FEATURE_SCHEMA_VERSION
+            ? value.featureTypeVersion
+            : FILLET_FEATURE_SCHEMA_VERSION,
         parameters: normalizeFilletFeatureParameters(value.parameters),
       }
     case 'plane':
       return {
         kind: 'plane',
-        featureTypeVersion: value.featureTypeVersion,
+        featureTypeVersion:
+          value.featureTypeVersion === PLANE_FEATURE_SCHEMA_VERSION
+            ? value.featureTypeVersion
+            : PLANE_FEATURE_SCHEMA_VERSION,
         parameters: normalizePlaneFeatureParameters(value.parameters),
       }
     case 'revolve':
       return {
         kind: 'revolve',
-        featureTypeVersion: value.featureTypeVersion,
+        featureTypeVersion:
+          value.featureTypeVersion === REVOLVE_FEATURE_SCHEMA_VERSION
+            ? value.featureTypeVersion
+            : REVOLVE_FEATURE_SCHEMA_VERSION,
         parameters: normalizeRevolveFeatureParameters(value.parameters),
       }
     default:
@@ -545,6 +673,48 @@ function normalizeDiagnostics(value: unknown): ModelingDiagnostic[] {
       detail: entry.detail == null ? null : normalizeDiagnosticDetail(entry.detail),
     }
   })
+}
+
+function normalizeModelingDocumentSettings(
+  value: unknown,
+): KernelDocumentSnapshot['settings'] {
+  if (
+    !isRecord(value)
+    || value.linearUnit !== 'millimeter'
+    || typeof value.modelingTolerance !== 'number'
+    || typeof value.angularToleranceRadians !== 'number'
+  ) {
+    throw new Error('Invalid modeling document settings payload.')
+  }
+
+  return {
+    linearUnit: 'millimeter',
+    modelingTolerance: value.modelingTolerance,
+    angularToleranceRadians: value.angularToleranceRadians,
+  }
+}
+
+function normalizeModelingKernelCapabilities(
+  value: unknown,
+): KernelDocumentSnapshot['capabilities'] {
+  if (
+    !isRecord(value)
+    || !Array.isArray(value.supportedFeatureKinds)
+    || !Array.isArray(value.previewableFeatureKinds)
+    || !Array.isArray(value.supportedProfileKinds)
+    || typeof value.supportsFaceBackedSketchPlanes !== 'boolean'
+    || typeof value.supportsDurableTopologyNaming !== 'boolean'
+  ) {
+    throw new Error('Invalid modeling kernel capability payload.')
+  }
+
+  return {
+    supportedFeatureKinds: value.supportedFeatureKinds as KernelDocumentSnapshot['capabilities']['supportedFeatureKinds'],
+    previewableFeatureKinds: value.previewableFeatureKinds as KernelDocumentSnapshot['capabilities']['previewableFeatureKinds'],
+    supportedProfileKinds: value.supportedProfileKinds as KernelDocumentSnapshot['capabilities']['supportedProfileKinds'],
+    supportsFaceBackedSketchPlanes: value.supportsFaceBackedSketchPlanes,
+    supportsDurableTopologyNaming: value.supportsDurableTopologyNaming,
+  }
 }
 
 function normalizeInvalidReferenceDetail(value: unknown): InvalidReferenceDetailPayload {
@@ -730,6 +900,18 @@ function normalizeFeatureTree(value: unknown): DocumentSnapshot['featureTree'] {
       sourceFeatureId: entry.sourceFeatureId === null ? null : assertFeatureId(entry.sourceFeatureId),
     }
   })
+}
+
+function normalizeDocumentPresentation(value: unknown): DocumentSnapshot['presentation'] {
+  if (!isRecord(value)) {
+    throw new Error('Invalid document presentation payload.')
+  }
+
+  return {
+    featureTree: normalizeFeatureTree(value.featureTree),
+    objects: normalizeObjects(value.objects),
+    entities: normalizeEntities(value.entities),
+  }
 }
 
 function normalizeObjects(value: unknown): ObjectTreeNodeRecord[] {
@@ -1130,13 +1312,9 @@ function normalizeSketches(value: unknown): SketchSnapshotRecord[] {
       ...normalizeOwnership(entry),
       sketchId: assertSketchId(entry.sketchId),
       label: entry.label,
-      planeTarget: assertDurableRef(entry.planeTarget),
-      planeKey:
-        entry.planeKey === 'xy' || entry.planeKey === 'yz' || entry.planeKey === 'xz'
-          ? entry.planeKey
-          : (() => {
-              throw new Error('Invalid sketch plane key payload.')
-            })(),
+      plane: normalizeSketchPlaneDefinition(entry.plane),
+      planeTarget: assertSketchPlaneSupportRef(entry.planeTarget),
+      planeKey: normalizeSketchPlaneKey(entry.planeKey),
       sketch: normalizeSketchRecord(entry.sketch),
     }
   })
@@ -1151,6 +1329,7 @@ function normalizeSketchRecord(value: unknown): SketchRecord {
     ...normalizeOwnership(value),
     sketchId: assertSketchId(value.sketchId),
     label: value.label,
+    planeSupport: assertSketchPlaneSupportRef(value.planeSupport),
     definition: normalizeSketchDefinition(value.definition),
     solvedSnapshot: normalizeSolvedSketchSnapshot(value.solvedSnapshot),
     regions: normalizeRegionRecords(value.regions),
@@ -1454,13 +1633,9 @@ function normalizeSolvedSketchSnapshot(value: unknown): SolvedSketchSnapshot {
   if (
     !isRecord(value) ||
     value.schemaVersion !== 'solved-sketch/v1alpha1' ||
-    (value.status !== 'unsolved' &&
-      value.status !== 'solved' &&
-      value.status !== 'underConstrained' &&
-      value.status !== 'fullyConstrained' &&
-      value.status !== 'overConstrained' &&
-      value.status !== 'inconsistent' &&
-      value.status !== 'partiallySolved') ||
+    !isRecord(value.status) ||
+    !isString(value.status.solveState) ||
+    !isString(value.status.constraintState) ||
     !Array.isArray(value.solvedEntities) ||
     !Array.isArray(value.solvedPoints) ||
     !Array.isArray(value.constraintStatuses) ||
@@ -1472,7 +1647,23 @@ function normalizeSolvedSketchSnapshot(value: unknown): SolvedSketchSnapshot {
 
   return {
     schemaVersion: value.schemaVersion,
-    status: value.status,
+    status: {
+      solveState:
+        value.status.solveState === 'notEvaluated'
+        || value.status.solveState === 'solved'
+        || value.status.solveState === 'partiallySolved'
+        || value.status.solveState === 'failed'
+          ? value.status.solveState
+          : (() => { throw new Error('Invalid solved sketch solve state payload.') })(),
+      constraintState:
+        value.status.constraintState === 'unknown'
+        || value.status.constraintState === 'underConstrained'
+        || value.status.constraintState === 'wellConstrained'
+        || value.status.constraintState === 'overConstrained'
+        || value.status.constraintState === 'inconsistent'
+          ? value.status.constraintState
+          : (() => { throw new Error('Invalid solved sketch constraint state payload.') })(),
+    },
     solvedEntities: value.solvedEntities.map((entity) => normalizeSolvedSketchEntityGeometry(entity)),
     solvedPoints: value.solvedPoints.map((point) => {
       if (
@@ -1679,8 +1870,7 @@ function normalizeRegionRecords(value: unknown): RegionRecord[] {
       !isString(region.label) ||
       !isRecord(region.target) ||
       !isRecord(region.sourceSketch) ||
-      !Array.isArray(region.boundaryEntityIds) ||
-      !Array.isArray(region.boundaryPointIds) ||
+      !Array.isArray(region.loops) ||
       typeof region.isClosed !== 'boolean'
     ) {
       throw new Error('Invalid region record payload.')
@@ -1692,8 +1882,58 @@ function normalizeRegionRecords(value: unknown): RegionRecord[] {
       label: region.label,
       target: assertPrimitiveRef(region.target) as RegionRecord['target'],
       sourceSketch: assertPrimitiveRef(region.sourceSketch) as RegionRecord['sourceSketch'],
-      boundaryEntityIds: region.boundaryEntityIds.map((entityId) => assertSketchEntityId(entityId)),
-      boundaryPointIds: region.boundaryPointIds.map((pointId) => assertSketchPointId(pointId)),
+      loops: region.loops.map((loop) => {
+        if (
+          !isRecord(loop)
+          || !isString(loop.loopId)
+          || (loop.role !== 'outer' && loop.role !== 'inner')
+          || (loop.orientation !== 'clockwise' && loop.orientation !== 'counterClockwise')
+          || !Array.isArray(loop.segments)
+          || !Array.isArray(loop.boundaryPointIds)
+          || typeof loop.isClosed !== 'boolean'
+        ) {
+          throw new Error('Invalid region loop payload.')
+        }
+
+        return {
+          loopId: loop.loopId as RegionRecord['loops'][number]['loopId'],
+          role: loop.role,
+          orientation: loop.orientation,
+          segments: loop.segments.map((segment) => {
+            if (!isRecord(segment) || !isRecord(segment.source) || !isString(segment.source.kind)) {
+              throw new Error('Invalid region boundary segment payload.')
+            }
+
+            return {
+              source:
+                segment.source.kind === 'entity'
+                  ? {
+                      kind: 'entity' as const,
+                      entityId: assertSketchEntityId(segment.source.entityId),
+                    }
+                  : segment.source.kind === 'projectedGeometry'
+                    ? {
+                        kind: 'projectedGeometry' as const,
+                        reference: {
+                          referenceId:
+                            isRecord(segment.source.reference) && isString(segment.source.reference.referenceId)
+                              ? segment.source.reference.referenceId as import('@/contracts/shared/ids').ReferenceId
+                              : (() => { throw new Error('Invalid projected geometry reference ID payload.') })(),
+                          geometryId:
+                            isRecord(segment.source.reference) && isString(segment.source.reference.geometryId)
+                              ? segment.source.reference.geometryId as import('@/contracts/shared/ids').ProjectedGeometryId
+                              : (() => { throw new Error('Invalid projected geometry geometry ID payload.') })(),
+                        },
+                      }
+                    : (() => { throw new Error('Invalid region boundary source payload.') })(),
+              startPointId: segment.startPointId === null ? null : assertSketchPointId(segment.startPointId),
+              endPointId: segment.endPointId === null ? null : assertSketchPointId(segment.endPointId),
+            }
+          }),
+          boundaryPointIds: loop.boundaryPointIds.map((pointId) => assertSketchPointId(pointId)),
+          isClosed: loop.isClosed,
+        }
+      }),
       isClosed: region.isClosed,
     }
   })
@@ -1844,6 +2084,49 @@ function normalizeEntities(value: unknown): SnapshotEntityRecord[] {
   })
 }
 
+function normalizeKernelDocumentSnapshot(value: unknown): KernelDocumentSnapshot {
+  if (
+    !isRecord(value)
+    || !isString(value.documentId)
+    || !isString(value.revisionId)
+  ) {
+    throw new Error('Invalid kernel document snapshot payload.')
+  }
+
+  return {
+    contractVersion:
+      value.contractVersion === CONTRACT_VERSION
+        ? value.contractVersion
+        : (() => { throw new Error('Invalid kernel snapshot contract version payload.') })(),
+    schemaVersion:
+      value.schemaVersion === SNAPSHOT_SCHEMA_VERSION
+        ? value.schemaVersion
+        : (() => { throw new Error('Invalid kernel snapshot schema version payload.') })(),
+    documentId: assertDocumentId(value.documentId),
+    revisionId: assertRevisionId(value.revisionId),
+    settings: normalizeModelingDocumentSettings(value.settings),
+    capabilities: normalizeModelingKernelCapabilities(value.capabilities),
+    features: normalizeFeatures(value.features),
+    sketches: normalizeSketches(value.sketches),
+    bodies: normalizeBodies(value.bodies),
+    constructions: normalizeConstructions(value.constructions),
+    references: normalizeReferences(value.references),
+    diagnostics: normalizeDiagnostics(value.diagnostics),
+    render: normalizeRenderExport(value.render),
+  }
+}
+
+function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot {
+  if (!isRecord(value)) {
+    throw new Error('Invalid workspace snapshot payload.')
+  }
+
+  return {
+    document: normalizeKernelDocumentSnapshot(value.document),
+    presentation: normalizeDocumentPresentation(value.presentation),
+  }
+}
+
 function normalizeChangedTargets(value: unknown): PrimitiveRef[] {
   if (!Array.isArray(value)) {
     throw new Error('Invalid changed target payload.')
@@ -1902,9 +2185,9 @@ function validateSnapshotResponse(
   response: GetDocumentSnapshotResponse,
   expectedDocumentId: DocumentId,
 ): DocumentSnapshot {
-  assertKernelContractVersion(response.snapshot.contractVersion)
-  assertSnapshotSchemaVersion(response.snapshot.schemaVersion)
-  assertKernelDocumentIdMatches(response.snapshot.documentId, expectedDocumentId, 'Snapshot')
+  assertKernelContractVersion(response.snapshot.document.contractVersion)
+  assertSnapshotSchemaVersion(response.snapshot.document.schemaVersion)
+  assertKernelDocumentIdMatches(response.snapshot.document.documentId, expectedDocumentId, 'Snapshot')
   return response.snapshot
 }
 

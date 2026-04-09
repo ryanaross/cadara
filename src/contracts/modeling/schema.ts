@@ -18,11 +18,19 @@ import type {
 } from '@/contracts/shared/ids'
 import type { OwnershipRecord } from '@/contracts/shared/diagnostics'
 import type { DurableRef } from '@/contracts/shared/references'
+import type {
+  SketchPlaneDefinition,
+  SketchPlaneKey,
+  SketchPlaneSupportRef,
+} from '@/contracts/shared/sketch-plane'
 import type { SketchPoint2D, SketchRecord } from '@/contracts/sketch/schema'
 import type { RenderExport } from '@/contracts/render/schema'
 import type {
   ContractVersion,
-  FeatureTypeVersion,
+  ExtrudeFeatureSchemaVersion,
+  FilletFeatureSchemaVersion,
+  PlaneFeatureSchemaVersion,
+  RevolveFeatureSchemaVersion,
   SnapshotSchemaVersion,
 } from '@/contracts/shared/versioning'
 
@@ -32,10 +40,10 @@ export type { PreviewId }
 export type { ReferenceId }
 /** Canonical durable reference union accepted throughout the modeling boundary. */
 export type PrimitiveRef = DurableRef
-/** Canonical orientation key for standard datum planes. */
-export type SketchPlaneKey = 'xy' | 'yz' | 'xz'
+/** Re-exported sketch-plane support and placement types used by modeling APIs. */
+export type { SketchPlaneDefinition, SketchPlaneKey, SketchPlaneSupportRef }
 /** Boolean policy applied to feature results during rebuild. */
-export type FeatureBooleanOperation = 'newBody' | 'add' | 'remove'
+export type FeatureBooleanOperation = 'newBody' | 'join' | 'cut' | 'intersect'
 /** Sketch-space 2D point alias used by historical modeling helpers. */
 export type SketchPoint = SketchPoint2D
 
@@ -44,6 +52,36 @@ export type SketchPoint = SketchPoint2D
  * This union is closed so callers cannot invent feature types ad hoc.
  */
 export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve'
+
+/**
+ * Explicit kernel capability matrix for the current contract revision.
+ * Implementers must advertise support here instead of relying on rejection
+ * diagnostics alone to communicate what is actually runnable.
+ */
+export interface ModelingKernelCapabilities {
+  /** Feature kinds the kernel can commit durably at this contract version. */
+  supportedFeatureKinds: FeatureKind[]
+  /** Feature kinds the kernel can evaluate as transient previews. */
+  previewableFeatureKinds: FeatureKind[]
+  /** Sketch profile seed kinds accepted by profile-based solid features. */
+  supportedProfileKinds: ExtrudeProfileRef['kind'][]
+  /** True when sketch commits may target planar body faces directly. */
+  supportsFaceBackedSketchPlanes: boolean
+  /** True when the kernel can preserve and resolve durable topology identities. */
+  supportsDurableTopologyNaming: boolean
+}
+
+/**
+ * Explicit document-level modeling policy needed by kernels and callers.
+ */
+export interface ModelingDocumentSettings {
+  /** Linear unit used for all feature distances and world-space geometry. */
+  linearUnit: 'millimeter'
+  /** Absolute modeling tolerance used for 3D geometric decisions. */
+  modelingTolerance: number
+  /** Angular modeling tolerance in radians. */
+  angularToleranceRadians: number
+}
 
 /**
  * Durable reference accepted as an extrude profile seed.
@@ -57,20 +95,48 @@ export type ExtrudeProfileRef =
   | { kind: 'face'; bodyId: BodyId; faceId: FaceId }
 
 /**
+ * Explicit participant scope for boolean feature evaluation.
+ * Kernels must not infer boolean participants from hidden selection state.
+ */
+export type FeatureBooleanScope =
+  | {
+      /** Create a standalone result body without consuming existing bodies. */
+      kind: 'standalone'
+    }
+  | {
+      /** Apply the boolean to one explicit durable body. */
+      kind: 'targetBody'
+      bodyId: BodyId
+    }
+  | {
+      /** Apply the boolean to the explicit ordered set of durable bodies. */
+      kind: 'targetBodies'
+      bodyIds: readonly BodyId[]
+    }
+
+/**
  * Fully typed extrude parameters.
  * `profile` is the single authoritative seed reference; callers must not repeat
  * the same meaning in side-band generic arrays.
- * `depth` is expressed in document modeling units and must be strictly positive.
+ * `extent.distance` is expressed in document modeling units and must be strictly positive.
  */
 export interface ExtrudeFeatureParameters {
   /** Single authoritative profile seed for the extrude operation. */
   profile: ExtrudeProfileRef
-  /** Positive extrusion distance in document modeling units. */
-  depth: number
-  /** Direction policy for this schema version. */
-  direction: 'oneSided'
+  /** Deprecated alias for the end extent retained for transitional consumers. */
+  extent?: { kind: 'blind'; direction: 'positive' | 'negative'; distance: number }
+  /** Explicit start condition for the extrusion path. */
+  startExtent: { kind: 'profilePlane' }
+  /** Explicit end condition with signed side selection and positive distance. */
+  endExtent: { kind: 'blind'; direction: 'positive' | 'negative'; distance: number }
+  /** Deprecated alias for `extent.distance`. */
+  depth?: number
+  /** Deprecated alias for `extent.kind === "blind"` plus positive direction. */
+  direction?: 'oneSided'
   /** Boolean behavior applied to the extrude result. */
   operation: FeatureBooleanOperation
+  /** Explicit participant scope for non-standalone boolean operations. */
+  booleanScope: FeatureBooleanScope
 }
 
 /**
@@ -142,10 +208,16 @@ export interface RevolveFeatureParameters {
   profile: RevolveProfileRef
   /** Explicit axis reference used by the revolve. */
   axis: RevolveAxisRef
-  /** Rotation angle in document modeling units. */
-  angle: number
+  /** Explicit start angle in radians from the profile's zero-angle pose. */
+  startAngle: number
+  /** Explicit angular extent in radians with declared sweep direction. */
+  extent: { kind: 'angle'; direction: 'clockwise' | 'counterClockwise'; radians: number }
+  /** Deprecated alias for `extent.radians`. */
+  angle?: number
   /** Boolean behavior applied to the revolve result. */
   operation: FeatureBooleanOperation
+  /** Explicit participant scope for non-standalone boolean operations. */
+  booleanScope: FeatureBooleanScope
 }
 
 /**
@@ -157,7 +229,7 @@ export type FeatureDefinition =
       /** Stable discriminant for extrude features. */
       kind: 'extrude'
       /** Per-variant schema version owned by the extrude contract family. */
-      featureTypeVersion: FeatureTypeVersion
+      featureTypeVersion: ExtrudeFeatureSchemaVersion
       /** Exact rebuild inputs owned by this extrude feature instance. */
       parameters: ExtrudeFeatureParameters
     }
@@ -165,7 +237,7 @@ export type FeatureDefinition =
       /** Stable discriminant for fillet features. */
       kind: 'fillet'
       /** Per-variant schema version owned by the fillet contract family. */
-      featureTypeVersion: FeatureTypeVersion
+      featureTypeVersion: FilletFeatureSchemaVersion
       /** Exact rebuild inputs owned by this fillet feature instance. */
       parameters: FilletFeatureParameters
     }
@@ -173,7 +245,7 @@ export type FeatureDefinition =
       /** Stable discriminant for plane features. */
       kind: 'plane'
       /** Per-variant schema version owned by the plane contract family. */
-      featureTypeVersion: FeatureTypeVersion
+      featureTypeVersion: PlaneFeatureSchemaVersion
       /** Exact rebuild inputs owned by this plane feature instance. */
       parameters: PlaneFeatureParameters
     }
@@ -181,7 +253,7 @@ export type FeatureDefinition =
       /** Stable discriminant for revolve features. */
       kind: 'revolve'
       /** Per-variant schema version owned by the revolve contract family. */
-      featureTypeVersion: FeatureTypeVersion
+      featureTypeVersion: RevolveFeatureSchemaVersion
       /** Exact rebuild inputs owned by this revolve feature instance. */
       parameters: RevolveFeatureParameters
     }
@@ -445,10 +517,12 @@ export interface SketchSnapshotRecord extends SnapshotOwnershipRecord {
   sketchId: SketchId
   /** Human-readable sketch label. */
   label: string
-  /** Durable plane or planar reference that owns the sketch frame. */
-  planeTarget: PrimitiveRef
-  /** Canonical plane key used by current UI/view helpers. */
-  planeKey: SketchPlaneKey
+  /** Explicit plane support and frame used to interpret the sketch definition. */
+  plane: SketchPlaneDefinition
+  /** Deprecated convenience alias for `plane.support`. */
+  planeTarget: SketchPlaneSupportRef
+  /** Deprecated convenience alias for `plane.key`. */
+  planeKey: SketchPlaneKey | null
   /** Full authored, solved, and derived sketch payload for this snapshot row. */
   sketch: SketchRecord
 }
@@ -553,9 +627,12 @@ export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
 }
 
 /**
- * Canonical document snapshot payload for the current modeling boundary.
+ * Canonical durable kernel snapshot payload.
+ * This is the pure backend handoff shape: durable state, diagnostics, and
+ * renderer-neutral exports only. It intentionally excludes UI tree rows and
+ * other presentation-only view models.
  */
-export interface DocumentSnapshot {
+export interface KernelDocumentSnapshot {
   /** Shared top-level contract version for this snapshot payload. */
   contractVersion: ContractVersion
   /** Snapshot schema version used to encode this payload. */
@@ -564,6 +641,10 @@ export interface DocumentSnapshot {
   documentId: DocumentId
   /** Committed revision represented by every durable record in this payload. */
   revisionId: RevisionId
+  /** Explicit document-level units and tolerance policy for this revision. */
+  settings: ModelingDocumentSettings
+  /** Explicit runtime capability declaration for this kernel implementation. */
+  capabilities: ModelingKernelCapabilities
   /** Presentational feature-tree rows derived from durable state. */
   featureTree: FeatureTreeNodeRecord[]
   /** Presentational object-tree rows derived from durable state. */
@@ -585,6 +666,73 @@ export interface DocumentSnapshot {
   /** Renderer-neutral geometry export for this revision. */
   render: RenderExport
 }
+
+/**
+ * Presentation-only snapshot payload derived from one kernel snapshot.
+ * These records are workspace/editor view models rather than kernel-owned
+ * document state.
+ */
+export interface DocumentPresentationSnapshot {
+  /** Presentational feature-tree rows derived from durable state. */
+  featureTree: FeatureTreeNodeRecord[]
+  /** Presentational object-tree rows derived from durable state. */
+  objects: ObjectTreeNodeRecord[]
+  /** Presentational entity rows for selection and inspection surfaces. */
+  entities: SnapshotEntityRecord[]
+}
+
+/**
+ * Workspace snapshot consumed by the current app runtime.
+ * This wraps one pure kernel snapshot plus UI-derived presentation state.
+ */
+export interface WorkspaceSnapshot {
+  /** Pure durable kernel snapshot. */
+  document: KernelDocumentSnapshot
+  /** UI/view-model payload derived from `document`. */
+  presentation: DocumentPresentationSnapshot
+  /** Deprecated passthrough for `document.contractVersion`. */
+  contractVersion: KernelDocumentSnapshot['contractVersion']
+  /** Deprecated passthrough for `document.schemaVersion`. */
+  schemaVersion: KernelDocumentSnapshot['schemaVersion']
+  /** Deprecated passthrough for `document.documentId`. */
+  documentId: KernelDocumentSnapshot['documentId']
+  /** Deprecated passthrough for `document.revisionId`. */
+  revisionId: KernelDocumentSnapshot['revisionId']
+  /** Deprecated passthrough for `document.settings`. */
+  settings: KernelDocumentSnapshot['settings']
+  /** Deprecated passthrough for `document.capabilities`. */
+  capabilities: KernelDocumentSnapshot['capabilities']
+  /** Deprecated passthrough for `presentation.featureTree`. */
+  featureTree: DocumentPresentationSnapshot['featureTree']
+  /** Deprecated passthrough for `presentation.objects`. */
+  objects: DocumentPresentationSnapshot['objects']
+  /** Deprecated passthrough for `document.features`. */
+  features: KernelDocumentSnapshot['features']
+  /** Deprecated passthrough for `document.sketches`. */
+  sketches: KernelDocumentSnapshot['sketches']
+  /** Deprecated passthrough for `document.bodies`. */
+  bodies: KernelDocumentSnapshot['bodies']
+  /** Deprecated passthrough for `document.constructions`. */
+  constructions: KernelDocumentSnapshot['constructions']
+  /** Deprecated passthrough for `presentation.entities`. */
+  entities: DocumentPresentationSnapshot['entities']
+  /** Deprecated passthrough for `document.references`. */
+  references: KernelDocumentSnapshot['references']
+  /** Deprecated passthrough for `document.diagnostics`. */
+  diagnostics: KernelDocumentSnapshot['diagnostics']
+  /** Deprecated passthrough for `document.render`. */
+  render: KernelDocumentSnapshot['render']
+}
+
+/** Backward-compatible helper aliases for the split snapshot families. */
+export type DocumentPresentation = DocumentPresentationSnapshot
+/** Backward-compatible helper aliases for the split snapshot families. */
+export type KernelSnapshot = KernelDocumentSnapshot
+
+/**
+ * Backward-compatible alias used by the current app runtime.
+ */
+export type DocumentSnapshot = WorkspaceSnapshot
 
 /**
  * Base request envelope for all modeling operations.
@@ -641,7 +789,7 @@ export type GetDocumentSnapshotRequest = BaseDocumentRequest
 export interface GetDocumentSnapshotResponse {
   /** Shared top-level contract version used to encode this result. */
   contractVersion: ContractVersion
-  /** Full typed snapshot payload for the requested document. */
+  /** Full workspace snapshot payload for the requested document. */
   snapshot: DocumentSnapshot
 }
 
@@ -738,10 +886,12 @@ export interface CommitSketchRequest extends DocumentMutationRequest {
   sketchId: SketchId | null
   /** Human-readable sketch label owned by the caller. */
   sketchLabel: string
-  /** Durable plane or planar reference that owns the sketch frame. */
-  planeTarget: PrimitiveRef
-  /** Canonical plane key used by current UI/view helpers. */
-  planeKey: SketchPlaneKey
+  /** Explicit plane support and embedding for the committed sketch definition. */
+  plane: SketchPlaneDefinition
+  /** Deprecated convenience alias for `plane.support`. */
+  planeTarget: SketchPlaneSupportRef
+  /** Deprecated convenience alias for `plane.key`. */
+  planeKey: SketchPlaneKey | null
   /** Full authored sketch graph submitted for solve and commit. */
   definition: SketchRecord['definition']
 }

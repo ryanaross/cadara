@@ -12,10 +12,38 @@ export type ContractVersion = 'modeling-contract/v1alpha1'
 export type SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
 
 /**
- * Feature authoring schema version.
- * This version applies to typed feature-definition variants.
+ * Versioned schema for extrude feature definitions.
  */
-export type FeatureTypeVersion = 'feature-type/v1alpha1'
+export type ExtrudeFeatureSchemaVersion = 'feature-type/extrude/v1alpha1'
+
+/**
+ * Versioned schema for fillet feature definitions.
+ */
+export type FilletFeatureSchemaVersion = 'feature-type/fillet/v1alpha1'
+
+/**
+ * Versioned schema for plane feature definitions.
+ */
+export type PlaneFeatureSchemaVersion = 'feature-type/plane/v1alpha1'
+
+/**
+ * Versioned schema for revolve feature definitions.
+ */
+export type RevolveFeatureSchemaVersion = 'feature-type/revolve/v1alpha1'
+
+/**
+ * Closed union of all feature-definition schema versions.
+ */
+export type FeatureTypeVersion =
+  | ExtrudeFeatureSchemaVersion
+  | FilletFeatureSchemaVersion
+  | PlaneFeatureSchemaVersion
+  | RevolveFeatureSchemaVersion
+
+/**
+ * Legacy generic feature-definition schema version retained for transitional callers.
+ */
+export type LegacyFeatureTypeVersion = 'feature-type/v1alpha1'
 
 /**
  * Render export payload schema version.
@@ -34,9 +62,30 @@ export const CONTRACT_VERSION: ContractVersion = 'modeling-contract/v1alpha1'
 export const SNAPSHOT_SCHEMA_VERSION: SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
 
 /**
- * Current feature type schema version literal.
+ * Current extrude feature schema version literal.
  */
-export const FEATURE_TYPE_VERSION: FeatureTypeVersion = 'feature-type/v1alpha1'
+export const EXTRUDE_FEATURE_SCHEMA_VERSION: ExtrudeFeatureSchemaVersion = 'feature-type/extrude/v1alpha1'
+
+/**
+ * Current fillet feature schema version literal.
+ */
+export const FILLET_FEATURE_SCHEMA_VERSION: FilletFeatureSchemaVersion = 'feature-type/fillet/v1alpha1'
+
+/**
+ * Current plane feature schema version literal.
+ */
+export const PLANE_FEATURE_SCHEMA_VERSION: PlaneFeatureSchemaVersion = 'feature-type/plane/v1alpha1'
+
+/**
+ * Current revolve feature schema version literal.
+ */
+export const REVOLVE_FEATURE_SCHEMA_VERSION: RevolveFeatureSchemaVersion = 'feature-type/revolve/v1alpha1'
+
+/**
+ * Legacy alias retained for older callers that still import one generic
+ * feature-type constant. New code should use the per-feature constants above.
+ */
+export const FEATURE_TYPE_VERSION: LegacyFeatureTypeVersion = 'feature-type/v1alpha1'
 
 /**
  * Current render export schema version literal.

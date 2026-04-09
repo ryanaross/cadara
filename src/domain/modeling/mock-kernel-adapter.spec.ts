@@ -3,6 +3,10 @@ import { modelingRuntimeValidators } from './modeling-service'
 import { resolvePickTarget } from '@/domain/workspace/render-picking'
 import * as THREE from 'three'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import {
+  EXTRUDE_FEATURE_SCHEMA_VERSION,
+  PLANE_FEATURE_SCHEMA_VERSION,
+} from '@/contracts/shared/versioning'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -31,12 +35,15 @@ async function testExtrudePreviewDependsOnDefinition() {
     previewId: 'preview_extrude_valid',
     definition: {
       kind: 'extrude',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
         profile: existingExtrude.definition.parameters.profile,
+        startExtent: { kind: 'profilePlane' },
+        endExtent: { kind: 'blind', direction: 'positive', distance: 12 },
         depth: 12,
         direction: 'oneSided',
         operation: 'newBody',
+        booleanScope: { kind: 'standalone' },
       },
     },
   })
@@ -72,12 +79,15 @@ async function testExtrudePreviewDependsOnDefinition() {
     previewId: 'preview_extrude_invalid',
     definition: {
       kind: 'extrude',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
         profile: existingExtrude.definition.parameters.profile,
+        startExtent: { kind: 'profilePlane' },
+        endExtent: { kind: 'blind', direction: 'positive', distance: 0 },
         depth: 0,
         direction: 'oneSided',
         operation: 'newBody',
+        booleanScope: { kind: 'standalone' },
       },
     },
   })
@@ -98,7 +108,7 @@ async function testUnsupportedFeatureDefinitionsAreRejectedByMock() {
     baseRevisionId: 'rev_0001',
     definition: {
       kind: 'plane',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: PLANE_FEATURE_SCHEMA_VERSION,
       parameters: {
         mode: 'coplanar',
         reference: {
@@ -140,9 +150,11 @@ async function testMutationResponsesReportRebuildResults() {
     baseRevisionId: 'rev_0001',
     definition: {
       kind: 'extrude',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
         ...extrude.definition.parameters,
+        startExtent: { kind: 'profilePlane' },
+        endExtent: { kind: 'blind', direction: 'positive', distance: 8 },
         depth: 8,
       },
     },
@@ -188,9 +200,11 @@ async function testAcceptedCreateMutatesCommittedSnapshot() {
     baseRevisionId: before.snapshot.revisionId,
     definition: {
       kind: 'extrude',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
         ...seedExtrude.definition.parameters,
+        startExtent: { kind: 'profilePlane' },
+        endExtent: { kind: 'blind', direction: 'positive', distance: 16 },
         depth: 16,
       },
     },
@@ -236,6 +250,7 @@ async function testAcceptedSketchCommitMutatesCommittedSnapshot() {
     },
     sketchId: 'sketch_phase8',
     sketchLabel: 'Phase 8 Sketch',
+    plane: sourceSketch.plane,
     planeTarget: sourceSketch.planeTarget,
     planeKey: sourceSketch.planeKey,
     definition: sourceSketch.sketch.definition,
@@ -269,7 +284,7 @@ async function testMissingMutationTargetsAreRejected() {
     featureId: 'feature_missing',
     definition: {
       kind: 'plane',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: PLANE_FEATURE_SCHEMA_VERSION,
       parameters: {
         mode: 'coplanar',
         reference: {
@@ -309,7 +324,7 @@ async function testPreviewStalenessReportsObservedRevision() {
     previewId: 'preview_stale_1',
     definition: {
       kind: 'plane',
-      featureTypeVersion: 'feature-type/v1alpha1',
+      featureTypeVersion: PLANE_FEATURE_SCHEMA_VERSION,
       parameters: {
         mode: 'coplanar',
         reference: {
