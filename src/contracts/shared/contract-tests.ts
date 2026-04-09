@@ -7,6 +7,8 @@ import type {
 } from '@/contracts/shared/ids'
 import type { DurableRef } from '@/contracts/shared/references'
 import type { ModelingKernelAdapter } from '@/contracts/modeling/adapter'
+import type { SketchSolverAdapter as SketchSolverAdapterFromBarrel } from '@/contracts/solver'
+import type { SketchSolverAdapter as SketchSolverAdapterDirect } from '@/contracts/solver/adapter'
 import type {
   CreateFeatureRequest,
   DocumentSnapshot,
@@ -84,8 +86,31 @@ type NonTopologicalBindingsAreExplicit = Assert<
 >
 
 type SharedIdsModule = typeof import('@/contracts/shared/ids')
+type SharedBarrelModule = typeof import('@/contracts/shared')
+type SketchBarrelModule = typeof import('@/contracts/sketch')
+type SolverBarrelModule = typeof import('@/contracts/solver')
 type SharedIdsDoNotLeakSketchPrimitiveId = Assert<
   Equals<'SketchPrimitiveId' extends keyof SharedIdsModule ? true : false, false>
+>
+
+type SharedBarrelExportsIdentityPolicyVersion = Assert<
+  Equals<'IDENTITY_POLICY_VERSION' extends keyof SharedBarrelModule ? true : false, true>
+>
+
+type SharedBarrelExportsContractVersion = Assert<
+  Equals<'CONTRACT_VERSION' extends keyof SharedBarrelModule ? true : false, true>
+>
+
+type SketchBarrelExportsSketchSchemaVersion = Assert<
+  Equals<'SKETCH_SCHEMA_VERSION' extends keyof SketchBarrelModule ? true : false, true>
+>
+
+type SolverBarrelExportsSchemaVersion = Assert<
+  Equals<'SOLVER_SCHEMA_VERSION' extends keyof SolverBarrelModule ? true : false, true>
+>
+
+type SolverBarrelExportsAdapterInterface = Assert<
+  Equals<SketchSolverAdapterFromBarrel, SketchSolverAdapterDirect>
 >
 
 type KernelSnapshotBoundaryIsTyped = Assert<
@@ -147,6 +172,11 @@ export const CONTRACT_TYPE_TESTS: readonly [
   RenderGeometryUnionIsSemanticExport,
   NonTopologicalBindingsAreExplicit,
   SharedIdsDoNotLeakSketchPrimitiveId,
+  SharedBarrelExportsIdentityPolicyVersion,
+  SharedBarrelExportsContractVersion,
+  SketchBarrelExportsSketchSchemaVersion,
+  SolverBarrelExportsSchemaVersion,
+  SolverBarrelExportsAdapterInterface,
   KernelSnapshotBoundaryIsTyped,
   FeatureDefinitionIsClosedUnion,
   CreateFeatureUsesTypedDefinition,
@@ -157,4 +187,4 @@ export const CONTRACT_TYPE_TESTS: readonly [
   SnapshotEntitiesUseCanonicalRefs,
   SnapshotReferencesAreModelingOwned,
   SnapshotRenderUsesRenderContract,
-] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]
+] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true]

@@ -5,6 +5,7 @@ import type {
   ConstraintId,
   FaceId,
   DimensionId,
+  FeatureId,
   FeatureTreeNodeId,
   ObjectTreeNodeId,
   PickId,
@@ -1298,7 +1299,7 @@ function getSelectionSemanticsForTarget(target: SnapshotEntityRecord['target']):
 function updateFeatureEntityRelationship(
   snapshot: DocumentSnapshot,
   featureId: FeatureId,
-  changedTargets: PrimitiveRef[],
+  changedTargets: DurableRef[],
 ) {
   const changedKeys = new Set(changedTargets.map((target) => getPrimitiveRefKey(target)))
 

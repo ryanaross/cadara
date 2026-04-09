@@ -5,6 +5,8 @@ import type {
   EvaluatePreviewRequest,
   ResolveReferenceResponse,
   ResolveReferenceRequest,
+  UpdateFeatureRequest,
+  UpdateFeatureResponse,
 } from '@/contracts/modeling/schema'
 import type { RenderExport } from '@/contracts/render/schema'
 import type {
@@ -383,6 +385,66 @@ const resolveDeadReferenceResponse: ResolveReferenceResponse = {
   diagnostics: [],
 }
 
+const topologyChangingRebuildRequest: UpdateFeatureRequest = {
+  contractVersion: CONTRACT_VERSION,
+  documentId: 'doc_workspace',
+  baseRevisionId: 'rev_8',
+  featureId: 'feature_extrude_1',
+  definition: {
+    kind: 'extrude',
+    featureTypeVersion: FEATURE_TYPE_VERSION,
+    parameters: {
+      profile: {
+        kind: 'region',
+        sketchId: 'sketch_profile',
+        regionId: 'region_outer',
+      },
+      depth: 18,
+      direction: 'oneSided',
+      operation: 'newBody',
+    },
+  },
+}
+
+const topologyChangingRebuildResponse: UpdateFeatureResponse = {
+  contractVersion: CONTRACT_VERSION,
+  documentId: 'doc_workspace',
+  revisionId: 'rev_9',
+  revisionState: {
+    kind: 'accepted',
+    baseRevisionId: 'rev_8',
+  },
+  rebuildResult: {
+    kind: 'rebuilt',
+    revisionId: 'rev_9',
+    invalidatedTargets: [
+      {
+        kind: 'face',
+        bodyId: 'body_main',
+        faceId: 'face_side_1',
+      },
+    ],
+    diagnostics: [],
+  },
+  changedTargets: [
+    {
+      kind: 'feature',
+      featureId: 'feature_extrude_1',
+    },
+    {
+      kind: 'body',
+      bodyId: 'body_main',
+    },
+    {
+      kind: 'face',
+      bodyId: 'body_main',
+      faceId: 'face_top',
+    },
+  ],
+  diagnostics: [],
+  featureId: 'feature_extrude_1',
+}
+
 const renderMeshWithBindingsExample: RenderExport = {
   schemaVersion: RENDER_EXPORT_SCHEMA_VERSION,
   records: [
@@ -446,6 +508,20 @@ function testResolveDeadReferenceExampleIsExplicit() {
   assert(resolveDeadReferenceResponse.resolution.ownerRevisionId === 'rev_8', 'Dead-reference response must carry explicit ownership context.')
 }
 
+function testTopologyChangingRebuildExampleSeparatesPreservedAndInvalidatedTargets() {
+  assert(topologyChangingRebuildRequest.baseRevisionId === 'rev_8', 'Topology-changing rebuild example must declare the exact base revision.')
+  assert(topologyChangingRebuildResponse.revisionState.kind === 'accepted', 'Topology-changing rebuild example must report explicit revision acceptance.')
+  assert(topologyChangingRebuildResponse.rebuildResult.kind === 'rebuilt', 'Topology-changing rebuild example must report a rebuilt result.')
+  assert(topologyChangingRebuildResponse.rebuildResult.invalidatedTargets.length === 1, 'Topology-changing rebuild example must surface invalidated durable targets explicitly.')
+  assert(topologyChangingRebuildResponse.rebuildResult.invalidatedTargets[0]?.kind === 'face', 'Topology-changing rebuild example must invalidate the exact durable face that died in the rebuild.')
+  assert(
+    topologyChangingRebuildResponse.changedTargets.some(
+      (target) => target.kind === 'face' && target.faceId === 'face_top',
+    ),
+    'Topology-changing rebuild example must preserve unaffected topology through explicit durable refs.',
+  )
+}
+
 function testRenderMeshWithBindingsExampleIsSelectionCapable() {
   const record = renderMeshWithBindingsExample.records[0]
 
@@ -462,5 +538,6 @@ testSolveSketchExampleIsFullyTyped()
 testCreateExtrudeExampleUsesTypedProfileRef()
 testPreviewExtrudeExampleReusesFeatureDefinition()
 testResolveDeadReferenceExampleIsExplicit()
+testTopologyChangingRebuildExampleSeparatesPreservedAndInvalidatedTargets()
 testRenderMeshWithBindingsExampleIsSelectionCapable()
 testSolvedSketchVersionLiteralRemainsDocumented()
