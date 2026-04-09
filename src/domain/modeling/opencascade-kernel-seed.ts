@@ -282,7 +282,7 @@ export function createSeedSketchCommitRequest(): Pick<
   const plane = createStandardPlaneDefinition('xy')
 
   return {
-    sketchId: OCC_KERNEL_PRIMARY_SKETCH_ID,
+    sketchId: null,
     sketchLabel: 'Sketch 1',
     plane,
     planeTarget: plane.support,
