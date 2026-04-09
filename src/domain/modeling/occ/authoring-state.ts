@@ -1,0 +1,186 @@
+import type { FeatureDefinition, SketchSnapshotRecord, SnapshotEntityRecord } from '@/contracts/modeling/schema'
+import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import type { ConstructionId, FeatureId } from '@/contracts/shared/ids'
+import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
+import {
+  OCC_KERNEL_DOCUMENT_ID,
+  OCC_KERNEL_INITIAL_REVISION_ID,
+  OCC_KERNEL_SETTINGS,
+  createStandardPlaneDefinition,
+} from '@/domain/modeling/opencascade-kernel-seed'
+import {
+  createConstructionPresentationArtifacts,
+  executeOccFeature,
+  type OccFeatureExecutionContext,
+  type OccFeatureExecutionResult,
+} from '@/domain/modeling/occ/features'
+import type { OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
+import type { OccTrackedBody } from '@/domain/modeling/occ/topology'
+
+export interface OccAuthoringFeatureRecord {
+  featureId: FeatureId
+  definition: FeatureDefinition
+}
+
+export interface OccAuthoringState extends OccFeatureExecutionContext {
+  baseBodies: readonly OccTrackedBody[]
+  baseConstructions: OccFeatureExecutionContext['constructions']
+  baseConstructionPlanes: ReadonlyMap<ConstructionId, SketchPlaneDefinition>
+  features: readonly OccAuthoringFeatureRecord[]
+  entities: readonly SnapshotEntityRecord[]
+  renderRecords: readonly RenderableEntityRecord[]
+}
+
+function createStandardConstructionState(
+  documentId: OccFeatureExecutionContext['documentId'],
+  revisionId: OccFeatureExecutionContext['revisionId'],
+) {
+  const standardPlanes = [
+    createStandardPlaneDefinition('xy'),
+    createStandardPlaneDefinition('yz'),
+    createStandardPlaneDefinition('xz'),
+  ]
+
+  return {
+    constructions: standardPlanes.map((plane) => {
+      const support = plane.support
+
+      if (support.kind !== 'construction') {
+        throw new Error('Expected standard OCC planes to be construction-backed.')
+      }
+
+      return {
+        ownerDocumentId: documentId,
+        ownerRevisionId: revisionId,
+        ownerFeatureId: null,
+        ownerSketchId: null,
+        ownerBodyId: null,
+        constructionId: support.constructionId,
+        label: support.constructionId,
+        constructionType: 'plane' as const,
+        target: { kind: 'construction' as const, constructionId: support.constructionId },
+      }
+    }),
+    constructionPlanes: new Map<ConstructionId, SketchPlaneDefinition>(
+      standardPlanes.map((plane) => {
+        const support = plane.support
+
+        if (support.kind !== 'construction') {
+          throw new Error('Expected standard OCC planes to be construction-backed.')
+        }
+
+        return [support.constructionId, plane]
+      }),
+    ),
+  }
+}
+
+export function createOccAuthoringState(
+  oc: OpenCascadeInstance,
+  input: {
+    sketches?: readonly SketchSnapshotRecord[]
+    bodies?: readonly OccTrackedBody[]
+    features?: readonly OccAuthoringFeatureRecord[]
+    constructions?: OccFeatureExecutionContext['constructions']
+    constructionPlanes?: ReadonlyMap<ConstructionId, SketchPlaneDefinition>
+    documentId?: OccFeatureExecutionContext['documentId']
+    revisionId?: OccFeatureExecutionContext['revisionId']
+    modelingTolerance?: number
+  } = {},
+): OccAuthoringState {
+  const documentId = input.documentId ?? OCC_KERNEL_DOCUMENT_ID
+  const revisionId = input.revisionId ?? OCC_KERNEL_INITIAL_REVISION_ID
+  const standardState = createStandardConstructionState(documentId, revisionId)
+  const constructionById = new Map<ConstructionId, OccFeatureExecutionContext['constructions'][number]>(
+    standardState.constructions.map((construction) => [construction.constructionId, construction]),
+  )
+
+  for (const construction of input.constructions ?? []) {
+    constructionById.set(construction.constructionId, construction)
+  }
+
+  const constructionPlanes = new Map<ConstructionId, SketchPlaneDefinition>([
+    ...standardState.constructionPlanes.entries(),
+    ...Array.from(input.constructionPlanes?.entries() ?? []),
+  ])
+  const baseConstructions = [...constructionById.values()]
+  const baseBodies = [...(input.bodies ?? [])]
+
+  return {
+    oc,
+    documentId,
+    revisionId,
+    modelingTolerance: input.modelingTolerance ?? OCC_KERNEL_SETTINGS.modelingTolerance,
+    sketches: input.sketches ?? [],
+    constructions: baseConstructions,
+    constructionPlanes,
+    bodies: baseBodies,
+    baseBodies,
+    baseConstructions,
+    baseConstructionPlanes: constructionPlanes,
+    features: [...(input.features ?? [])],
+    entities: [],
+    renderRecords: [],
+  }
+}
+
+function applyFeatureResult(
+  state: OccAuthoringState,
+  feature: OccAuthoringFeatureRecord,
+  result: OccFeatureExecutionResult,
+): OccAuthoringState {
+  return {
+    ...state,
+    bodies: result.bodies,
+    constructions: result.constructions,
+    constructionPlanes: result.constructionPlanes,
+    features: [...state.features, feature],
+    entities: [...state.entities, ...result.entities],
+    renderRecords: [...state.renderRecords, ...result.renderRecords],
+  }
+}
+
+export function applyOccFeatureToAuthoringState(
+  state: OccAuthoringState,
+  feature: OccAuthoringFeatureRecord,
+) {
+  return applyFeatureResult(
+    state,
+    feature,
+    executeOccFeature(state, feature.featureId, feature.definition),
+  )
+}
+
+export function rebuildOccAuthoringState(
+  state: OccAuthoringState,
+  features: readonly OccAuthoringFeatureRecord[],
+) {
+  let current = createOccAuthoringState(state.oc, {
+    documentId: state.documentId,
+    revisionId: state.revisionId,
+    modelingTolerance: state.modelingTolerance,
+    sketches: state.sketches,
+    bodies: state.baseBodies,
+    constructions: state.baseConstructions,
+    constructionPlanes: state.baseConstructionPlanes,
+    features: [],
+  })
+
+  for (const feature of features) {
+    current = applyOccFeatureToAuthoringState(current, feature)
+  }
+
+  return current
+}
+
+export function buildOccConstructionPresentationForState(state: OccAuthoringState) {
+  return state.constructions.flatMap((construction) => {
+    const plane = state.constructionPlanes.get(construction.constructionId)
+
+    if (!plane) {
+      return []
+    }
+
+    return createConstructionPresentationArtifacts(state, construction, plane).renderRecords
+  })
+}
