@@ -18,6 +18,7 @@
     "test:occ-phase2": "bun x vite-node src/domain/modeling/occ/planes.spec.ts",
     "test:occ-phase3": "bun x vite-node src/domain/modeling/occ/sketch-profile.spec.ts",
     "test:occ-phase4": "bun x vite-node src/domain/modeling/occ/features.spec.ts",
+    "test:occ-phase5": "bun x vite-node src/domain/modeling/occ/topology.spec.ts",
     "test:contract-examples": "bun x vite-node src/contracts/shared/contract-examples.spec.ts"
   },
   "dependencies": {

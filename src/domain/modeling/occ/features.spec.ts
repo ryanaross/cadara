@@ -14,7 +14,7 @@ import {
 } from '@/domain/modeling/occ/authoring-state'
 import { buildConstructionPlaneFromPlanarFace } from '@/domain/modeling/occ/sketch-profile'
 import { getDefaultOpenCascadeInstance } from '@/domain/modeling/occ/runtime'
-import { trackSolidBody } from '@/domain/modeling/occ/topology'
+import { trackNewSolidBody } from '@/domain/modeling/occ/topology'
 import {
   OCC_KERNEL_DOCUMENT_ID,
   OCC_KERNEL_INITIAL_REVISION_ID,
@@ -300,7 +300,7 @@ async function makeBoxBody(
   box.Build(new oc.Message_ProgressRange_1())
   assert(box.IsDone(), 'Expected test box to build successfully.')
 
-  return trackSolidBody(oc, {
+  return trackNewSolidBody(oc, {
     bodyId,
     label: bodyId,
     ownerFeatureId,
@@ -712,7 +712,7 @@ async function testRevolveRejectsNonPlanarFaceProfilesExplicitly() {
   const cylinder = new oc.BRepPrimAPI_MakeCylinder_1(2, 5)
   cylinder.Build(new oc.Message_ProgressRange_1())
   assert(cylinder.IsDone(), 'Expected cylindrical body seed to build successfully.')
-  const body = trackSolidBody(oc, {
+  const body = trackNewSolidBody(oc, {
     bodyId: 'body_phase4_revolve_non_planar' as BodyId,
     label: 'non-planar',
     ownerFeatureId: 'feature_phase4_non_planar_seed' as FeatureId,

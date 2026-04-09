@@ -15,7 +15,11 @@ import {
   type OccFeatureExecutionResult,
 } from '@/domain/modeling/occ/features'
 import type { OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
-import type { OccTrackedBody } from '@/domain/modeling/occ/topology'
+import {
+  createOccReferenceState,
+  type OccReferenceState,
+  type OccTrackedBody,
+} from '@/domain/modeling/occ/topology'
 
 export interface OccAuthoringFeatureRecord {
   featureId: FeatureId
@@ -29,6 +33,7 @@ export interface OccAuthoringState extends OccFeatureExecutionContext {
   features: readonly OccAuthoringFeatureRecord[]
   entities: readonly SnapshotEntityRecord[]
   renderRecords: readonly RenderableEntityRecord[]
+  referenceState: OccReferenceState
 }
 
 function createStandardConstructionState(
@@ -86,6 +91,7 @@ export function createOccAuthoringState(
     documentId?: OccFeatureExecutionContext['documentId']
     revisionId?: OccFeatureExecutionContext['revisionId']
     modelingTolerance?: number
+    previousReferenceState?: OccReferenceState
   } = {},
 ): OccAuthoringState {
   const documentId = input.documentId ?? OCC_KERNEL_DOCUMENT_ID
@@ -105,22 +111,34 @@ export function createOccAuthoringState(
   ])
   const baseConstructions = [...constructionById.values()]
   const baseBodies = [...(input.bodies ?? [])]
+  const features = [...(input.features ?? [])]
+  const sketches = input.sketches ?? []
+  const referenceState = createOccReferenceState({
+    documentId,
+    revisionId,
+    bodies: baseBodies,
+    constructions: baseConstructions,
+    sketches,
+    features,
+    previous: input.previousReferenceState,
+  })
 
   return {
     oc,
     documentId,
     revisionId,
     modelingTolerance: input.modelingTolerance ?? OCC_KERNEL_SETTINGS.modelingTolerance,
-    sketches: input.sketches ?? [],
+    sketches,
     constructions: baseConstructions,
     constructionPlanes,
     bodies: baseBodies,
     baseBodies,
     baseConstructions,
     baseConstructionPlanes: constructionPlanes,
-    features: [...(input.features ?? [])],
+    features,
     entities: [],
     renderRecords: [],
+    referenceState,
   }
 }
 
@@ -129,14 +147,27 @@ function applyFeatureResult(
   feature: OccAuthoringFeatureRecord,
   result: OccFeatureExecutionResult,
 ): OccAuthoringState {
+  const features = [...state.features, feature]
+  const referenceState = createOccReferenceState({
+    documentId: state.documentId,
+    revisionId: state.revisionId,
+    bodies: result.bodies,
+    constructions: result.constructions,
+    sketches: state.sketches,
+    features,
+    previous: state.referenceState,
+    historyInvalidations: result.historyInvalidations,
+  })
+
   return {
     ...state,
     bodies: result.bodies,
     constructions: result.constructions,
     constructionPlanes: result.constructionPlanes,
-    features: [...state.features, feature],
+    features,
     entities: [...state.entities, ...result.entities],
     renderRecords: [...state.renderRecords, ...result.renderRecords],
+    referenceState,
   }
 }
 
@@ -164,6 +195,7 @@ export function rebuildOccAuthoringState(
     constructions: state.baseConstructions,
     constructionPlanes: state.baseConstructionPlanes,
     features: [],
+    previousReferenceState: state.referenceState,
   })
 
   for (const feature of features) {

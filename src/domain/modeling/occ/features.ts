@@ -38,7 +38,15 @@ import {
 } from '@/domain/modeling/occ/sketch-profile'
 import { normalize, scale, toGpVec } from '@/domain/modeling/occ/geometry'
 import type { OpenCascadeInstance } from '@/domain/modeling/occ/runtime'
-import { extractSolidShapes, trackSolidBody, type OccTrackedBody } from '@/domain/modeling/occ/topology'
+import {
+  extractSolidShapes,
+  getOccDurableRefKey,
+  OCC_REFERENCE_INVALIDATION_REASONS,
+  trackNewSolidBody,
+  trackReplacementSolidBody,
+  type OccTrackedBody,
+  type OccReferenceInvalidationRecord,
+} from '@/domain/modeling/occ/topology'
 
 export interface OccFeatureExecutionContext {
   oc: OpenCascadeInstance
@@ -58,6 +66,7 @@ export interface OccFeatureExecutionResult {
   producedTargets: DurableRef[]
   entities: SnapshotEntityRecord[]
   renderRecords: RenderableEntityRecord[]
+  historyInvalidations: Map<string, OccReferenceInvalidationRecord>
 }
 
 export interface OccFeaturePresentationArtifacts {
@@ -177,7 +186,79 @@ function runBoolean(
     throw new Error(`OCC boolean ${operation} failed to build.`)
   }
 
-  return builder.Shape()
+  return {
+    shape: builder.Shape(),
+    builder,
+  }
+}
+
+function createHistoryTargetForShape(
+  target: DurableRef,
+  ownerBodyId: BodyId,
+) {
+  switch (target.kind) {
+    case 'face':
+    case 'edge':
+    case 'vertex':
+      return {
+        target,
+        sourceTarget: { kind: 'body', bodyId: ownerBodyId } as DurableRef,
+      }
+    default:
+      return null
+  }
+}
+
+function collectTopologyHistoryInvalidations(
+  current: OccTrackedBody,
+  historySource: {
+    Modified(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): { Size(): number }
+    Generated(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): { Size(): number }
+    IsDeleted(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): boolean
+  },
+) {
+  const invalidations = new Map<string, OccReferenceInvalidationRecord>()
+  const register = (
+    target: DurableRef,
+    shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>,
+  ) => {
+    const relation = createHistoryTargetForShape(target, current.bodyId)
+
+    if (!relation) {
+      return
+    }
+
+    let reason = OCC_REFERENCE_INVALIDATION_REASONS.missing
+
+    if (historySource.IsDeleted(shape)) {
+      reason = OCC_REFERENCE_INVALIDATION_REASONS.topologyDeleted
+    } else if (
+      historySource.Modified(shape).Size() > 0
+      || historySource.Generated(shape).Size() > 0
+    ) {
+      reason = OCC_REFERENCE_INVALIDATION_REASONS.topologyModified
+    }
+
+    invalidations.set(getOccDurableRefKey(target), {
+      target,
+      reason,
+      sourceTarget: relation.sourceTarget,
+    })
+  }
+
+  for (const [faceId, face] of current.facesById.entries()) {
+    register({ kind: 'face', bodyId: current.bodyId, faceId }, face)
+  }
+
+  for (const [edgeId, edge] of current.edgesById.entries()) {
+    register({ kind: 'edge', bodyId: current.bodyId, edgeId }, edge)
+  }
+
+  for (const [vertexId, vertex] of current.verticesById.entries()) {
+    register({ kind: 'vertex', bodyId: current.bodyId, vertexId }, vertex)
+  }
+
+  return invalidations
 }
 
 function resolveReplacementBodies(
@@ -187,14 +268,25 @@ function resolveReplacementBodies(
   ownerFeatureId: FeatureId,
   options: {
     allowEmpty: boolean
+    historySource?: {
+      Modified(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): { Size(): number }
+      Generated(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): { Size(): number }
+      IsDeleted(shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>): boolean
+    }
   },
 ) {
   const current = requireBody(context, bodyId)
   const solids = extractSolidShapes(context.oc, shape)
+  const historyInvalidations = options.historySource
+    ? collectTopologyHistoryInvalidations(current, options.historySource)
+    : new Map<string, OccReferenceInvalidationRecord>()
 
   if (solids.length === 0) {
     if (options.allowEmpty) {
-      return []
+      return {
+        replacements: [] as OccTrackedBody[],
+        historyInvalidations,
+      }
     }
 
     throw new Error(
@@ -208,12 +300,14 @@ function resolveReplacementBodies(
     )
   }
 
-  return [trackSolidBody(context.oc, {
-    bodyId,
-    label: current.label,
-    ownerFeatureId,
-    shape: solids[0]!,
-  })]
+  return {
+    replacements: [trackReplacementSolidBody(context.oc, {
+      previous: current,
+      ownerFeatureId,
+      shape: solids[0]!,
+    })],
+    historyInvalidations,
+  }
 }
 
 function allocateBodyId(featureId: FeatureId) {
@@ -235,7 +329,7 @@ function trackSingleResultBody(
   }
 
   const bodyId = allocateBodyId(ownerFeatureId)
-  return trackSolidBody(context.oc, {
+  return trackNewSolidBody(context.oc, {
     bodyId,
     label,
     ownerFeatureId,
@@ -285,6 +379,7 @@ function applyBooleanPolicy(
         body,
       ],
       producedTargets: [{ kind: 'body', bodyId: body.bodyId }] as DurableRef[],
+      historyInvalidations: new Map<string, OccReferenceInvalidationRecord>(),
     }
   }
 
@@ -311,33 +406,51 @@ function applyBooleanPolicy(
   if (!policy) {
     const bodyId = targetBodyIds[0]!
     const targetBody = requireBody(context, bodyId)
-  const result = runBoolean(context.oc, operation, targetBody.shape, featureShape)
-    const replacements = resolveReplacementBodies(context, bodyId, result, ownerFeatureId, { allowEmpty: true })
+    const result = runBoolean(context.oc, operation, targetBody.shape, featureShape)
+    const replacementResult = resolveReplacementBodies(context, bodyId, result.shape, ownerFeatureId, {
+      allowEmpty: true,
+      historySource: result.builder,
+    })
     const index = nextBodies.findIndex((entry) => entry.bodyId === bodyId)
-    nextBodies.splice(index, 1, ...replacements)
-    for (const replacement of replacements) {
+    nextBodies.splice(index, 1, ...replacementResult.replacements)
+    for (const replacement of replacementResult.replacements) {
       producedTargets.push({ kind: 'body', bodyId: replacement.bodyId })
     }
-    return { bodies: nextBodies, producedTargets }
+    return {
+      bodies: nextBodies,
+      producedTargets,
+      historyInvalidations: replacementResult.historyInvalidations,
+    }
   }
 
   if (policy.application === 'sequential') {
     const [firstBodyId, ...restBodyIds] = targetBodyIds
-    let currentShape = runBoolean(
+    let currentResult = runBoolean(
       context.oc,
       policy.operation,
       requireBody(context, firstBodyId!).shape,
       featureShape,
     )
+    const combinedHistoryInvalidations = new Map<string, OccReferenceInvalidationRecord>()
+    const firstBody = requireBody(context, firstBodyId!)
+    for (const [key, value] of collectTopologyHistoryInvalidations(firstBody, currentResult.builder)) {
+      combinedHistoryInvalidations.set(key, value)
+    }
 
     for (const bodyId of restBodyIds) {
       const body = requireBody(context, bodyId)
-      currentShape = runBoolean(context.oc, policy.operation, currentShape, body.shape)
+      currentResult = runBoolean(context.oc, policy.operation, currentResult.shape, body.shape)
+      for (const [key, value] of collectTopologyHistoryInvalidations(body, currentResult.builder)) {
+        combinedHistoryInvalidations.set(key, value)
+      }
     }
 
-    const replacements = resolveReplacementBodies(context, firstBodyId!, currentShape, ownerFeatureId, { allowEmpty: true })
+    const replacementResult = resolveReplacementBodies(context, firstBodyId!, currentResult.shape, ownerFeatureId, {
+      allowEmpty: true,
+      historySource: currentResult.builder,
+    })
     const firstIndex = nextBodies.findIndex((entry) => entry.bodyId === firstBodyId)
-    nextBodies.splice(firstIndex, 1, ...replacements)
+    nextBodies.splice(firstIndex, 1, ...replacementResult.replacements)
 
     for (const bodyId of targetBodyIds.slice(1)) {
       const index = nextBodies.findIndex((entry) => entry.bodyId === bodyId)
@@ -346,24 +459,42 @@ function applyBooleanPolicy(
       }
     }
 
-    for (const replacement of replacements) {
+    for (const replacement of replacementResult.replacements) {
       producedTargets.push({ kind: 'body', bodyId: replacement.bodyId })
     }
-    return { bodies: nextBodies, producedTargets }
+    for (const [key, value] of replacementResult.historyInvalidations) {
+      combinedHistoryInvalidations.set(key, value)
+    }
+    return {
+      bodies: nextBodies,
+      producedTargets,
+      historyInvalidations: combinedHistoryInvalidations,
+    }
   }
 
+  const combinedHistoryInvalidations = new Map<string, OccReferenceInvalidationRecord>()
   for (const bodyId of targetBodyIds) {
     const targetBody = requireBody(context, bodyId)
     const result = runBoolean(context.oc, policy.operation, targetBody.shape, featureShape)
-    const replacements = resolveReplacementBodies(context, bodyId, result, ownerFeatureId, { allowEmpty: true })
+    const replacementResult = resolveReplacementBodies(context, bodyId, result.shape, ownerFeatureId, {
+      allowEmpty: true,
+      historySource: result.builder,
+    })
     const index = nextBodies.findIndex((entry) => entry.bodyId === bodyId)
-    nextBodies.splice(index, 1, ...replacements)
-    for (const replacement of replacements) {
+    nextBodies.splice(index, 1, ...replacementResult.replacements)
+    for (const replacement of replacementResult.replacements) {
       producedTargets.push({ kind: 'body', bodyId: replacement.bodyId })
+    }
+    for (const [key, value] of replacementResult.historyInvalidations) {
+      combinedHistoryInvalidations.set(key, value)
     }
   }
 
-  return { bodies: nextBodies, producedTargets }
+  return {
+    bodies: nextBodies,
+    producedTargets,
+    historyInvalidations: combinedHistoryInvalidations,
+  }
 }
 
 function buildExtrudeFeatureShape(
@@ -532,6 +663,7 @@ function executePlaneFeature(
     producedTargets: [{ kind: 'construction', constructionId }],
     entities: artifacts.entities,
     renderRecords: artifacts.renderRecords,
+    historyInvalidations: new Map<string, OccReferenceInvalidationRecord>(),
   }
 }
 
@@ -550,6 +682,7 @@ function executeExtrudeFeature(
     producedTargets: result.producedTargets,
     entities: [],
     renderRecords: [],
+    historyInvalidations: result.historyInvalidations,
   }
 }
 
@@ -568,6 +701,7 @@ function executeRevolveFeature(
     producedTargets: result.producedTargets,
     entities: [],
     renderRecords: [],
+    historyInvalidations: result.historyInvalidations,
   }
 }
 
@@ -593,6 +727,7 @@ function executeFilletFeature(
 
   const nextBodies = [...context.bodies]
   const producedTargets: DurableRef[] = []
+  const historyInvalidations = new Map<string, OccReferenceInvalidationRecord>()
 
   for (const [bodyId, targets] of targetsByBody.entries()) {
     const body = requireBody(context, bodyId)
@@ -611,11 +746,17 @@ function executeFilletFeature(
       throw new Error(`OCC fillet build failed for body ${bodyId}.`)
     }
 
-    const replacements = resolveReplacementBodies(context, bodyId, fillet.Shape(), ownerFeatureId, { allowEmpty: false })
+    const replacementResult = resolveReplacementBodies(context, bodyId, fillet.Shape(), ownerFeatureId, {
+      allowEmpty: false,
+      historySource: fillet,
+    })
     const index = nextBodies.findIndex((entry) => entry.bodyId === bodyId)
-    nextBodies.splice(index, 1, ...replacements)
-    for (const replacement of replacements) {
+    nextBodies.splice(index, 1, ...replacementResult.replacements)
+    for (const replacement of replacementResult.replacements) {
       producedTargets.push({ kind: 'body', bodyId: replacement.bodyId })
+    }
+    for (const [key, value] of replacementResult.historyInvalidations) {
+      historyInvalidations.set(key, value)
     }
   }
 
@@ -626,6 +767,7 @@ function executeFilletFeature(
     producedTargets,
     entities: [],
     renderRecords: [],
+    historyInvalidations,
   }
 }
 
