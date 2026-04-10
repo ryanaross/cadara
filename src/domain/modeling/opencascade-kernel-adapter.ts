@@ -681,9 +681,11 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
       current = applyOccFeatureToAuthoringState(current, feature)
     }
 
+    const rebuiltFeatures = new Map(current.features.map((feature) => [feature.featureId, feature]))
+
     return {
       ...current,
-      features,
+      features: features.map((feature) => rebuiltFeatures.get(feature.featureId) ?? feature),
       cursor,
     }
   }
@@ -941,30 +943,25 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
         return {
           ok: false,
           reasonCode: deriveRebuildFailureCode(error),
-          diagnostics: isAdvancedSolidFeatureKind(feature.definition.kind)
-            ? [
-                createAdvancedUnsupportedDiagnostic(
-                  feature.featureId,
-                  error instanceof Error ? error.message : `OCC adapter does not implement ${feature.definition.kind} yet.`,
-                ),
-              ]
-            : [
-                createRebuildFailureDiagnostic(
-                  deriveRebuildFailureCode(error),
-                  error instanceof Error ? error.message : 'OCC rebuild failed.',
-                  [feature.featureId],
-                  uniqueTargets(consumedTargets),
-                ),
-              ],
+          diagnostics: [
+            createRebuildFailureDiagnostic(
+              deriveRebuildFailureCode(error),
+              error instanceof Error ? error.message : 'OCC rebuild failed.',
+              [feature.featureId],
+              uniqueTargets(consumedTargets),
+            ),
+          ],
         }
       }
     }
+
+    const rebuiltFeatures = new Map(current.features.map((feature) => [feature.featureId, feature]))
 
     return {
       ok: true,
       state: {
         ...current,
-        features,
+        features: features.map((feature) => rebuiltFeatures.get(feature.featureId) ?? feature),
         cursor,
       },
     }
@@ -1211,11 +1208,11 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
     return {
       ...this.withOperationEnvelope({
         featureId,
+        ...accepted,
         changedTargets: [
           { kind: 'feature', featureId },
           ...(featureSnapshot?.producedTargets ?? []),
         ],
-        ...accepted,
       }),
     }
   }
@@ -1294,12 +1291,12 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
     return {
       ...this.withOperationEnvelope({
         featureId: request.featureId,
+        ...accepted,
         changedTargets: uniqueTargets([
           { kind: 'feature', featureId: request.featureId },
           ...(existing.producedTargets ?? []),
           ...(updated?.producedTargets ?? []),
         ]),
-        ...accepted,
       }),
     }
   }
@@ -1585,11 +1582,21 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
       label: `Preview ${request.previewId}`,
       definition: request.definition,
     }
+    const previewInsertionIndex = getCursorInsertionIndex(
+      runtimeState.authoringState.cursor,
+      runtimeState.authoringState.features,
+    )
+    const previewFeatures = [
+      ...runtimeState.authoringState.features.slice(0, previewInsertionIndex),
+      previewFeature,
+      ...runtimeState.authoringState.features.slice(previewInsertionIndex),
+    ]
 
     try {
       const previewState = this.buildNextAuthoringState(runtimeState, {
         revisionId: currentRevisionId,
-        features: [...runtimeState.authoringState.features, previewFeature],
+        features: previewFeatures,
+        cursor: { kind: 'feature', featureId: previewFeatureId },
       })
       const snapshot = buildOccWorkspaceSnapshot(previewState)
       const diagnostics = request.baseRevisionId === currentRevisionId
