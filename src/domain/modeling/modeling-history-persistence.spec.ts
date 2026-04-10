@@ -1,0 +1,249 @@
+import { createEmptyOperationHistory } from '@/contracts/modeling/operation-history'
+import type { FeatureDefinition } from '@/contracts/modeling/schema'
+import { EXTRUDE_FEATURE_SCHEMA_VERSION, PLANE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
+import { MockKernelAdapter } from '@/domain/modeling/mock-kernel-adapter'
+import {
+  createModelingService,
+  type ModelingService,
+} from '@/domain/modeling/modeling-service'
+import { createMemoryOperationHistoryStore } from '@/domain/modeling/modeling-history-persistence'
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) {
+    throw new Error(message)
+  }
+}
+
+type ExtrudeFeatureDefinition = Extract<FeatureDefinition, { kind: 'extrude' }>
+
+async function getSeedExtrudeDefinition(service: ModelingService): Promise<ExtrudeFeatureDefinition> {
+  const snapshot = await service.getCurrentDocumentSnapshot()
+  const seedExtrude = snapshot.features.find(
+    (feature) => feature.featureId === 'feature_extrude-1' && feature.definition.kind === 'extrude',
+  )
+
+  if (!seedExtrude || seedExtrude.definition.kind !== 'extrude') {
+    throw new Error('Seed extrude feature must exist.')
+  }
+
+  return {
+    kind: 'extrude',
+    featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      ...seedExtrude.definition.parameters,
+      startExtent: { kind: 'profilePlane' },
+      endExtent: { kind: 'blind', direction: 'positive', distance: 9 },
+      depth: 9,
+    },
+  }
+}
+
+async function createServiceWithStore(
+  initialHistory = createEmptyOperationHistory('doc_workspace'),
+) {
+  const store = createMemoryOperationHistoryStore(initialHistory)
+  const service = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: store,
+  })
+
+  return { service, store }
+}
+
+async function testOnlyCommittedMutationsAreStored() {
+  const { service, store } = await createServiceWithStore()
+  const snapshot = await service.getCurrentDocumentSnapshot()
+  const definition = await getSeedExtrudeDefinition(service)
+
+  await service.evaluatePreview({
+    baseRevisionId: snapshot.revisionId,
+    previewId: 'preview_history',
+    definition,
+  })
+
+  const rejected = await service.createFeature({
+    baseRevisionId: snapshot.revisionId,
+    definition: {
+      kind: 'plane',
+      featureTypeVersion: PLANE_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        mode: 'coplanar',
+        reference: {
+          target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+        },
+      },
+    },
+  })
+  assert(rejected.revisionState.kind === 'rejected', 'Unsupported mock plane create should be rejected.')
+
+  const accepted = await service.createFeature({
+    baseRevisionId: snapshot.revisionId,
+    definition,
+  })
+
+  assert(accepted.revisionState.kind === 'accepted', 'Valid feature create should commit.')
+  assert(store.savedPayloads.length === 1, 'Only accepted mutations should write operation history.')
+  assert(store.savedPayloads[0]?.entries.length === 1, 'Exactly one operation should be stored.')
+  assert(store.savedPayloads[0]?.entries[0]?.kind === 'createFeature', 'Stored operation kind should match the committed mutation.')
+}
+
+async function testPersistedHistoryReplaysSketchAndFeatureMutations() {
+  const { service, store } = await createServiceWithStore()
+  const before = await service.getCurrentDocumentSnapshot()
+  const seedSketch = before.sketches[0]
+  assert(seedSketch, 'Seed sketch must exist.')
+
+  const sketch = await service.commitSketch({
+    baseRevisionId: before.revisionId,
+    solverCorrelation: {
+      requestId: 'request_history_commit',
+      projectionRequestId: 'request_history_commit:project',
+      validationRequestId: 'request_history_commit:validate',
+      solveRequestId: 'request_history_commit:solve',
+      regionRequestId: 'request_history_commit:regions',
+    },
+    sketchId: 'sketch_history',
+    sketchLabel: 'History Sketch',
+    plane: seedSketch.plane,
+    planeTarget: seedSketch.planeTarget,
+    planeKey: seedSketch.planeKey,
+    definition: seedSketch.sketch.definition,
+  })
+  assert(sketch.revisionState.kind === 'accepted', 'Sketch commit should be stored for replay.')
+
+  const definition = await getSeedExtrudeDefinition(service)
+  const created = await service.createFeature({
+    baseRevisionId: sketch.revisionId,
+    definition,
+  })
+  assert(created.revisionState.kind === 'accepted', 'Feature create should be stored for replay.')
+
+  const updated = await service.updateFeature({
+    baseRevisionId: created.revisionId,
+    featureId: created.featureId,
+    definition: {
+      ...definition,
+      parameters: {
+        ...definition.parameters,
+        endExtent: { kind: 'blind', direction: 'positive', distance: 12 },
+        depth: 12,
+      },
+    },
+  })
+  assert(updated.revisionState.kind === 'accepted', 'Feature update should be stored for replay.')
+
+  const reordered = await service.reorderFeature({
+    baseRevisionId: updated.revisionId,
+    featureId: created.featureId,
+    beforeFeatureId: 'feature_extrude-1',
+  })
+  assert(reordered.revisionState.kind === 'accepted', 'Feature reorder should be stored for replay.')
+
+  const originalSnapshot = await service.getCurrentDocumentSnapshot()
+  const finalHistory = store.savedPayloads.at(-1)
+  assert(finalHistory, 'Committed mutations should save a final history payload.')
+
+  const restoredStore = createMemoryOperationHistoryStore(finalHistory)
+  const restoredService = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: restoredStore,
+  })
+  const restoreState = await restoredService.getHistoryRestoreState()
+  const restoredSnapshot = await restoredService.getCurrentDocumentSnapshot()
+
+  assert(restoreState.kind === 'restored', 'Valid persisted history should restore explicitly.')
+  assert(restoreState.entriesReplayed === finalHistory.entries.length, 'Restore should replay every entry in order.')
+  assert(
+    restoredSnapshot.sketches.some((entry) => entry.sketchId === 'sketch_history'),
+    'Replay should rebuild persisted sketches.',
+  )
+  assert(
+    restoredSnapshot.features.map((feature) => feature.featureId).join(',')
+      === originalSnapshot.features.map((feature) => feature.featureId).join(','),
+    'Replay should preserve feature order.',
+  )
+  assert(
+    restoredSnapshot.features.find((feature) => feature.featureId === created.featureId)?.definition.kind === 'extrude',
+    'Replay should rebuild persisted feature definitions.',
+  )
+}
+
+async function testDeleteFeatureReplayMatchesFinalState() {
+  const { service, store } = await createServiceWithStore()
+  const snapshot = await service.getCurrentDocumentSnapshot()
+  const definition = await getSeedExtrudeDefinition(service)
+  const created = await service.createFeature({
+    baseRevisionId: snapshot.revisionId,
+    definition,
+  })
+  assert(created.revisionState.kind === 'accepted', 'Feature create should commit before delete.')
+
+  const deleted = await service.deleteFeature({
+    baseRevisionId: created.revisionId,
+    featureId: created.featureId,
+  })
+  assert(deleted.revisionState.kind === 'accepted', 'Feature delete should commit.')
+
+  const finalHistory = store.savedPayloads.at(-1)
+  assert(finalHistory, 'Create/delete sequence should save history.')
+
+  const restoredService = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: createMemoryOperationHistoryStore(finalHistory),
+  })
+  const restoredSnapshot = await restoredService.getCurrentDocumentSnapshot()
+
+  assert(
+    !restoredSnapshot.features.some((feature) => feature.featureId === created.featureId),
+    'Replay should apply persisted feature deletes.',
+  )
+}
+
+async function testUnsupportedHistoryVersionFailsRestore() {
+  const store = createMemoryOperationHistoryStore({
+    ...createEmptyOperationHistory('doc_workspace'),
+    schemaVersion: 'modeling-operation-history/v0' as never,
+  })
+  const service = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: store,
+  })
+
+  const state = await service.getHistoryRestoreState()
+  assert(state.kind === 'failed', 'Unsupported history versions should fail restore explicitly.')
+  assert(
+    state.diagnostics[0]?.reasonCode === 'unsupported-schema-version',
+    'Unsupported history version restore failures should expose diagnostics.',
+  )
+}
+
+async function testStartupSnapshotWaitsForReplay() {
+  const { service, store } = await createServiceWithStore()
+  const snapshot = await service.getCurrentDocumentSnapshot()
+  const definition = await getSeedExtrudeDefinition(service)
+  const created = await service.createFeature({
+    baseRevisionId: snapshot.revisionId,
+    definition,
+  })
+  assert(created.revisionState.kind === 'accepted', 'Feature create should produce startup replay history.')
+
+  const finalHistory = store.savedPayloads.at(-1)
+  assert(finalHistory, 'Feature create should save history.')
+
+  const restoredService = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: createMemoryOperationHistoryStore(finalHistory),
+  })
+  const startupSnapshot = await restoredService.getCurrentDocumentSnapshot()
+
+  assert(
+    startupSnapshot.features.some((feature) => feature.featureId === created.featureId),
+    'Startup snapshot should include replayed history before editor exposure.',
+  )
+}
+
+await testOnlyCommittedMutationsAreStored()
+await testPersistedHistoryReplaysSketchAndFeatureMutations()
+await testDeleteFeatureReplayMatchesFinalState()
+await testUnsupportedHistoryVersionFailsRestore()
+await testStartupSnapshotWaitsForReplay()

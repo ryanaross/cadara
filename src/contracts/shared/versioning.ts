@@ -12,6 +12,12 @@ export type ContractVersion = 'modeling-contract/v1alpha1'
 export type SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
 
 /**
+ * Modeling operation-history payload schema version.
+ * This version applies only to durable operation-log documents.
+ */
+export type OperationHistorySchemaVersion = 'modeling-operation-history/v1alpha1'
+
+/**
  * Versioned schema for extrude feature definitions.
  */
 export type ExtrudeFeatureSchemaVersion = 'feature-type/extrude/v1alpha1'
@@ -66,6 +72,11 @@ export const CONTRACT_VERSION: ContractVersion = 'modeling-contract/v1alpha1'
  * Current document snapshot schema version literal.
  */
 export const SNAPSHOT_SCHEMA_VERSION: SnapshotSchemaVersion = 'document-snapshot/v1alpha1'
+
+/**
+ * Current modeling operation-history schema version literal.
+ */
+export const OPERATION_HISTORY_SCHEMA_VERSION: OperationHistorySchemaVersion = 'modeling-operation-history/v1alpha1'
 
 /**
  * Current extrude feature schema version literal.

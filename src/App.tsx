@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 
 import { CadWorkbench } from '@/app/cad-workbench'
 import { createModelingService } from '@/domain/modeling/modeling-service'
+import { createLocalStorageOperationHistoryStore } from '@/domain/modeling/modeling-history-persistence'
 import { OpenCascadeKernelAdapter } from '@/domain/modeling/opencascade-kernel-adapter'
 import {
   OCC_KERNEL_DOCUMENT_ID,
@@ -39,6 +40,10 @@ function App() {
       createModelingService(kernelAdapter, {
         currentDocumentId: OCC_KERNEL_DOCUMENT_ID,
         sketchSolver,
+        operationHistoryStore:
+          typeof window === 'undefined'
+            ? null
+            : createLocalStorageOperationHistoryStore(window.localStorage),
       }),
     [kernelAdapter, sketchSolver],
   )

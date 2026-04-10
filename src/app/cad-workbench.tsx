@@ -21,10 +21,12 @@ import {
 import { installConsoleLoggingSubscribers } from '@/domain/tools/console-logging'
 import { useEditorState } from '@/hooks/use-editor-state'
 import { useFeatureEditing } from '@/hooks/use-feature-editing'
+import { useModelingService } from '@/hooks/use-modeling-service'
 import { useToolActionBus } from '@/hooks/use-tool-actions'
 
 export function CadWorkbench() {
   const actionBus = useToolActionBus()
+  const modelingService = useModelingService()
   const {
     machineState,
     state: { activeCommand, selection, hoverTarget, sketchSession, activeEditSession },
@@ -33,28 +35,51 @@ export function CadWorkbench() {
   const snapshot = machineState.snapshot
   const previewRenderables = machineState.previewRenderables
   const [hiddenTargetKeys, setHiddenTargetKeys] = useState<Record<string, boolean>>({})
+  const [restoreMessage, setRestoreMessage] = useState<string | null>(null)
 
   useEffect(() => installConsoleLoggingSubscribers(actionBus), [actionBus])
 
   useEffect(() => {
+    let disposed = false
+
+    void modelingService.getHistoryRestoreState().then((state) => {
+      if (disposed) {
+        return
+      }
+
+      setRestoreMessage(
+        state.kind === 'failed'
+          ? (state.diagnostics[0]?.message ?? 'Operation history restore failed.')
+          : null,
+      )
+    })
+
+    return () => {
+      disposed = true
+    }
+  }, [modelingService])
+
+  const visibleHiddenTargetKeys = useMemo(() => {
+    if (!snapshot) {
+      return hiddenTargetKeys
+    }
+
     const validTargetKeys = new Set([
       ...(snapshot?.presentation.featureTree ?? []).map((item) => getPrimitiveRefKey(item.target)),
       ...(snapshot?.presentation.objects ?? []).map((item) => getPrimitiveRefKey(item.target)),
     ])
 
-    setHiddenTargetKeys((current) =>
-      Object.fromEntries(
-        Object.entries(current).filter(([key, hidden]) => hidden && validTargetKeys.has(key)),
-      ),
+    return Object.fromEntries(
+      Object.entries(hiddenTargetKeys).filter(([key, hidden]) => hidden && validTargetKeys.has(key)),
     )
-  }, [snapshot])
+  }, [hiddenTargetKeys, snapshot])
 
   const visibleSelection = useMemo(
-    () => selection.filter((target) => !hiddenTargetKeys[getPrimitiveRefKey(target)]),
-    [hiddenTargetKeys, selection],
+    () => selection.filter((target) => !visibleHiddenTargetKeys[getPrimitiveRefKey(target)]),
+    [selection, visibleHiddenTargetKeys],
   )
   const visibleHoverTarget =
-    hoverTarget && !hiddenTargetKeys[getPrimitiveRefKey(hoverTarget)] ? hoverTarget : null
+    hoverTarget && !visibleHiddenTargetKeys[getPrimitiveRefKey(hoverTarget)] ? hoverTarget : null
 
   const primarySelection = visibleSelection[0] ?? visibleHoverTarget ?? null
   const selectionDetail =
@@ -78,11 +103,11 @@ export function CadWorkbench() {
       return {
         ...mergedRenderables,
         documentRenderables: mergedRenderables.documentRenderables.filter(
-          (renderable) => !hiddenTargetKeys[getPrimitiveRefKey(renderable.binding.target)],
+          (renderable) => !visibleHiddenTargetKeys[getPrimitiveRefKey(renderable.binding.target)],
         ),
       }
     },
-    [hiddenTargetKeys, previewRenderables, sketchSession, snapshot],
+    [previewRenderables, sketchSession, snapshot, visibleHiddenTargetKeys],
   )
   const sketchToolPresentation = sketchSession ? getSketchToolPresentation(sketchSession) : null
 
@@ -126,7 +151,7 @@ export function CadWorkbench() {
       <div className="flex min-h-0 flex-1">
         <FeatureSidebar
           snapshot={snapshot}
-          hiddenTargetKeys={hiddenTargetKeys}
+          hiddenTargetKeys={visibleHiddenTargetKeys}
           onSelectTarget={handleViewportSelect}
           onToggleTargetVisibility={handleTargetVisibilityToggle}
           visibleSelection={visibleSelection}
@@ -148,6 +173,22 @@ export function CadWorkbench() {
             onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
           />
           <SketchToolOverlays schema={sketchToolPresentation} />
+          {restoreMessage ? (
+            <div className="absolute right-4 top-4 max-w-sm rounded-lg border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.95)] p-3 text-xs text-[var(--cad-foreground)] shadow-[var(--cad-panel-shadow)]">
+              <div className="font-medium">History restore failed</div>
+              <div className="mt-1 text-[var(--cad-muted-foreground)]">{restoreMessage}</div>
+              <button
+                className="mt-3 rounded-md border border-[var(--cad-border-strong)] px-2 py-1 text-[var(--cad-foreground)]"
+                type="button"
+                onClick={() => {
+                  modelingService.resetOperationHistory()
+                  setRestoreMessage(null)
+                }}
+              >
+                Reset stored history
+              </button>
+            </div>
+          ) : null}
           <div className="pointer-events-none absolute bottom-4 left-4 grid gap-3 rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.9)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
             <div>
               Machine: <span className="text-[var(--cad-foreground)]">{machineState.kind}</span>

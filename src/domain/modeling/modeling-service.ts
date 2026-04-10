@@ -40,6 +40,7 @@ import type {
   InvalidReferenceDetailPayload,
   ModelingDiagnostic,
   ModelingDiagnosticDetail,
+  ModelingOperationResult,
   MutationRevisionState,
   ObjectTreeNodeRecord,
   KernelDocumentSnapshot,
@@ -63,6 +64,16 @@ import type {
   ShellFeatureParameters,
 } from '@/contracts/modeling/schema'
 import type { RenderExport, RenderableEntityRecord } from '@/contracts/render/schema'
+import {
+  createCommitSketchHistoryEntry,
+  createCreateFeatureHistoryEntry,
+  createDeleteFeatureHistoryEntry,
+  createEmptyOperationHistory,
+  createReorderFeatureHistoryEntry,
+  createUpdateFeatureHistoryEntry,
+  type ModelingOperationHistoryEntry,
+  type ModelingOperationHistoryPayload,
+} from '@/contracts/modeling/operation-history'
 import type {
   ConstraintStatusRecord,
   ConstraintDefinition,
@@ -89,6 +100,11 @@ import type { DurableRef } from '@/contracts/shared/references'
 import type { ConstraintId, DimensionId, RegionId, RequestId, SketchEntityId, SketchPointId } from '@/contracts/shared/ids'
 import type { SketchPlaneDefinition, SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 import {
+  loadOrCreateOperationHistory,
+  type OperationHistoryStore,
+} from '@/domain/modeling/modeling-history-persistence'
+
+import {
   EXTRUDE_FEATURE_SCHEMA_VERSION,
   FILLET_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
@@ -99,6 +115,8 @@ import {
 export interface ModelingService {
   readonly currentDocumentId: DocumentId
   readonly sketchSolver: SketchSolverService | null
+  getHistoryRestoreState(): Promise<ModelingHistoryRestoreState>
+  resetOperationHistory(): void
   getCurrentDocumentSnapshot(): Promise<DocumentSnapshot>
   commitSketch(input: ModelingCommitSketchInput): Promise<ModelingCommitSketchResult>
   createFeature(input: ModelingCreateFeatureInput): Promise<ModelingFeatureMutationResult>
@@ -112,7 +130,20 @@ export interface ModelingService {
 export interface ModelingServiceOptions {
   currentDocumentId: DocumentSnapshot['documentId']
   sketchSolver?: SketchSolverBoundary
+  operationHistoryStore?: OperationHistoryStore | null
 }
+
+export interface ModelingHistoryRestoreDiagnostic {
+  reasonCode: string
+  message: string
+  entryIndex: number | null
+}
+
+export type ModelingHistoryRestoreState =
+  | { kind: 'pending'; entriesReplayed: number; diagnostics: [] }
+  | { kind: 'empty'; entriesReplayed: 0; diagnostics: [] }
+  | { kind: 'restored'; entriesReplayed: number; diagnostics: [] }
+  | { kind: 'failed'; entriesReplayed: number; diagnostics: ModelingHistoryRestoreDiagnostic[] }
 
 /**
  * Explicit sketch-solver service facade exposed to editor/runtime code.
@@ -2484,53 +2515,286 @@ function getResolutionLabel(resolution: ResolvedReferenceRecord) {
   return resolution.label || formatPrimitiveRefLabel(resolution.target)
 }
 
+function createRestoreFailure(
+  reasonCode: string,
+  message: string,
+  entryIndex: number | null,
+  entriesReplayed: number,
+): ModelingHistoryRestoreState {
+  return {
+    kind: 'failed',
+    entriesReplayed,
+    diagnostics: [
+      {
+        reasonCode,
+        message,
+        entryIndex,
+      },
+    ],
+  }
+}
+
+function isAcceptedMutation(response: ModelingOperationResult) {
+  return response.revisionState.kind === 'accepted'
+}
+
+async function getAdapterCurrentRevisionId(
+  adapter: ModelingKernelAdapter,
+  documentId: DocumentId,
+): Promise<RevisionId> {
+  const response = await adapter.getDocumentSnapshot(buildDocumentRequest(documentId))
+  return validateSnapshotResponse(response, documentId).document.revisionId
+}
+
+function createHistoryReplayCorrelation(index: number): ModelingCommitSketchCorrelation {
+  const requestId = `request_history_replay_${index + 1}` as RequestId
+  return {
+    requestId,
+    projectionRequestId: `${requestId}:project` as RequestId,
+    validationRequestId: `${requestId}:validate` as RequestId,
+    solveRequestId: `${requestId}:solve` as RequestId,
+    regionRequestId: `${requestId}:regions` as RequestId,
+  }
+}
+
+async function replayHistoryEntry(input: {
+  adapter: ModelingKernelAdapter
+  documentId: DocumentId
+  entry: ModelingOperationHistoryEntry
+  entryIndex: number
+}): Promise<ModelingOperationResult> {
+  const baseRevisionId = await getAdapterCurrentRevisionId(input.adapter, input.documentId)
+
+  switch (input.entry.kind) {
+    case 'commitSketch':
+      return input.adapter.commitSketch({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+        solverCorrelation: createHistoryReplayCorrelation(input.entryIndex),
+      })
+    case 'createFeature':
+      return input.adapter.createFeature({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+      })
+    case 'updateFeature':
+      return input.adapter.updateFeature({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+      })
+    case 'deleteFeature':
+      return input.adapter.deleteFeature({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+      })
+    case 'reorderFeature':
+      return input.adapter.reorderFeature({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+      })
+    default:
+      input.entry satisfies never
+      throw new Error('Unsupported operation history entry.')
+  }
+}
+
 export function createModelingService(
   adapter: ModelingKernelAdapter,
   options: ModelingServiceOptions,
 ): ModelingService {
   const currentDocumentId = normalizeCurrentDocumentId(options.currentDocumentId)
   const sketchSolver = options.sketchSolver ? createSketchSolverService(options.sketchSolver) : null
+  const operationHistoryStore = options.operationHistoryStore ?? null
+  let operationHistoryPayload: ModelingOperationHistoryPayload = createEmptyOperationHistory(currentDocumentId)
+  let canPersistOperationHistory = true
+  let historyRestoreState: ModelingHistoryRestoreState = {
+    kind: 'pending',
+    entriesReplayed: 0,
+    diagnostics: [],
+  }
+
+  const restorePromise = (async () => {
+    const loadResult = loadOrCreateOperationHistory(operationHistoryStore, currentDocumentId)
+
+    if (!loadResult.ok) {
+      canPersistOperationHistory = false
+      historyRestoreState = createRestoreFailure(loadResult.reasonCode, loadResult.message, null, 0)
+      return
+    }
+
+    if (loadResult.payload.documentId !== currentDocumentId) {
+      canPersistOperationHistory = false
+      historyRestoreState = createRestoreFailure(
+        'document-id-mismatch',
+        'Operation history document identity does not match the active document.',
+        null,
+        0,
+      )
+      return
+    }
+
+    operationHistoryPayload = structuredClone(loadResult.payload)
+
+    for (const [entryIndex, entry] of loadResult.payload.entries.entries()) {
+      const response = await replayHistoryEntry({
+        adapter,
+        documentId: currentDocumentId,
+        entry,
+        entryIndex,
+      })
+
+      if (!isAcceptedMutation(response)) {
+        canPersistOperationHistory = false
+        historyRestoreState = createRestoreFailure(
+          response.revisionState.kind === 'rejected'
+            ? response.revisionState.reasonCode
+            : 'revision-conflict',
+          `Operation history replay failed at entry ${entryIndex}.`,
+          entryIndex,
+          entryIndex,
+        )
+        return
+      }
+
+      historyRestoreState = {
+        kind: 'restored',
+        entriesReplayed: entryIndex + 1,
+        diagnostics: [],
+      }
+    }
+
+    historyRestoreState = loadResult.payload.entries.length === 0
+      ? { kind: 'empty', entriesReplayed: 0, diagnostics: [] }
+      : {
+          kind: 'restored',
+          entriesReplayed: loadResult.payload.entries.length,
+          diagnostics: [],
+        }
+  })().catch((error: unknown) => {
+    canPersistOperationHistory = false
+    historyRestoreState = createRestoreFailure(
+      'replay-exception',
+      error instanceof Error ? error.message : 'Operation history replay failed unexpectedly.',
+      historyRestoreState.entriesReplayed,
+      historyRestoreState.entriesReplayed,
+    )
+  })
+
+  function resetOperationHistory() {
+    operationHistoryStore?.clear()
+    operationHistoryPayload = createEmptyOperationHistory(currentDocumentId)
+    canPersistOperationHistory = true
+    historyRestoreState = {
+      kind: 'empty',
+      entriesReplayed: 0,
+      diagnostics: [],
+    }
+  }
+
+  function appendOperationHistoryEntry(entry: ModelingOperationHistoryEntry) {
+    if (!operationHistoryStore || !canPersistOperationHistory) {
+      return
+    }
+
+    operationHistoryPayload = {
+      ...operationHistoryPayload,
+      entries: [...operationHistoryPayload.entries, structuredClone(entry)],
+    }
+
+    try {
+      operationHistoryStore.save(operationHistoryPayload)
+    } catch (error: unknown) {
+      canPersistOperationHistory = false
+      historyRestoreState = createRestoreFailure(
+        'history-write-failed',
+        error instanceof Error ? error.message : 'Operation history could not be written.',
+        null,
+        operationHistoryPayload.entries.length,
+      )
+    }
+  }
 
   return {
     currentDocumentId,
     sketchSolver,
+    async getHistoryRestoreState() {
+      await restorePromise
+      return historyRestoreState
+    },
+    resetOperationHistory,
     async getCurrentDocumentSnapshot() {
+      await restorePromise
       const response = await adapter.getDocumentSnapshot(buildDocumentRequest(currentDocumentId))
       return validateSnapshotResponse(response, currentDocumentId)
     },
     async commitSketch(input) {
-      const response = await adapter.commitSketch(
-        normalizeCommitSketchInput(input, currentDocumentId),
-      )
+      await restorePromise
+      const request = normalizeCommitSketchInput(input, currentDocumentId)
+      const response = await adapter.commitSketch(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createCommitSketchHistoryEntry(request))
+      }
 
       return mapCommitSketchResponse(response, currentDocumentId)
     },
     async createFeature(input) {
-      const response = await adapter.createFeature(normalizeCreateFeatureInput(input, currentDocumentId))
+      await restorePromise
+      const request = normalizeCreateFeatureInput(input, currentDocumentId)
+      const response = await adapter.createFeature(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createCreateFeatureHistoryEntry(request))
+      }
 
       return mapFeatureMutationResponse(response, currentDocumentId)
     },
     async updateFeature(input) {
-      const response = await adapter.updateFeature(normalizeUpdateFeatureInput(input, currentDocumentId))
+      await restorePromise
+      const request = normalizeUpdateFeatureInput(input, currentDocumentId)
+      const response = await adapter.updateFeature(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createUpdateFeatureHistoryEntry(request))
+      }
 
       return mapFeatureMutationResponse(response, currentDocumentId)
     },
     async deleteFeature(input) {
-      const response = await adapter.deleteFeature(normalizeDeleteFeatureInput(input, currentDocumentId))
+      await restorePromise
+      const request = normalizeDeleteFeatureInput(input, currentDocumentId)
+      const response = await adapter.deleteFeature(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createDeleteFeatureHistoryEntry(request))
+      }
 
       return mapDeleteFeatureResponse(response, currentDocumentId)
     },
     async reorderFeature(input) {
-      const response = await adapter.reorderFeature(normalizeReorderFeatureInput(input, currentDocumentId))
+      await restorePromise
+      const request = normalizeReorderFeatureInput(input, currentDocumentId)
+      const response = await adapter.reorderFeature(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createReorderFeatureHistoryEntry(request))
+      }
 
       return mapReorderFeatureResponse(response, currentDocumentId)
     },
     async evaluatePreview(input) {
+      await restorePromise
       const response = await adapter.evaluatePreview(normalizePreviewInput(input, currentDocumentId))
 
       return mapPreviewResponse(response, currentDocumentId)
     },
     async resolveReference(target) {
+      await restorePromise
       const response = await adapter.resolveReference(
         normalizeResolveReferenceInput(target, currentDocumentId),
       )
