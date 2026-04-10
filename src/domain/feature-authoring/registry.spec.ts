@@ -5,7 +5,12 @@ import {
   getFeatureEditorFormSchema,
   patchFeatureEditSession,
 } from '@/domain/editor/feature-editing'
-import { createFeatureEditorFieldPatch } from '@/domain/feature-authoring/form-events'
+import {
+  createFeatureEditorClearReferencePatch,
+  createFeatureEditorFieldPatch,
+  createFeatureEditorReferenceSelectionPatch,
+  createFeatureEditorRemoveReferenceItemPatch,
+} from '@/domain/feature-authoring/form-events'
 import { getRegisteredFeatureAuthoringDefinitions } from '@/domain/feature-authoring/registry'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -105,7 +110,94 @@ function testGenericFormEventsPatchRevolveAndShellDrafts() {
   )
 }
 
+function testGenericReferenceFormEventsPatchSingleAndMultiReferences() {
+  const revolveSession = createFeatureEditSession({
+    featureType: 'revolve',
+    selectedTarget: null,
+  })
+  const revolveAxisField = getFeatureEditorFormSchema(revolveSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'revolve-axis')
+
+  assert(revolveAxisField?.kind === 'referencePicker', 'Revolve schema should expose an axis reference picker.')
+
+  const axisTarget = { kind: 'edge' as const, bodyId: 'body_a' as const, edgeId: 'edge_axis' as const }
+  const selectedRevolve = patchFeatureEditSession(
+    revolveSession,
+    createFeatureEditorReferenceSelectionPatch(revolveAxisField, axisTarget),
+  )
+  const clearedRevolve = patchFeatureEditSession(
+    selectedRevolve,
+    createFeatureEditorClearReferencePatch(revolveAxisField),
+  )
+
+  assert(
+    selectedRevolve.featureType === 'revolve' &&
+      selectedRevolve.draft.axisTarget?.kind === 'edge' &&
+      selectedRevolve.draft.axisTarget.edgeId === 'edge_axis',
+    'Generic single-reference selection events should patch the selected field.',
+  )
+  assert(
+    clearedRevolve.featureType === 'revolve' && clearedRevolve.draft.axisTarget === null,
+    'Generic single-reference clear events should set the bound reference to null.',
+  )
+
+  const shellSession = createFeatureEditSession({
+    featureType: 'shell',
+    selectedTarget: { kind: 'face', bodyId: 'body_a', faceId: 'face_top' },
+  })
+  const shellFacesField = getFeatureEditorFormSchema(shellSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'shell-faces')
+
+  assert(shellFacesField?.kind === 'referenceCollection', 'Shell schema should expose removable faces as a reference collection.')
+
+  const sideFace = { kind: 'face' as const, bodyId: 'body_a' as const, faceId: 'face_side' as const }
+  const appendedShell = patchFeatureEditSession(
+    shellSession,
+    createFeatureEditorReferenceSelectionPatch(shellFacesField, sideFace),
+  )
+  const duplicateShell = patchFeatureEditSession(
+    appendedShell,
+    createFeatureEditorReferenceSelectionPatch(
+      getFeatureEditorFormSchema(appendedShell).sections.flatMap((section) => section.fields).find((field) => field.id === 'shell-faces') as typeof shellFacesField,
+      sideFace,
+    ),
+  )
+  const removedShell = patchFeatureEditSession(
+    duplicateShell,
+    createFeatureEditorRemoveReferenceItemPatch(
+      getFeatureEditorFormSchema(duplicateShell).sections.flatMap((section) => section.fields).find((field) => field.id === 'shell-faces') as typeof shellFacesField,
+      sideFace,
+    ),
+  )
+  const clearedShell = patchFeatureEditSession(
+    removedShell,
+    createFeatureEditorClearReferencePatch(
+      getFeatureEditorFormSchema(removedShell).sections.flatMap((section) => section.fields).find((field) => field.id === 'shell-faces') as typeof shellFacesField,
+    ),
+  )
+
+  assert(
+    appendedShell.featureType === 'shell' && appendedShell.draft.faceTargets.length === 2,
+    'Generic multi-reference selection events should append unique selected instances.',
+  )
+  assert(
+    duplicateShell.featureType === 'shell' && duplicateShell.draft.faceTargets.length === 2,
+    'Generic multi-reference selection events should ignore duplicate selected instances.',
+  )
+  assert(
+    removedShell.featureType === 'shell' && removedShell.draft.faceTargets.length === 1 && removedShell.draft.faceTargets[0]?.faceId === 'face_top',
+    'Generic multi-reference remove events should remove only the requested selected instance.',
+  )
+  assert(
+    clearedShell.featureType === 'shell' && clearedShell.draft.faceTargets.length === 0,
+    'Generic multi-reference clear events should remove all selected instances.',
+  )
+}
+
 testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testGenericFormEventsPatchRevolveAndShellDrafts()
+testGenericReferenceFormEventsPatchSingleAndMultiReferences()

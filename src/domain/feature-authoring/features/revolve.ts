@@ -1,6 +1,6 @@
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 import { isBooleanOperation, toBooleanScope } from '@/domain/feature-authoring/definition'
-import { revolveSelectionFilter } from '@/domain/editor/schema'
+import { createSelectionFilterForRequirement, revolveSelectionFilter } from '@/domain/editor/schema'
 import { REVOLVE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { asBodyRef, asExtrudeProfileRef, asRevolveAxisRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
@@ -117,7 +117,12 @@ export const revolveAuthoringDefinition = {
               value: session.draft.profileTarget,
               emptyLabel: 'None selected',
               helper: 'Accepted targets: one derived sketch region or one planar face.',
-              picker: { mode: 'replace', selectionFilter: revolveSelectionFilter },
+              error: session.draft.profileTarget ? null : { message: 'Select a profile target.' },
+              picker: {
+                mode: 'replace',
+                allowsMultiple: false,
+                selectionFilter: createSelectionFilterForRequirement(revolveSelectionFilter, 'revolve-profile', 'Revolve profile'),
+              },
               patch: { patchKey: 'profileTarget' },
             },
             {
@@ -127,7 +132,12 @@ export const revolveAuthoringDefinition = {
               value: session.draft.axisTarget,
               emptyLabel: 'None selected',
               helper: 'Accepted targets: one durable edge or one construction axis.',
-              picker: { mode: 'replace', selectionFilter: revolveSelectionFilter },
+              error: session.draft.axisTarget ? null : { message: 'Select a revolve axis.' },
+              picker: {
+                mode: 'replace',
+                allowsMultiple: false,
+                selectionFilter: createSelectionFilterForRequirement(revolveSelectionFilter, 'revolve-axis', 'Revolve axis'),
+              },
               patch: { patchKey: 'axisTarget' },
             },
           ],
@@ -136,7 +146,7 @@ export const revolveAuthoringDefinition = {
           id: 'parameters',
           title: 'Parameters',
           fields: [
-            { kind: 'numeric', id: 'revolve-angle', label: 'Angle (degrees)', value: session.draft.angle * (180 / Math.PI), input: 'angleDegrees', step: 1, patch: { patchKey: 'angle' } },
+            { kind: 'numeric', id: 'revolve-angle', label: 'Angle (degrees)', value: session.draft.angle * (180 / Math.PI), input: 'angleDegrees', step: 1, error: session.draft.angle > 0 ? null : { message: 'Angle must be greater than zero.' }, patch: { patchKey: 'angle' } },
             { kind: 'numeric', id: 'revolve-start-angle', label: 'Start Angle (degrees)', value: session.draft.startAngle * (180 / Math.PI), input: 'angleDegrees', step: 1, patch: { patchKey: 'startAngle' } },
             {
               kind: 'enum',

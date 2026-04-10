@@ -401,6 +401,29 @@ export function getDefaultSelectionFilterForMode(mode: ToolbarMode): SelectionFi
   return mode === 'sketch' ? sketchSelectionFilter : defaultSelectionFilter
 }
 
+export function createSelectionFilterForRequirement(
+  filter: SelectionFilter,
+  requirementId: string,
+  label = filter.label,
+): SelectionFilter {
+  const requirement = filter.requirements.find((entry) => entry.id === requirementId)
+
+  if (!requirement) {
+    return filter
+  }
+
+  const allowedKinds = Array.from(
+    new Set(requirement.slots.flatMap((slot) => slot.acceptedKinds)),
+  )
+
+  return {
+    ...filter,
+    allowedKinds,
+    label,
+    requirements: [requirement],
+  }
+}
+
 export function getSelectionFilterForCommand(
   toolId: ToolId,
   mode: ToolbarMode,

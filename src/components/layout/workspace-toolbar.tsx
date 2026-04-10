@@ -78,7 +78,7 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
 export function WorkspaceToolbar() {
   const [searchQuery, setSearchQuery] = useState('')
   const {
-    state: { activeCommand, mode, sketchSession, selectionFilter },
+    state: { activeCommand, mode, sketchSession },
   } = useEditorState()
   const visibleSections = useMemo(() => getToolbarSectionsForMode(mode), [mode])
   const searchResults = useMemo(() => searchToolDefinitions(searchQuery), [searchQuery])
@@ -168,23 +168,6 @@ export function WorkspaceToolbar() {
               )}
             </div>
           )}
-        </div>
-        <div className="hidden min-w-[220px] rounded-xl border border-[var(--cad-border)] bg-[rgba(10,14,20,0.84)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] xl:block">
-          <div>
-            Filter: <span className="text-[var(--cad-foreground)]">{selectionFilter?.label ?? 'None'}</span>
-          </div>
-          <div className="truncate">
-            Requirement:{' '}
-            <span className="text-[var(--cad-foreground)]">
-              {selectionFilter?.requirements[0]?.description ?? 'No active requirement'}
-            </span>
-          </div>
-          <div>
-            Slots:{' '}
-            <span className="text-[var(--cad-foreground)]">
-              {selectionFilter?.requirements.map((requirement) => requirement.slots.length).join(' / ') ?? '0'}
-            </span>
-          </div>
         </div>
       </div>
     </header>

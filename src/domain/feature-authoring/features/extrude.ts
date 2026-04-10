@@ -1,6 +1,6 @@
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 import { isBooleanOperation, toBooleanScope } from '@/domain/feature-authoring/definition'
-import { extrudeSelectionFilter } from '@/domain/editor/schema'
+import { createSelectionFilterForRequirement, extrudeSelectionFilter } from '@/domain/editor/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { asBodyRef, asExtrudeProfileRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
@@ -105,7 +105,12 @@ export const extrudeAuthoringDefinition = {
             value: session.draft.profileTarget,
             emptyLabel: 'None selected',
             helper: 'Accepted targets: one derived sketch region or one planar face.',
-            picker: { mode: 'replace', selectionFilter: extrudeSelectionFilter },
+            error: session.draft.profileTarget ? null : { message: 'Select a profile target.' },
+            picker: {
+              mode: 'replace',
+              allowsMultiple: false,
+              selectionFilter: createSelectionFilterForRequirement(extrudeSelectionFilter, 'extrude-profile', 'Extrude profile'),
+            },
             patch: { patchKey: 'profileTarget' },
           }],
         },
@@ -120,6 +125,7 @@ export const extrudeAuthoringDefinition = {
               value: session.draft.depth,
               input: 'number',
               step: 0.1,
+              error: session.draft.depth > 0 ? null : { message: 'Depth must be greater than zero.' },
               patch: { patchKey: 'depth' },
             },
             {

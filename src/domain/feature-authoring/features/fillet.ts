@@ -1,5 +1,5 @@
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
-import { filletSelectionFilter } from '@/domain/editor/schema'
+import { createSelectionFilterForRequirement, filletSelectionFilter } from '@/domain/editor/schema'
 import { FILLET_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { appendUniqueTarget, asEdgeRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
@@ -91,7 +91,13 @@ export const filletAuthoringDefinition = {
             value: session.draft.edgeTargets,
             emptyLabel: 'None selected',
             helper: 'Each selected durable edge is preserved explicitly in the draft.',
-            picker: { mode: 'appendUnique', selectionFilter: filletSelectionFilter },
+            error: session.draft.edgeTargets.length > 0 ? null : { message: 'Select at least one edge target.' },
+            picker: {
+              mode: 'appendUnique',
+              allowsMultiple: true,
+              selectionFilter: createSelectionFilterForRequirement(filletSelectionFilter, 'fillet-edge', 'Fillet edges'),
+              itemLabel: 'Edge',
+            },
             patch: { patchKey: 'edgeTargets' },
           }],
         },
@@ -105,6 +111,7 @@ export const filletAuthoringDefinition = {
             value: session.draft.radius,
             input: 'number',
             step: 0.1,
+            error: session.draft.radius > 0 ? null : { message: 'Radius must be greater than zero.' },
             patch: { patchKey: 'radius' },
           }],
         },

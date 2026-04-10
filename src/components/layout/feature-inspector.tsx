@@ -1,10 +1,14 @@
-import { Check, CircleSlash, Layers3 } from 'lucide-react'
+import { Check, CircleSlash, Layers3, X } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
 import type { FeatureSnapshotRecord, ModelingDiagnostic } from '@/contracts/modeling/schema'
-import { getPrimitiveRefLabel } from '@/domain/editor/schema'
+import { getPrimitiveRefLabel, type PrimitiveRef } from '@/domain/editor/schema'
 import { getFeatureEditorFormSchema } from '@/domain/editor/feature-editing'
-import { createFeatureEditorFieldPatch } from '@/domain/feature-authoring/form-events'
+import {
+  createFeatureEditorClearReferencePatch,
+  createFeatureEditorFieldPatch,
+  createFeatureEditorRemoveReferenceItemPatch,
+} from '@/domain/feature-authoring/form-events'
 import type { FeatureEditorFormField, FeatureNumericField } from '@/domain/feature-authoring/form-schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
@@ -72,6 +76,28 @@ function renderReference(value: unknown) {
     : 'None selected'
 }
 
+function fieldBorderClass(field: Pick<FeatureEditorFormField, 'error'>, isActive = false) {
+  if (field.error) {
+    return 'border-red-500 text-red-100'
+  }
+
+  if (isActive) {
+    return 'border-[var(--cad-accent)] text-[var(--cad-accent)]'
+  }
+
+  return 'border-[var(--cad-border)] text-[var(--cad-foreground)]'
+}
+
+function FieldMessage(props: { helper?: string; error?: { message: string } | null }) {
+  if (props.error) {
+    return <p className="text-xs text-red-300">{props.error.message}</p>
+  }
+
+  return props.helper ? (
+    <p className="text-xs text-[var(--cad-muted-foreground)]">{props.helper}</p>
+  ) : null
+}
+
 function NumericField(props: {
   field: FeatureNumericField
   onPatch: (patch: Record<string, unknown>) => void
@@ -88,11 +114,10 @@ function NumericField(props: {
         step={props.field.step ?? 0.1}
         disabled={props.field.disabled}
         onChange={(event) => props.onPatch(createFeatureEditorFieldPatch(props.field, Number(event.target.value)))}
-        className="h-10 rounded-md border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)]"
+        aria-invalid={props.field.error ? true : undefined}
+        className={`h-10 rounded-md bg-[rgba(12,16,22,0.8)] ${fieldBorderClass(props.field)}`}
       />
-      {props.field.helper ? (
-        <p className="text-xs text-[var(--cad-muted-foreground)]">{props.field.helper}</p>
-      ) : null}
+      <FieldMessage helper={props.field.helper} error={props.field.error} />
     </section>
   )
 }
@@ -123,9 +148,7 @@ function EnumField(props: {
           </button>
         ))}
       </div>
-      {props.field.helper ? (
-        <p className="text-xs text-[var(--cad-muted-foreground)]">{props.field.helper}</p>
-      ) : null}
+      <FieldMessage helper={props.field.helper} error={props.field.error} />
     </section>
   )
 }
@@ -134,20 +157,128 @@ function ReferenceCard(props: {
   title: string
   value: string
   helper?: string
+  error?: { message: string } | null
+  isActive?: boolean
+  onActivate?: () => void
+  onClear?: () => void
+  clearDisabled?: boolean
 }) {
+  const content = (
+    <>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs text-[var(--cad-muted-foreground)]">{props.title}</p>
+          <p className={`mt-1 text-sm ${props.error ? 'text-red-100' : props.isActive ? 'text-[var(--cad-accent)]' : 'text-[var(--cad-foreground)]'}`}>
+            {props.value}
+          </p>
+        </div>
+        {props.onClear ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              props.onClear?.()
+            }}
+            disabled={props.clearDisabled}
+            aria-label={`Clear ${props.title}`}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200 disabled:pointer-events-none disabled:opacity-40"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </div>
+      <div className="mt-2">
+        <FieldMessage helper={props.helper} error={props.error} />
+      </div>
+    </>
+  )
+
+  const className = `w-full rounded-md border bg-[rgba(12,16,22,0.8)] px-3 py-3 text-left transition ${fieldBorderClass({ error: props.error }, props.isActive)}`
+
+  if (props.onActivate) {
+    return (
+      <button type="button" onClick={props.onActivate} className={className} aria-pressed={props.isActive}>
+        {content}
+      </button>
+    )
+  }
+
   return (
-    <div className="rounded-md border border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)] px-3 py-3">
-      <p className="text-xs text-[var(--cad-muted-foreground)]">{props.title}</p>
-      <p className="mt-1 text-sm text-[var(--cad-foreground)]">{props.value}</p>
-      {props.helper ? (
-        <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">{props.helper}</p>
+    <div className={className}>
+      {content}
+    </div>
+  )
+}
+
+function ReferenceCollectionCard(props: {
+  field: Extract<FeatureEditorFormField, { kind: 'referenceCollection' }>
+  isActive: boolean
+  onActivate: () => void
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  const hasSelection = props.field.value.length > 0
+
+  return (
+    <div
+      className={`rounded-md border bg-[rgba(12,16,22,0.8)] px-3 py-3 ${fieldBorderClass(props.field, props.isActive)}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <button
+          type="button"
+          onClick={props.onActivate}
+          className="min-w-0 flex-1 text-left"
+          aria-pressed={props.isActive}
+        >
+          <p className="text-xs text-[var(--cad-muted-foreground)]">{props.field.label}</p>
+          <p className={`mt-1 text-sm ${props.isActive ? 'text-[var(--cad-accent)]' : 'text-[var(--cad-foreground)]'}`}>
+            {hasSelection ? `${props.field.value.length} selected` : props.field.emptyLabel}
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onPatch(createFeatureEditorClearReferencePatch(props.field))}
+          disabled={!hasSelection}
+          aria-label={`Clear ${props.field.label}`}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200 disabled:pointer-events-none disabled:opacity-40"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      {hasSelection ? (
+        <div className="mt-3 space-y-2">
+          {props.field.value.map((target) => (
+            <div
+              key={getPrimitiveRefLabel(target)}
+              className="flex items-center justify-between gap-2 rounded-md border border-[var(--cad-border)] bg-[rgba(7,10,14,0.72)] px-2 py-2"
+            >
+              <span className="min-w-0 truncate text-xs text-[var(--cad-foreground)]">
+                {props.field.picker.itemLabel ?? props.field.label}: {getPrimitiveRefLabel(target)}
+              </span>
+              {props.field.picker.allowsMultiple ? (
+                <button
+                  type="button"
+                  onClick={() => props.onPatch(createFeatureEditorRemoveReferenceItemPatch(props.field, target as PrimitiveRef))}
+                  aria-label={`Remove ${getPrimitiveRefLabel(target)}`}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              ) : null}
+            </div>
+          ))}
+        </div>
       ) : null}
+      <div className="mt-2">
+        <FieldMessage helper={props.field.helper} error={props.field.error} />
+      </div>
     </div>
   )
 }
 
 function FeatureFormFieldRenderer(props: {
   field: FeatureEditorFormField
+  activeReferencePickerFieldId: string | null
+  onReferencePickerActivate: (fieldId: string) => void
   onPatch: (patch: Record<string, unknown>) => void
 }) {
   if (props.field.hidden) {
@@ -159,24 +290,28 @@ function FeatureFormFieldRenderer(props: {
       return <NumericField field={props.field} onPatch={props.onPatch} />
     case 'enum':
       return <EnumField field={props.field} onPatch={props.onPatch} />
-    case 'referencePicker':
+    case 'referencePicker': {
+      const field = props.field
       return (
         <ReferenceCard
-          title={props.field.label}
-          value={renderReference(props.field.value) || props.field.emptyLabel}
-          helper={props.field.helper}
+          title={field.label}
+          value={renderReference(field.value) || field.emptyLabel}
+          helper={field.helper}
+          error={field.error}
+          isActive={props.activeReferencePickerFieldId === field.id}
+          onActivate={() => props.onReferencePickerActivate(field.id)}
+          onClear={() => props.onPatch(createFeatureEditorClearReferencePatch(field))}
+          clearDisabled={!field.value}
         />
       )
+    }
     case 'referenceCollection':
       return (
-        <ReferenceCard
-          title={props.field.label}
-          value={
-            props.field.value.length > 0
-              ? props.field.value.map(getPrimitiveRefLabel).join(', ')
-              : props.field.emptyLabel
-          }
-          helper={props.field.helper}
+        <ReferenceCollectionCard
+          field={props.field}
+          isActive={props.activeReferencePickerFieldId === props.field.id}
+          onActivate={() => props.onReferencePickerActivate(props.field.id)}
+          onPatch={props.onPatch}
         />
       )
     case 'summary':
@@ -201,7 +336,8 @@ export function FeatureInspector({
   onCancel,
 }: FeatureInspectorProps) {
   const {
-    state: { activeEditSession },
+    state: { activeEditSession, activeReferencePickerFieldId },
+    dispatch,
   } = useEditorState()
 
   if (!activeEditSession) {
@@ -233,7 +369,13 @@ export function FeatureInspector({
               {section.title}
             </p>
             {section.fields.map((field) => (
-              <FeatureFormFieldRenderer key={field.id} field={field} onPatch={onPatch} />
+              <FeatureFormFieldRenderer
+                key={field.id}
+                field={field}
+                activeReferencePickerFieldId={activeReferencePickerFieldId}
+                onReferencePickerActivate={(fieldId) => dispatch({ type: 'form.referencePickerActivated', fieldId })}
+                onPatch={onPatch}
+              />
             ))}
           </section>
         ))}

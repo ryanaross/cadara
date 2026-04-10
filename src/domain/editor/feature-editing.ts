@@ -10,7 +10,7 @@ import {
   getFeatureAuthoringDefinition,
   findFeatureAuthoringDefinition,
 } from '@/domain/feature-authoring/registry'
-import type { FeatureEditorFormSchema } from '@/domain/feature-authoring/form-schema'
+import type { FeatureEditorFormField, FeatureEditorFormSchema } from '@/domain/feature-authoring/form-schema'
 
 export type {
   ExtrudeFeatureEditSessionState,
@@ -163,4 +163,18 @@ export function getFeatureEditorFormSchema(
 ): FeatureEditorFormSchema {
   const definition = getFeatureAuthoringDefinition(session.featureType)
   return definition.getFormSchema(session as never)
+}
+
+export function getFeatureEditorFormField(
+  session: FeatureEditSessionState,
+  fieldId: string,
+): FeatureEditorFormField | null {
+  for (const section of getFeatureEditorFormSchema(session).sections) {
+    const field = section.fields.find((entry) => entry.id === fieldId)
+    if (field) {
+      return field
+    }
+  }
+
+  return null
 }

@@ -1,6 +1,6 @@
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 import { isBooleanOperation, toBooleanScope } from '@/domain/feature-authoring/definition'
-import { shellSelectionFilter } from '@/domain/editor/schema'
+import { createSelectionFilterForRequirement, shellSelectionFilter } from '@/domain/editor/schema'
 import { SHELL_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { appendUniqueTarget, asBodyRef, asFaceRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
@@ -120,7 +120,12 @@ export const shellAuthoringDefinition = {
               value: session.draft.bodyTarget,
               emptyLabel: 'None selected',
               helper: 'Shell requires one explicit source body.',
-              picker: { mode: 'replace', selectionFilter: shellSelectionFilter },
+              error: session.draft.bodyTarget ? null : { message: 'Select a source body.' },
+              picker: {
+                mode: 'replace',
+                allowsMultiple: false,
+                selectionFilter: createSelectionFilterForRequirement(shellSelectionFilter, 'shell-body', 'Shell body'),
+              },
               patch: { patchKey: 'bodyTarget' },
             },
             {
@@ -130,7 +135,13 @@ export const shellAuthoringDefinition = {
               value: session.draft.faceTargets,
               emptyLabel: 'None selected',
               helper: 'The draft preserves each removable face explicitly.',
-              picker: { mode: 'appendUnique', selectionFilter: shellSelectionFilter },
+              error: session.draft.faceTargets.length > 0 ? null : { message: 'Select at least one removable face.' },
+              picker: {
+                mode: 'appendUnique',
+                allowsMultiple: true,
+                selectionFilter: createSelectionFilterForRequirement(shellSelectionFilter, 'shell-face', 'Shell faces'),
+                itemLabel: 'Face',
+              },
               patch: { patchKey: 'faceTargets' },
             },
           ],
@@ -139,7 +150,7 @@ export const shellAuthoringDefinition = {
           id: 'parameters',
           title: 'Parameters',
           fields: [
-            { kind: 'numeric', id: 'shell-thickness', label: 'Thickness', value: session.draft.thickness, input: 'number', step: 0.1, patch: { patchKey: 'thickness' } },
+            { kind: 'numeric', id: 'shell-thickness', label: 'Thickness', value: session.draft.thickness, input: 'number', step: 0.1, error: session.draft.thickness > 0 ? null : { message: 'Thickness must be greater than zero.' }, patch: { patchKey: 'thickness' } },
             {
               kind: 'enum',
               id: 'shell-operation',

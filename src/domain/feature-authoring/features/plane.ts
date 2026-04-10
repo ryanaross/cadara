@@ -1,5 +1,5 @@
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
-import { planeSelectionFilter } from '@/domain/editor/schema'
+import { createSelectionFilterForRequirement, planeSelectionFilter } from '@/domain/editor/schema'
 import { PLANE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { asPlaneReferenceTarget, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
@@ -81,7 +81,12 @@ export const planeAuthoringDefinition = {
             value: session.draft.referenceTarget,
             emptyLabel: 'None selected',
             helper: 'Accepted targets: one construction plane or one planar face.',
-            picker: { mode: 'replace', selectionFilter: planeSelectionFilter },
+            error: session.draft.referenceTarget ? null : { message: 'Select a plane reference.' },
+            picker: {
+              mode: 'replace',
+              allowsMultiple: false,
+              selectionFilter: createSelectionFilterForRequirement(planeSelectionFilter, 'plane-planar-reference', 'Plane reference'),
+            },
             patch: { patchKey: 'referenceTarget' },
           }],
         },

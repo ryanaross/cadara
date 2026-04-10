@@ -39,6 +39,7 @@ export function CadWorkbench() {
       mode,
       preview,
       selectionFilter,
+      activeReferencePickerFieldId,
     },
     dispatch,
   } = useEditorState()
@@ -68,6 +69,24 @@ export function CadWorkbench() {
       disposed = true
     }
   }, [modelingService])
+
+  useEffect(() => {
+    if (!activeReferencePickerFieldId) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+
+      event.preventDefault()
+      dispatch({ type: 'form.referencePickerCancelled' })
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [activeReferencePickerFieldId, dispatch])
 
   const visibleHiddenTargetKeys = useMemo(() => {
     if (!snapshot) {

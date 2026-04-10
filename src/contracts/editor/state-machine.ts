@@ -7,6 +7,7 @@ import {
   createCommitMissingInputsDiagnostics,
   createFeatureEditSession,
   createPreviewMissingInputsDiagnostics,
+  getFeatureEditorFormField,
   getFeaturePrimarySelectionTarget,
   getFeatureSessionPreviewLabel,
   getSelectionFilterForFeatureType,
@@ -15,6 +16,7 @@ import {
   type FeatureDraftPatch,
   type FeatureEditSessionState,
 } from '@/domain/editor/feature-editing'
+import { createFeatureEditorReferenceSelectionPatch } from '@/domain/feature-authoring/form-events'
 import {
   acceptSketchDraw,
   beginSketchTool,
@@ -163,6 +165,8 @@ export interface FeatureEditorState extends EditorStateBase {
   command: EditorActiveCommand
   /** Transient editor-owned feature session and draft parameters. */
   session: FeatureEditSessionState
+  /** Active reference picker form field currently collecting viewport/sidebar selections. */
+  activeReferencePickerFieldId: string | null
   /** Explicit correlation ID for an in-flight preview request. */
   pendingPreviewRequestId: RequestId | null
   /** Explicit correlation ID for an in-flight feature commit request. */
@@ -269,6 +273,18 @@ export interface FormFeaturePatchedEvent {
   patch: FeatureDraftPatch
 }
 
+/** Activates a feature form reference picker by its schema field id. */
+export interface FormReferencePickerActivatedEvent {
+  type: 'form.referencePickerActivated'
+  /** Feature form field id that should receive subsequent viewport/sidebar selections. */
+  fieldId: string
+}
+
+/** Cancels the currently active feature form reference picker, if any. */
+export interface FormReferencePickerCancelledEvent {
+  type: 'form.referencePickerCancelled'
+}
+
 /** Completes a snapshot fetch with the resulting typed snapshot payload. */
 export interface SnapshotLoadedEvent {
   type: 'effect.snapshotLoaded'
@@ -306,6 +322,8 @@ export type EditorEvent =
   | SketchPointerReleasedEvent
   | SketchToolPatchedEvent
   | FormFeaturePatchedEvent
+  | FormReferencePickerActivatedEvent
+  | FormReferencePickerCancelledEvent
   | SnapshotLoadedEvent
   | SnapshotFailedEvent
   | {
@@ -750,9 +768,21 @@ function createFeatureEditingState(
       phase: 'editing',
     },
     session,
+    activeReferencePickerFieldId: null,
     pendingPreviewRequestId: null,
     pendingCommitRequestId: null,
   }
+}
+
+function getActiveReferencePickerField(state: FeatureEditorState) {
+  if (!state.activeReferencePickerFieldId) {
+    return null
+  }
+
+  const field = getFeatureEditorFormField(state.session, state.activeReferencePickerFieldId)
+  return field?.kind === 'referencePicker' || field?.kind === 'referenceCollection'
+    ? field
+    : null
 }
 
 function createPreviewFailedDiagnostics(
@@ -1342,9 +1372,15 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       }
 
       if (state.kind === 'editingFeature') {
+        const activeReferenceField = getActiveReferencePickerField(state)
         const nextSelection = [event.target]
         const nextSession: FeatureEditSessionState = {
-          ...applySelectionToFeatureEditSession(state.session, event.target),
+          ...(activeReferenceField
+            ? patchFeatureEditSession(
+                state.session,
+                createFeatureEditorReferenceSelectionPatch(activeReferenceField, event.target),
+              )
+            : applySelectionToFeatureEditSession(state.session, event.target)),
           status: 'idle',
         }
 
@@ -1358,6 +1394,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           },
           preview: createFeatureSelectionPreview(nextSession, 'Selected'),
           session: nextSession,
+          activeReferencePickerFieldId: activeReferenceField?.id ?? state.activeReferencePickerFieldId,
           pendingPreviewRequestId: null,
         })
       }
@@ -1506,6 +1543,63 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         pendingPreviewRequestId: null,
         preview: createFeatureSelectionPreview(nextSession),
       })
+    }
+    case 'form.referencePickerActivated': {
+      if (state.kind !== 'editingFeature') {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      const field = getFeatureEditorFormField(state.session, event.fieldId)
+
+      if (field?.kind !== 'referencePicker' && field?.kind !== 'referenceCollection') {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      return {
+        state: {
+          ...state,
+          activeReferencePickerFieldId: field.id,
+          selection: [],
+          hoverTarget: null,
+          selectionFilter: field.picker.selectionFilter,
+          preview: createSelectionPreview({ ...state, selection: [] }, field.picker.selectionFilter),
+          command: {
+            ...state.command,
+            phase: 'collecting',
+          },
+        },
+        effects: [],
+      }
+    }
+    case 'form.referencePickerCancelled': {
+      if (state.kind !== 'editingFeature' || !state.activeReferencePickerFieldId) {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      return {
+        state: {
+          ...state,
+          activeReferencePickerFieldId: null,
+          selection: [],
+          hoverTarget: null,
+          selectionFilter: getSelectionFilterForFeatureType(state.session.featureType),
+          preview: createFeatureSelectionPreview(state.session),
+          command: {
+            ...state.command,
+            phase: 'editing',
+          },
+        },
+        effects: [],
+      }
     }
     case 'effect.snapshotLoaded':
       if (state.pendingSnapshotRequestId !== event.payload.requestId) {
@@ -2339,6 +2433,8 @@ export interface EditorViewState {
   preview: CommandPreview | null
   /** Active feature edit session, or null when not editing a feature. */
   activeEditSession: FeatureEditSessionState | null
+  /** Active feature form reference picker field id, or null when no field is collecting selections. */
+  activeReferencePickerFieldId: string | null
   /** Active sketch session, or null when not editing a sketch. */
   sketchSession: SketchSessionState | null
   /** Last loaded document snapshot owned by the machine. */
@@ -2360,6 +2456,7 @@ export function getEditorViewState(state: EditorState): EditorViewState {
     hoverTarget: state.hoverTarget,
     preview: state.preview,
     activeEditSession: state.kind === 'editingFeature' ? state.session : null,
+    activeReferencePickerFieldId: state.kind === 'editingFeature' ? state.activeReferencePickerFieldId : null,
     sketchSession: state.kind === 'editingSketch' ? state.session : null,
     snapshot: state.snapshot,
     previewRenderables: state.previewRenderables,

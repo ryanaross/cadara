@@ -548,7 +548,14 @@ function testRevolveActivationSupportsFaceThenEdgeSelection() {
         documentId: 'doc_workspace',
         revisionId: 'rev_1',
       },
-      selectionCatalog: createRegionSelectionCatalog(),
+      selectionCatalog: {
+        ...createRegionSelectionCatalog(),
+        selectableTargetKeys: [
+          ...createRegionSelectionCatalog().selectableTargetKeys,
+          'face:body_a:face_side',
+          'body:body_b',
+        ],
+      },
       selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
     },
     {
@@ -604,6 +611,143 @@ function testShellActivationSeedsBodyFromSelectedFace() {
   assert(activation.effects[0]?.type === 'feature.evaluatePreview', 'Shell activation should request a preview effect.')
 }
 
+function testActiveReferencePickerRoutesSingleAndMultiSelections() {
+  const catalog = createRegionSelectionCatalog()
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: {
+        ...catalog,
+        selectableTargetKeys: [
+          ...catalog.selectableTargetKeys,
+          'face:body_a:face_side',
+          'body:body_b',
+        ],
+      },
+      selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'shell',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Shell activation should enter feature editing.')
+
+  const facesActive = transitionEditorState(activation.state, {
+    type: 'form.referencePickerActivated',
+    fieldId: 'shell-faces',
+  })
+
+  assert(facesActive.state.kind === 'editingFeature', 'Reference picker activation should stay in feature editing.')
+  assert(
+    facesActive.state.activeReferencePickerFieldId === 'shell-faces',
+    'Reference picker activation should track the active form field id.',
+  )
+  assert(
+    facesActive.state.selectionFilter?.label === 'Shell faces',
+    'Reference picker activation should switch to the field selection filter.',
+  )
+
+  const faceAppended = transitionEditorState(facesActive.state, {
+    type: 'viewport.selectionRequested',
+    target: { kind: 'face', bodyId: 'body_a', faceId: 'face_side' },
+  })
+
+  assert(faceAppended.state.kind === 'editingFeature', 'Multi-reference selection should stay in feature editing.')
+  assert(
+    faceAppended.state.session.featureType === 'shell' && faceAppended.state.session.draft.faceTargets.length === 2,
+    'Active multi-reference picker selection should append unique selected instances.',
+  )
+
+  const bodyActive = transitionEditorState(faceAppended.state, {
+    type: 'form.referencePickerActivated',
+    fieldId: 'shell-body',
+  })
+
+  assert(bodyActive.state.kind === 'editingFeature', 'Switching active picker fields should stay in feature editing.')
+  assert(
+    bodyActive.state.activeReferencePickerFieldId === 'shell-body',
+    'Switching active picker fields should update the active field id.',
+  )
+  assert(
+    bodyActive.state.selectionFilter?.label === 'Shell body',
+    'Switching active picker fields should update the current selection filter.',
+  )
+
+  const bodySelected = transitionEditorState(bodyActive.state, {
+    type: 'viewport.selectionRequested',
+    target: { kind: 'body', bodyId: 'body_b' },
+  })
+
+  assert(bodySelected.state.kind === 'editingFeature', 'Single-reference selection should stay in feature editing.')
+  assert(
+    bodySelected.state.session.featureType === 'shell' && bodySelected.state.session.draft.bodyTarget?.bodyId === 'body_b',
+    'Active single-reference picker selection should replace the bound reference.',
+  )
+}
+
+function testReferencePickerCancellationAndSessionCleanup() {
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'shell',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Shell activation should enter feature editing.')
+
+  const active = transitionEditorState(activation.state, {
+    type: 'form.referencePickerActivated',
+    fieldId: 'shell-faces',
+  })
+
+  assert(active.state.kind === 'editingFeature', 'Reference picker activation should stay in feature editing.')
+
+  const escaped = transitionEditorState(active.state, {
+    type: 'form.referencePickerCancelled',
+  })
+
+  assert(escaped.state.kind === 'editingFeature', 'Escape cancellation should not cancel the whole feature session.')
+  assert(escaped.state.activeReferencePickerFieldId === null, 'Escape cancellation should clear the active picker field.')
+  assert(escaped.state.selection.length === 0, 'Escape cancellation should clear picker-specific pending selection.')
+  assert(
+    escaped.state.selectionFilter?.label === 'Shell references',
+    'Escape cancellation should restore the feature-level selection filter.',
+  )
+
+  const cancelled = transitionEditorState(active.state, {
+    type: 'command.cancelled',
+    commandSessionId: active.state.command.commandSessionId,
+  })
+
+  assert(cancelled.state.kind === 'idle', 'Feature session cancellation should leave feature editing.')
+
+  const switched = transitionEditorState(active.state, {
+    type: 'tool.activated',
+    toolId: 'fillet',
+  })
+
+  assert(switched.state.kind === 'editingFeature', 'Switching to another feature tool should enter the new feature session.')
+  assert(
+    switched.state.activeReferencePickerFieldId === null,
+    'Switching to another feature session should clear active picker state.',
+  )
+}
+
 function testReplayIsDeterministic() {
   const snapshot = createSnapshot()
   const payload = {
@@ -646,7 +790,7 @@ async function testRuntimeLoopProcessesSketchOpen() {
   const runtimeSnapshot: DocumentSnapshot = createSnapshot()
   const runtime: EditorEffectRuntime = {
     getCurrentDocumentSnapshot: async () => runtimeSnapshot,
-    commitSketch: async (_input) => null,
+    commitSketch: async () => null,
     evaluatePreview: async () => ({
       revisionId: 'rev_1' as const,
       stale: false,
@@ -779,7 +923,7 @@ async function testRuntimeLoopOpensSketchFromNonXYConstruction() {
   }
   const runtime: EditorEffectRuntime = {
     getCurrentDocumentSnapshot: async () => runtimeSnapshot,
-    commitSketch: async (_input) => null,
+    commitSketch: async () => null,
     evaluatePreview: async () => ({
       revisionId: 'rev_1' as const,
       stale: false,
@@ -824,7 +968,7 @@ async function testRuntimeLoopReopensStoredSketchPlane() {
   const runtimeSnapshot = createReopenableYzSketchSnapshot()
   const runtime: EditorEffectRuntime = {
     getCurrentDocumentSnapshot: async () => runtimeSnapshot,
-    commitSketch: async (_input) => null,
+    commitSketch: async () => null,
     evaluatePreview: async () => ({
       revisionId: 'rev_1' as const,
       stale: false,
@@ -877,6 +1021,8 @@ testFeaturePreviewIgnoresStaleResponseIds()
 testRevolveActivationStartsFeaturePreviewFlow()
 testRevolveActivationSupportsFaceThenEdgeSelection()
 testShellActivationSeedsBodyFromSelectedFace()
+testActiveReferencePickerRoutesSingleAndMultiSelections()
+testReferencePickerCancellationAndSessionCleanup()
 testReplayIsDeterministic()
 testSelectionKeyUsesDurableRefs()
 await testRuntimeLoopProcessesSketchOpen()

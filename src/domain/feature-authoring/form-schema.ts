@@ -7,6 +7,10 @@ export interface FeatureEditorPatchBinding {
   patchKey: string
 }
 
+export interface FeatureEditorFieldError {
+  message: string
+}
+
 export interface FeatureEditorFormSchema {
   sections: readonly FeatureEditorFormSection[]
 }
@@ -30,6 +34,7 @@ export interface FeatureFormFieldBase {
   id: string
   label: string
   helper?: string
+  error?: FeatureEditorFieldError | null
   hidden?: boolean
   disabled?: boolean
 }
@@ -72,7 +77,9 @@ export interface FeatureReferenceCollectionField extends FeatureFormFieldBase {
 
 export interface FeatureReferencePickerBehavior {
   mode: 'replace' | 'appendUnique'
+  allowsMultiple: boolean
   selectionFilter: SelectionFilter
+  itemLabel?: string
 }
 
 export interface FeatureSummaryField extends FeatureFormFieldBase {
