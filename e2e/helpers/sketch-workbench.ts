@@ -5,6 +5,7 @@ export class SketchWorkbenchHarness {
   constructor(readonly page: Page) {}
 
   async open() {
+    await this.page.addInitScript(() => window.localStorage.clear())
     await this.page.goto('/')
     await expect(this.page.getByText('Machine:')).toBeVisible()
   }
@@ -170,7 +171,8 @@ export class SketchWorkbenchHarness {
   }
 
   async expectSketchSessionActive() {
-    await expect(this.page.getByText('Sketch session:')).not.toContainText('none')
+    await this.expectMachine('editingSketch')
+    await expect(this.page.getByText('Sketch plane:')).not.toContainText('none')
   }
 
   async expectMachine(kind: string) {

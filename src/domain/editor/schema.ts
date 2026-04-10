@@ -92,7 +92,7 @@ export interface CommandPreview {
 
 export const defaultSelectionFilter: SelectionFilter = {
   kind: 'all',
-  allowedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchEntity', 'feature', 'construction'],
+  allowedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'feature', 'construction', 'region'],
   label: 'All selectable geometry',
   requirements: [
     {
@@ -104,7 +104,7 @@ export const defaultSelectionFilter: SelectionFilter = {
           id: 'general-selection',
           label: 'General selection',
           description: 'Select any single durable target.',
-          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'sketch', 'sketchEntity', 'feature', 'construction'],
+          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'feature', 'construction', 'region'],
           acceptedSemantics: [
             'body',
             'face',
@@ -113,6 +113,7 @@ export const defaultSelectionFilter: SelectionFilter = {
             'constructionPlane',
             'existingSketch',
             'sketchEntity',
+            'regionProfile',
           ],
         },
       ],
@@ -166,8 +167,8 @@ export const sketchStartSelectionFilter: SelectionFilter = {
 
 export const extrudeSelectionFilter: SelectionFilter = {
   kind: 'extrudeProfile',
-  allowedKinds: ['region', 'face'],
-  label: 'Extrude profiles or planar faces',
+  allowedKinds: ['region', 'face', 'body'],
+  label: 'Extrude profiles, planar faces, or boolean bodies',
   requirements: [
     {
       id: 'extrude-profile',
@@ -180,6 +181,27 @@ export const extrudeSelectionFilter: SelectionFilter = {
           description: 'Select one derived sketch region or one planar face.',
           acceptedKinds: ['region', 'face'],
           acceptedSemantics: ['regionProfile', 'planarFace'],
+        },
+      ],
+    },
+    {
+      id: 'extrude-boolean-target',
+      label: 'Boolean target',
+      description: 'Join, cut, and intersect require one explicit target body.',
+      slots: [
+        {
+          id: 'extrude-profile-for-boolean',
+          label: 'Extrude seed',
+          description: 'Select one derived sketch region or one planar face.',
+          acceptedKinds: ['region', 'face'],
+          acceptedSemantics: ['regionProfile', 'planarFace'],
+        },
+        {
+          id: 'extrude-boolean-target',
+          label: 'Boolean target',
+          description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
         },
       ],
     },

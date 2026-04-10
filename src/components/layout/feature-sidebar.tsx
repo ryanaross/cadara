@@ -84,7 +84,7 @@ export function FeatureSidebar({
     activeEditSession === null
       ? 'No feature selected'
       : activeEditSession.mode === 'create'
-        ? 'New extrude'
+        ? `New ${activeEditSession.featureType}`
         : snapshot?.document.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
           activeEditSession.featureId
 
@@ -249,27 +249,42 @@ export function FeatureSidebar({
           </header>
           <ScrollArea className="min-h-0 flex-1">
             <div className="space-y-2 px-3 py-3">
-              {(snapshot?.document.references ?? []).map((reference) => (
-                <div
-                  key={reference.id}
-                  className={`rounded-md border px-2 py-2 ${
-                    reference.invalidation
-                      ? 'border-[rgba(214,106,106,0.4)] bg-[rgba(49,22,24,0.72)]'
-                      : 'border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)]'
-                  }`}
-                >
-                  <p className="truncate text-sm font-medium text-[var(--cad-foreground)]">{reference.label}</p>
-                  <p className="truncate text-xs text-[var(--cad-muted-foreground)]">
-                    {getPrimitiveRefLabel(reference.target)}
-                  </p>
-                  <p className="mt-1 truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
-                    Owner {snapshot ? formatReferenceOwner(snapshot, reference.ownerFeatureId, reference.ownerSketchId) : 'n/a'}
-                  </p>
-                  {getReferenceStatus(reference) ? (
-                    <p className="mt-1 text-xs text-[rgb(241,160,160)]">{getReferenceStatus(reference)}</p>
-                  ) : null}
-                </div>
-              ))}
+              {(snapshot?.document.references ?? []).map((reference) => {
+                const isAllowed = selectionFilterAllowsTarget(selectionFilter, selection, reference.target, selectionCatalog)
+                const targetLabel = getPrimitiveRefLabel(reference.target)
+
+                return (
+                  <button
+                    key={reference.id}
+                    type="button"
+                    onClick={() => {
+                      if (!isAllowed) {
+                        return
+                      }
+                      onSelectTarget(reference.target)
+                    }}
+                    className={`block w-full rounded-md border px-2 py-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
+                      reference.invalidation
+                        ? 'border-[rgba(214,106,106,0.4)] bg-[rgba(49,22,24,0.72)]'
+                        : 'border-[var(--cad-border)] bg-[rgba(10,14,20,0.72)]'
+                    } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
+                    aria-disabled={!isAllowed}
+                    aria-label={`Select ${reference.label} ${targetLabel}`}
+                    title={!isAllowed ? 'Filtered out by the current command' : undefined}
+                  >
+                    <span className="block truncate text-sm font-medium text-[var(--cad-foreground)]">{reference.label}</span>
+                    <span className="block truncate text-xs text-[var(--cad-muted-foreground)]">
+                      {targetLabel}
+                    </span>
+                    <span className="mt-1 block truncate text-[11px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
+                      Owner {snapshot ? formatReferenceOwner(snapshot, reference.ownerFeatureId, reference.ownerSketchId) : 'n/a'}
+                    </span>
+                    {getReferenceStatus(reference) ? (
+                      <span className="mt-1 block text-xs text-[rgb(241,160,160)]">{getReferenceStatus(reference)}</span>
+                    ) : null}
+                  </button>
+                )
+              })}
             </div>
           </ScrollArea>
         </div>
