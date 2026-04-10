@@ -1,3 +1,7 @@
+## Purpose
+
+Define how an OpenCascade-backed adapter satisfies the public modeling contract without leaking kernel internals into frontend code.
+
 ## ADDED Requirements
 
 ### Requirement: OCC adapter implements the public modeling contract without frontend leakage

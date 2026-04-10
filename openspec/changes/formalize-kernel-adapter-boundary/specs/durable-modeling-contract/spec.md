@@ -1,3 +1,7 @@
+## Purpose
+
+Define the durable frontend-facing modeling contract for typed references, payload versioning, preview isolation, and render bindings.
+
 ## ADDED Requirements
 
 ### Requirement: Durable CAD references are explicit and typed
@@ -39,6 +43,10 @@ The modeling contract SHALL export renderable geometry with bindings back to dur
 #### Scenario: User picks geometry in the viewport
 - **WHEN** the user selects or highlights a rendered face, edge, vertex, sketch primitive, or construction in the viewport
 - **THEN** the render export metadata resolves that pick back to the corresponding typed durable reference
+
+#### Scenario: Primary selection click does not match a durable target
+- **WHEN** the user left clicks renderable geometry in the primary viewport and the system cannot resolve a durable semantic reference from the render binding
+- **THEN** the contract reports the unresolved pick through diagnostics or selection failure handling rather than failing silently or guessing a target
 
 #### Scenario: Snapshot is used to build scene and selection UX
 - **WHEN** the frontend renders tree rows, object rows, and viewport geometry from a document snapshot
