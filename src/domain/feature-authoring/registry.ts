@@ -1,10 +1,11 @@
-import type { FeatureKind } from '@/contracts/modeling/schema'
+import type { AuthoredFeatureKind } from '@/contracts/modeling/schema'
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 import { extrudeAuthoringDefinition } from '@/domain/feature-authoring/features/extrude'
 import { filletAuthoringDefinition } from '@/domain/feature-authoring/features/fillet'
 import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/plane'
 import { revolveAuthoringDefinition } from '@/domain/feature-authoring/features/revolve'
 import { shellAuthoringDefinition } from '@/domain/feature-authoring/features/shell'
+import { sweepAuthoringDefinition } from '@/domain/feature-authoring/features/sweep'
 
 export const featureAuthoringDefinitions = [
   extrudeAuthoringDefinition,
@@ -12,13 +13,14 @@ export const featureAuthoringDefinitions = [
   filletAuthoringDefinition,
   planeAuthoringDefinition,
   shellAuthoringDefinition,
+  sweepAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
-const featureAuthoringRegistry = new Map<FeatureKind, FeatureAuthoringDefinition>(
+const featureAuthoringRegistry = new Map<AuthoredFeatureKind, FeatureAuthoringDefinition>(
   featureAuthoringDefinitions.map((definition) => [definition.metadata.kind, definition]),
 )
 
-export function getFeatureAuthoringDefinition<TKind extends FeatureKind>(
+export function getFeatureAuthoringDefinition<TKind extends AuthoredFeatureKind>(
   featureKind: TKind,
 ): FeatureAuthoringDefinition<TKind> {
   const definition = featureAuthoringRegistry.get(featureKind)
@@ -30,7 +32,7 @@ export function getFeatureAuthoringDefinition<TKind extends FeatureKind>(
   return definition as unknown as FeatureAuthoringDefinition<TKind>
 }
 
-export function findFeatureAuthoringDefinition<TKind extends FeatureKind>(
+export function findFeatureAuthoringDefinition<TKind extends AuthoredFeatureKind>(
   featureKind: TKind,
 ): FeatureAuthoringDefinition<TKind> | null {
   return (featureAuthoringRegistry.get(featureKind) as FeatureAuthoringDefinition<TKind> | undefined) ?? null

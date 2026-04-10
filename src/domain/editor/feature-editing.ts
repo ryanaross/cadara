@@ -1,4 +1,4 @@
-import type { FeatureDefinition, FeatureKind, FeatureSnapshotRecord } from '@/contracts/modeling/schema'
+import type { AuthoredFeatureKind, FeatureDefinition, FeatureSnapshotRecord } from '@/contracts/modeling/schema'
 import type { FeatureId, PrimitiveRef, SelectionFilter } from '@/domain/editor/schema'
 import type {
   FeatureDraftPatch,
@@ -26,6 +26,8 @@ export type {
   RevolveFeatureParameterDraft,
   ShellFeatureEditSessionState,
   ShellFeatureParameterDraft,
+  SweepFeatureEditSessionState,
+  SweepFeatureParameterDraft,
 } from '@/domain/feature-authoring/definition'
 
 function createBaseFeatureSession(
@@ -45,7 +47,7 @@ function createBaseFeatureSession(
   }
 }
 
-function createSessionForDefinition<TKind extends FeatureKind>(
+function createSessionForDefinition<TKind extends AuthoredFeatureKind>(
   featureType: TKind,
   base: FeatureEditSessionStateBase,
   draft: FeatureEditSessionStateForKind<TKind>['draft'],
@@ -90,6 +92,7 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'plane'
     && feature.definition.kind !== 'revolve'
     && feature.definition.kind !== 'shell'
+    && feature.definition.kind !== 'sweep'
   ) {
     return null
   }
@@ -106,7 +109,7 @@ export function hydrateFeatureEditSession(
       ...createBaseFeatureSession(feature.definition.kind, feature.featureId),
       mode: 'edit',
     },
-    definition.hydrateDraft(feature.definition),
+    definition.hydrateDraft(feature.definition as never),
   ) as FeatureEditSessionState
 }
 

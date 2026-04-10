@@ -16,6 +16,7 @@ export type ToolIconId =
   | 'constraintEqual'
   | 'extrude'
   | 'revolve'
+  | 'sweep'
   | 'fillet'
   | 'shell'
   | 'linearPattern'

@@ -46,7 +46,7 @@ import type {
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { DurableRef } from '@/contracts/shared/references'
-import { isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
+import { getAdvancedParticipant, isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 import {
   RENDER_EXPORT_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
@@ -405,6 +405,12 @@ function hasConstructionTarget(snapshot: DocumentSnapshot, constructionId: strin
   return snapshot.constructions.some((construction) => construction.constructionId === constructionId)
 }
 
+function hasSketchEntityTarget(snapshot: DocumentSnapshot, sketchId: SketchId, entityId: SketchEntityId) {
+  return snapshot.sketches.some((sketch) =>
+    sketch.sketchId === sketchId && sketch.sketch.definition.entities.some((entity) => entity.entityId === entityId),
+  )
+}
+
 function createPreviewRenderableSet(targetKey: string): RenderableEntityRecord[] {
   return [
     {
@@ -605,6 +611,79 @@ function validateFeatureDefinitionAgainstSnapshot(
         reasonCode: 'mock-unsupported-shell',
         diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement shell creation yet.')],
       }
+    case 'sweep': {
+      const profileTargets = getAdvancedParticipant(definition, 'profile')?.targets ?? []
+      const pathTargets = getAdvancedParticipant(definition, 'path')?.targets ?? []
+      const guideCurveTargets = getAdvancedParticipant(definition, 'guideCurve')?.targets ?? []
+      const targetBodyTargets = getAdvancedParticipant(definition, 'targetBody')?.targets ?? []
+      const firstProfile = profileTargets[0]
+      const firstPath = pathTargets[0]
+
+      if (!firstProfile || !firstPath || profileTargets.length === 0 || pathTargets.length !== 1) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-sweep',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Sweep requires at least one profile participant and exactly one path participant.')],
+        }
+      }
+
+      if (profileTargets.some((target) => target.kind !== 'region' && target.kind !== 'face')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-sweep',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Sweep profile participants must be region or face targets.')],
+        }
+      }
+
+      if (firstPath.kind !== 'edge' && firstPath.kind !== 'sketchEntity') {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-sweep',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Sweep path participant must be an edge or sketch entity target.')],
+        }
+      }
+
+      if (
+        profileTargets.some((target) =>
+          (target.kind === 'region' && !hasRegionTarget(snapshot, target)) ||
+          (target.kind === 'face' && !hasFaceTarget(snapshot, target.bodyId, target.faceId)),
+        ) ||
+        (firstPath.kind === 'edge' && !hasEdgeTarget(snapshot, firstPath.bodyId, firstPath.edgeId)) ||
+        (firstPath.kind === 'sketchEntity' && !hasSketchEntityTarget(snapshot, firstPath.sketchId, firstPath.entityId))
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-sweep',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Sweep profile and path participants must resolve to live durable targets.')],
+        }
+      }
+
+      if (guideCurveTargets.length > 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock sweep does not implement guide-curve participants yet.')],
+        }
+      }
+
+      if (definition.parameters.operationIntent !== undefined && definition.parameters.operationIntent !== 'create') {
+        if (targetBodyTargets.length === 0 || targetBodyTargets.some((target) => target.kind !== 'body')) {
+          return {
+            accepted: false as const,
+            reasonCode: 'mock-invalid-sweep',
+            diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Sweep boolean operation intents require explicit targetBody participants.')],
+          }
+        }
+
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock sweep does not implement boolean composition yet.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     default:
       return {
         accepted: false as const,
@@ -615,6 +694,11 @@ function validateFeatureDefinitionAgainstSnapshot(
 }
 
 function buildPreviewRenderables(definition: FeatureDefinition, snapshot: DocumentSnapshot) {
+  if (definition.kind === 'sweep') {
+    const profile = getAdvancedParticipant(definition, 'profile')?.targets[0]
+    return profile ? createPreviewRenderableSet(getPrimitiveRefKey(profile)) : []
+  }
+
   if (definition.kind !== 'extrude') {
     return []
   }
@@ -1277,8 +1361,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       angularToleranceRadians: 0.0001,
     },
     capabilities: {
-      supportedFeatureKinds: ['extrude', 'fillet'],
-      previewableFeatureKinds: ['extrude'],
+      supportedFeatureKinds: ['extrude', 'fillet', 'sweep'],
+      previewableFeatureKinds: ['extrude', 'sweep'],
       supportedProfileKinds: ['region', 'face'],
       supportsFaceBackedSketchPlanes: true,
       supportsDurableTopologyNaming: false,

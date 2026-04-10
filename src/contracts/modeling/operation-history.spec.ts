@@ -9,7 +9,7 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import { splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import { sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -229,13 +229,31 @@ function testRejectsLegacyAndInvalidProfileCollections() {
 }
 
 function testPreservesAdvancedParticipantsAndOperationIntent() {
+  const sweepSubtractDefinition = {
+    ...sweepAdvancedFeatureExample,
+    parameters: {
+      ...sweepAdvancedFeatureExample.parameters,
+      operationIntent: 'subtract' as const,
+      participants: [
+        ...sweepAdvancedFeatureExample.parameters.participants,
+        { role: 'targetBody' as const, targets: [{ kind: 'body' as const, bodyId: 'body_target' as const }] },
+      ],
+    },
+  }
   const payload: ModelingOperationHistoryPayload = {
     ...createEmptyOperationHistory('doc_workspace'),
     entries: [
       createCreateFeatureHistoryEntry({
         ...createFeatureRequest,
-        definition: splitAdvancedFeatureExample,
+        definition: sweepSubtractDefinition,
       }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_sweep-1',
+          definition: sweepSubtractDefinition,
+        },
+      },
     ],
   }
 
@@ -243,11 +261,14 @@ function testPreservesAdvancedParticipantsAndOperationIntent() {
 
   assert(result.ok, 'Advanced solid feature history payloads should validate.')
   assert(
-    result.ok &&
+      result.ok &&
       result.payload.entries[0]?.kind === 'createFeature' &&
-      result.payload.entries[0].payload.definition.kind === 'split' &&
-      result.payload.entries[0].payload.definition.parameters.operationIntent === 'subtract',
-    'Advanced solid operation history must preserve feature kind and operation intent.',
+      result.payload.entries[0].payload.definition.kind === 'sweep' &&
+      result.payload.entries[0].payload.definition.parameters.operationIntent === 'subtract' &&
+      result.payload.entries[1]?.kind === 'updateFeature' &&
+      result.payload.entries[1].payload.definition.kind === 'sweep' &&
+      result.payload.entries[1].payload.definition.parameters.participants.some((participant) => participant.role === 'targetBody'),
+    'Sweep operation history must preserve participant roles and operation intent across create and update entries.',
   )
 }
 
@@ -258,9 +279,9 @@ function testRejectsInvalidAdvancedParticipants() {
       kind: 'createFeature',
       payload: {
         definition: {
-          ...splitAdvancedFeatureExample,
+          ...sweepAdvancedFeatureExample,
           parameters: {
-            ...splitAdvancedFeatureExample.parameters,
+            ...sweepAdvancedFeatureExample.parameters,
             participants: [{ role: 'targetBody', targets: 'body_target' }],
           },
         },

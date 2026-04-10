@@ -29,6 +29,20 @@ test('revolve previews and commits with a region profile and durable edge axis',
   await workbench.commitFeature('feature_revolve-1')
 })
 
+test('sweep previews and commits with a region profile and durable edge path', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createBaseExtrudeFixture()
+
+  await workbench.selectReference(fixture.profileTarget)
+  await workbench.activateFeature('sweep')
+  await workbench.selectFirstReferenceMatching(/^Select .* body_feature_extrude-1\.edge_/)
+
+  await workbench.expectFeaturePreviewReady('sweep')
+  await workbench.commitFeature('feature_sweep-1')
+})
+
 test('fillet previews and commits from a durable body edge', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

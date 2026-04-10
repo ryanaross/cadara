@@ -4,8 +4,6 @@ import type {
   FeatureBooleanOperation,
   FeatureBooleanScope,
   FeatureDefinition,
-  FeatureKind,
-  FeatureSnapshotRecord,
   FilletFeatureParameters,
   ModelingDiagnostic,
   PlaneFeatureParameters,
@@ -15,7 +13,11 @@ import type {
   ShellFeatureParameters,
   AdvancedOperationIntentDescriptor,
   AdvancedParticipantDescriptor,
+  AdvancedSolidFeatureParameters,
+  AdvancedSolidOperationIntent,
+  AuthoredFeatureKind,
 } from '@/contracts/modeling/schema'
+import type { AdvancedSolidFeatureDefinition } from '@/contracts/modeling/advanced-solid'
 import type { BodyId } from '@/contracts/shared/ids'
 import type {
   ExtrudeFeatureSchemaVersion,
@@ -24,6 +26,7 @@ import type {
   RevolveFeatureSchemaVersion,
   ShellFeatureSchemaVersion,
 } from '@/contracts/shared/versioning'
+import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
 import type { FeatureId, PrimitiveRef, RevisionId, SelectionFilter } from '@/domain/editor/schema'
 import type { ToolIconId, ToolbarMode } from '@/domain/tools/schema'
 import type { FeatureEditorFormSchema } from '@/domain/feature-authoring/form-schema'
@@ -61,12 +64,22 @@ export interface ShellFeatureParameterDraft {
   booleanScope: FeatureBooleanScope
 }
 
+export interface SweepFeatureParameterDraft {
+  profileTargets: readonly Extract<PrimitiveRef, { kind: 'region' | 'face' }>[]
+  pathTarget: Extract<PrimitiveRef, { kind: 'edge' | 'sketchEntity' }> | null
+  guideCurveTargets: readonly Extract<PrimitiveRef, { kind: 'edge' | 'sketchEntity' }>[]
+  operationIntent: AdvancedSolidOperationIntent
+  targetBodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
+  options: Record<string, unknown>
+}
+
 export interface FeatureDraftByKind {
   extrude: ExtrudeFeatureParameterDraft
   revolve: RevolveFeatureParameterDraft
   fillet: FilletFeatureParameterDraft
   plane: PlaneFeatureParameterDraft
   shell: ShellFeatureParameterDraft
+  sweep: SweepFeatureParameterDraft
 }
 
 export interface FeatureParametersByKind {
@@ -75,6 +88,7 @@ export interface FeatureParametersByKind {
   fillet: FilletFeatureParameters
   plane: PlaneFeatureParameters
   shell: ShellFeatureParameters
+  sweep: AdvancedSolidFeatureParameters
 }
 
 export interface FeatureVersionByKind {
@@ -83,7 +97,13 @@ export interface FeatureVersionByKind {
   fillet: FilletFeatureSchemaVersion
   plane: PlaneFeatureSchemaVersion
   shell: ShellFeatureSchemaVersion
+  sweep: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
 }
+
+export type FeatureDefinitionByKind<TKind extends AuthoredFeatureKind> =
+  TKind extends 'sweep'
+    ? AdvancedSolidFeatureDefinition & { kind: 'sweep' }
+    : Extract<FeatureDefinition, { kind: TKind }>
 
 export interface FeatureEditSessionStateBase {
   mode: 'create' | 'edit'
@@ -95,7 +115,7 @@ export interface FeatureEditSessionStateBase {
   diagnostics: ModelingDiagnostic[]
 }
 
-export type FeatureEditSessionStateForKind<TKind extends FeatureKind> = FeatureEditSessionStateBase & {
+export type FeatureEditSessionStateForKind<TKind extends AuthoredFeatureKind> = FeatureEditSessionStateBase & {
   featureType: TKind
   featureTypeVersion: FeatureVersionByKind[TKind]
   draft: FeatureDraftByKind[TKind]
@@ -106,6 +126,7 @@ export type RevolveFeatureEditSessionState = FeatureEditSessionStateForKind<'rev
 export type FilletFeatureEditSessionState = FeatureEditSessionStateForKind<'fillet'>
 export type PlaneFeatureEditSessionState = FeatureEditSessionStateForKind<'plane'>
 export type ShellFeatureEditSessionState = FeatureEditSessionStateForKind<'shell'>
+export type SweepFeatureEditSessionState = FeatureEditSessionStateForKind<'sweep'>
 
 export type FeatureEditSessionState =
   | ExtrudeFeatureEditSessionState
@@ -113,10 +134,11 @@ export type FeatureEditSessionState =
   | FilletFeatureEditSessionState
   | PlaneFeatureEditSessionState
   | ShellFeatureEditSessionState
+  | SweepFeatureEditSessionState
 
 export type FeatureDraftPatch = Record<string, unknown>
 
-export interface FeatureAuthoringMetadata<TKind extends FeatureKind = FeatureKind> {
+export interface FeatureAuthoringMetadata<TKind extends AuthoredFeatureKind = AuthoredFeatureKind> {
   kind: TKind
   name: string
   tooltip: string
@@ -130,14 +152,14 @@ export interface CreateFeatureDraftInput {
   selectedTarget: PrimitiveRef | null
 }
 
-export interface FeatureAuthoringDefinition<TKind extends FeatureKind = FeatureKind> {
+export interface FeatureAuthoringDefinition<TKind extends AuthoredFeatureKind = AuthoredFeatureKind> {
   metadata: FeatureAuthoringMetadata<TKind>
   featureTypeVersion: FeatureVersionByKind[TKind]
   selectionFilter: SelectionFilter
   advancedParticipants?: readonly AdvancedParticipantDescriptor[]
   operationIntent?: AdvancedOperationIntentDescriptor
   createDraft(input: CreateFeatureDraftInput): FeatureDraftByKind[TKind]
-  hydrateDraft(feature: Extract<FeatureSnapshotRecord['definition'], { kind: TKind }>): FeatureDraftByKind[TKind]
+  hydrateDraft(feature: FeatureDefinitionByKind<TKind>): FeatureDraftByKind[TKind]
   applyPatch(draft: FeatureDraftByKind[TKind], patch: FeatureDraftPatch): FeatureDraftByKind[TKind]
   applySelection(draft: FeatureDraftByKind[TKind], target: PrimitiveRef): FeatureDraftByKind[TKind]
   getPrimarySelectionTarget(draft: FeatureDraftByKind[TKind]): PrimitiveRef | null
@@ -146,7 +168,7 @@ export interface FeatureAuthoringDefinition<TKind extends FeatureKind = FeatureK
     draft: FeatureDraftByKind[TKind]
     phase: 'preview' | 'commit'
   }): ModelingDiagnostic[]
-  buildDefinition(draft: FeatureDraftByKind[TKind]): Extract<FeatureDefinition, { kind: TKind }> | null
+  buildDefinition(draft: FeatureDraftByKind[TKind]): FeatureDefinitionByKind<TKind> | null
   getFormSchema(session: FeatureEditSessionStateForKind<TKind>): FeatureEditorFormSchema
 }
 

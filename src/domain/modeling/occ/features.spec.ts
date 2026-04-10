@@ -27,6 +27,7 @@ import {
   REVOLVE_FEATURE_SCHEMA_VERSION,
   SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
+import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
 import type {
   BodyId,
   ConstructionId,
@@ -773,6 +774,109 @@ async function testRevolveRejectsNonPlanarFaceProfilesExplicitly() {
   )
 }
 
+async function testSweepBuildsStandaloneBodyFromRegionAndDurableEdgePath() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const pathBody = await makeBoxBody(
+    oc,
+    'body_phase4_sweep_path' as BodyId,
+    1,
+    1,
+    4,
+    'feature_phase4_sweep_path_seed' as FeatureId,
+    [0, 0, 0],
+  )
+  const pathEdgeId = findEdgeIdByDirection(oc, pathBody, [0, 0, 1])
+  assert(pathEdgeId != null, 'Expected path body to expose a linear Z edge for sweep.')
+  const plane = createStandardPlaneDefinition('xy')
+  const { sketch, region } = createRectangleSketch('sketch_phase4_sweep' as SketchId, plane, {
+    origin: [-0.2, -0.2],
+    width: 0.4,
+    height: 0.4,
+  })
+  const context = await createContext({ sketches: [sketch], bodies: [pathBody] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_sweep' as FeatureId, {
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }] },
+        { role: 'path', targets: [{ kind: 'edge', bodyId: pathBody.bodyId, edgeId: pathEdgeId as EdgeId }] },
+      ],
+    },
+  })
+  const bodyTarget = result.producedTargets[0]
+  assert(bodyTarget?.kind === 'body', 'Standalone sweep must produce a new body target.')
+  const producedBody = result.bodies.find((body) => body.bodyId === bodyTarget.bodyId)
+  assert(producedBody != null, 'Standalone sweep must append the produced body.')
+  assert(await bodyVolume(context.oc, producedBody.shape) > 0, 'Standalone sweep should produce non-empty solid geometry.')
+}
+
+async function testSweepRejectsUnsupportedGuideCurvesAndBooleanComposition() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const pathBody = await makeBoxBody(
+    oc,
+    'body_phase4_sweep_reject_path' as BodyId,
+    1,
+    1,
+    4,
+    'feature_phase4_sweep_reject_path_seed' as FeatureId,
+  )
+  const pathEdgeId = findEdgeIdByDirection(oc, pathBody, [0, 0, 1])
+  assert(pathEdgeId != null, 'Expected path body to expose a linear Z edge for sweep rejection coverage.')
+  const guideEdgeId = pathBody.topology.edgeIds.find((edgeId) => edgeId !== pathEdgeId)
+  assert(guideEdgeId != null, 'Expected path body to expose a second edge for guide curve coverage.')
+  const plane = createStandardPlaneDefinition('xy')
+  const { sketch, region } = createRectangleSketch('sketch_phase4_sweep_reject' as SketchId, plane, {
+    origin: [-0.2, -0.2],
+    width: 0.4,
+    height: 0.4,
+  })
+  const context = await createContext({ sketches: [sketch], bodies: [pathBody] })()
+  const baseParticipants = [
+    { role: 'profile' as const, targets: [{ kind: 'region' as const, sketchId: sketch.sketchId, regionId: region.regionId }] },
+    { role: 'path' as const, targets: [{ kind: 'edge' as const, bodyId: pathBody.bodyId, edgeId: pathEdgeId as EdgeId }] },
+  ]
+
+  let guideError: string | null = null
+  try {
+    executeOccFeature(context, 'feature_phase4_sweep_guide_reject' as FeatureId, {
+      kind: 'sweep',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'create',
+        participants: [
+          ...baseParticipants,
+          { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: pathBody.bodyId, edgeId: guideEdgeId }] },
+        ],
+      },
+    })
+  } catch (error) {
+    guideError = error instanceof Error ? error.message : String(error)
+  }
+
+  let booleanError: string | null = null
+  try {
+    executeOccFeature(context, 'feature_phase4_sweep_boolean_reject' as FeatureId, {
+      kind: 'sweep',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'subtract',
+        participants: [
+          ...baseParticipants,
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: pathBody.bodyId }] },
+        ],
+      },
+    })
+  } catch (error) {
+    booleanError = error instanceof Error ? error.message : String(error)
+  }
+
+  assert(guideError?.includes('advanced-feature-unsupported-kernel-case') === true, 'Guide-curve sweeps must reject with an explicit unsupported-case code.')
+  assert(booleanError?.includes('advanced-feature-unsupported-kernel-case') === true, 'Boolean sweeps must reject with an explicit unsupported-case code.')
+}
+
 async function testFilletReplacesAffectedBody() {
   const oc = await getDefaultOpenCascadeInstance()
   const boxBody = await makeBoxBody(oc, 'body_phase4_fillet' as BodyId, 2, 2, 2, 'feature_phase4_box' as FeatureId)
@@ -940,6 +1044,8 @@ await testExtrudeRejectsInvalidExtentAndBooleanScope()
 await testCutAndIntersectApplyPerTargetPolicy()
 await testRevolveRejectsConstructionAxisAndBuildsEdgeBackedSolid()
 await testRevolveRejectsNonPlanarFaceProfilesExplicitly()
+await testSweepBuildsStandaloneBodyFromRegionAndDurableEdgePath()
+await testSweepRejectsUnsupportedGuideCurvesAndBooleanComposition()
 await testFilletReplacesAffectedBody()
 await testFilletRejectsEmptyEdgeTargetList()
 await testShellBuildsPreviewableSolidFromExplicitBodyAndFaces()

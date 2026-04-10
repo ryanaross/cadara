@@ -11,6 +11,7 @@ import type {
   SketchSnapshotRecord,
   SnapshotEntityRecord,
 } from '@/contracts/modeling/schema'
+import type { AdvancedSolidFeatureDefinition } from '@/contracts/modeling/advanced-solid'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { RegionRecord } from '@/contracts/sketch/schema'
 import type {
@@ -22,6 +23,7 @@ import type {
   SnapshotEntityId,
 } from '@/contracts/shared/ids'
 import type { DurableRef } from '@/contracts/shared/references'
+import { getAdvancedParticipant } from '@/contracts/modeling/advanced-solid'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
 import { RENDER_EXPORT_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import {
@@ -617,6 +619,118 @@ function buildRevolveFeatureShape(
   return revol.Shape()
 }
 
+function buildSweepProfileShape(
+  context: OccFeatureExecutionContext,
+  profile: DurableRef,
+) {
+  if (profile.kind === 'region') {
+    const sketch = requireSketchSnapshot(context, profile.sketchId)
+    const region = requireRegion(sketch, profile.regionId)
+    return buildRegionProfileFace(context.oc, { plane: sketch.plane, sketch: sketch.sketch }, region).face
+  }
+
+  if (profile.kind === 'face') {
+    const body = requireBody(context, profile.bodyId)
+    const face = requireFace(body, profile.faceId)
+    getExtrusionNormalForPlanarFace(context.oc, face, 'positive')
+    return face
+  }
+
+  throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep profiles must be region or planar face targets.')
+}
+
+function buildSweepPathWire(
+  context: OccFeatureExecutionContext,
+  path: DurableRef,
+) {
+  if (path.kind === 'sketchEntity') {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep does not support sketch-entity paths yet.')
+  }
+
+  if (path.kind !== 'edge') {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep path must be a durable edge target.')
+  }
+
+  const body = requireBody(context, path.bodyId)
+  const edge = requireEdge(body, path.edgeId)
+  const wireBuilder = new context.oc.BRepBuilderAPI_MakeWire_1()
+  wireBuilder.Add_1(edge)
+
+  if (!wireBuilder.IsDone()) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep failed to build a path wire from the selected edge.')
+  }
+
+  return wireBuilder.Wire()
+}
+
+function buildSweepFeatureShape(
+  context: OccFeatureExecutionContext,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'sweep' },
+) {
+  const profileTargets = getAdvancedParticipant(definition, 'profile')?.targets ?? []
+  const pathTargets = getAdvancedParticipant(definition, 'path')?.targets ?? []
+  const guideCurveTargets = getAdvancedParticipant(definition, 'guideCurve')?.targets ?? []
+
+  if (profileTargets.length !== 1) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep requires exactly one profile target in the initial implementation.')
+  }
+
+  if (pathTargets.length !== 1) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep requires exactly one path target.')
+  }
+
+  if (guideCurveTargets.length > 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep does not support guide curves yet.')
+  }
+
+  const profileShape = buildSweepProfileShape(context, profileTargets[0]!)
+  const pathWire = buildSweepPathWire(context, pathTargets[0]!)
+  const pipe = new context.oc.BRepOffsetAPI_MakePipe_1(pathWire, profileShape)
+  pipe.Build(new context.oc.Message_ProgressRange_1())
+
+  if (!pipe.IsDone()) {
+    throw new Error('OCC sweep pipe build failed.')
+  }
+
+  return pipe.Shape()
+}
+
+function getSweepBooleanPolicy(definition: AdvancedSolidFeatureDefinition & { kind: 'sweep' }): {
+  operation: FeatureBooleanOperation
+  booleanScope: FeatureBooleanScope
+} {
+  const intent = definition.parameters.operationIntent ?? 'create'
+
+  if (intent === 'create') {
+    return {
+      operation: 'newBody',
+      booleanScope: { kind: 'standalone' },
+    }
+  }
+
+  throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep does not support boolean composition yet.')
+}
+
+function executeSweepFeature(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'sweep' },
+): OccFeatureExecutionResult {
+  const featureShape = buildSweepFeatureShape(context, definition)
+  const policy = getSweepBooleanPolicy(definition)
+  const result = applyBooleanPolicy(context, ownerFeatureId, policy.operation, policy.booleanScope, featureShape)
+
+  return {
+    bodies: result.bodies,
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets: result.producedTargets,
+    entities: [],
+    renderRecords: [],
+    historyInvalidations: result.historyInvalidations,
+  }
+}
+
 function executePlaneFeature(
   context: OccFeatureExecutionContext,
   ownerFeatureId: FeatureId,
@@ -863,6 +977,8 @@ export function executeOccFeature(
       return executeFilletFeature(context, ownerFeatureId, definition.parameters)
     case 'shell':
       return executeShellFeature(context, ownerFeatureId, definition.parameters)
+    case 'sweep':
+      return executeSweepFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'sweep' })
     default:
       throw new Error(`advanced-feature-unsupported-kernel-case: OCC adapter does not implement ${definition.kind} yet.`)
   }

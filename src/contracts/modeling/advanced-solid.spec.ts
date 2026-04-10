@@ -34,6 +34,13 @@ const sweepDescriptor = {
       cardinality: { min: 0, max: null },
       acceptedKinds: ['body'],
     },
+    {
+      role: 'guideCurve',
+      label: 'Guide curve',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['edge', 'sketchEntity'],
+    },
   ],
   operationIntent: {
     supportedIntents: ['create', 'add', 'subtract'],
@@ -118,7 +125,46 @@ function testAdvancedOperationIntentValidationRejectsUnsupportedModes() {
   )
 }
 
+function testSweepPathCardinalityAndBooleanTargetValidation() {
+  const invalidPathCardinality = validateAdvancedSolidFeatureDefinition({
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' }] },
+        {
+          role: 'path',
+          targets: [
+            { kind: 'edge', bodyId: 'body_a', edgeId: 'edge_path_a' },
+            { kind: 'sketchEntity', sketchId: 'sketch_a', entityId: 'sketch_entity_path_b' },
+          ],
+        },
+      ],
+    },
+  }, sweepDescriptor)
+
+  const validBoolean = validateAdvancedSolidFeatureDefinition({
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'subtract',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'face', bodyId: 'body_profile', faceId: 'face_profile' }] },
+        { role: 'path', targets: [{ kind: 'edge', bodyId: 'body_path', edgeId: 'edge_path' }] },
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' }] },
+      ],
+    },
+  }, sweepDescriptor)
+
+  assert(
+    invalidPathCardinality.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-cardinality' && diagnostic.role === 'path'),
+    'Sweep path cardinality validation should reject multiple path targets.',
+  )
+  assert(validBoolean.length === 0, 'Boolean sweep validation should accept an explicit targetBody participant.')
+}
+
 testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
 testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
 testAdvancedOperationIntentValidationRejectsUnsupportedModes()
-
+testSweepPathCardinalityAndBooleanTargetValidation()

@@ -1149,12 +1149,13 @@ function eventMatchesOptionalDocument(
   return eventMatchesDocument(state, documentId, revisionId)
 }
 
-function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane'> {
+function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane' | 'sweep'> {
   return toolId === 'extrude'
     || toolId === 'revolve'
     || toolId === 'fillet'
     || toolId === 'shell'
     || toolId === 'plane'
+    || toolId === 'sweep'
 }
 
 /**

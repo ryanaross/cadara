@@ -42,6 +42,10 @@ export function asEdgeRef(value: PrimitiveRef | null): Extract<PrimitiveRef, { k
   return value?.kind === 'edge' ? value : null
 }
 
+export function asSweepPathRef(value: PrimitiveRef | null): Extract<PrimitiveRef, { kind: 'edge' | 'sketchEntity' }> | null {
+  return value?.kind === 'edge' || value?.kind === 'sketchEntity' ? value : null
+}
+
 export function asPlaneReferenceTarget(
   value: PrimitiveRef | null,
 ): Extract<PrimitiveRef, { kind: 'construction' | 'face' }> | null {

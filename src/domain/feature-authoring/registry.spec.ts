@@ -29,8 +29,8 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['extrude', 'fillet', 'plane', 'revolve', 'shell']),
-    'The feature authoring registry should contain every current durable feature kind.',
+    JSON.stringify(registeredKinds) === JSON.stringify(['extrude', 'fillet', 'plane', 'revolve', 'shell', 'sweep']),
+    'The feature authoring registry should contain every current authored feature kind.',
   )
 }
 
@@ -52,6 +52,61 @@ function testRevolveDraftSelectionAndDefinitionBuilder() {
 
   assert(definition?.kind === 'revolve', 'Completed revolve drafts should build a revolve modeling definition.')
   assert(definition.parameters.axis.kind === 'edge', 'The selected edge should become the revolve axis.')
+}
+
+function testSweepDraftSelectionAndDefinitionBuilder() {
+  const profile = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
+  const path = { kind: 'edge' as const, bodyId: 'body_a' as const, edgeId: 'edge_path' as const }
+  const targetBody = { kind: 'body' as const, bodyId: 'body_a' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'sweep',
+    selectedTarget: profile,
+  })
+
+  assert(initialSession.featureType === 'sweep', 'Sweep activation should create a sweep authoring session.')
+  assert(buildFeatureDefinition(initialSession) === null, 'Sweep drafts without a path should not build a modeling definition.')
+
+  const completedSession = applySelectionToFeatureEditSession(initialSession, path)
+  const definition = buildFeatureDefinition(completedSession)
+
+  assert(definition?.kind === 'sweep', 'Completed sweep drafts should build a sweep modeling definition.')
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'profile' && participant.targets[0] === profile),
+    'Sweep definitions should preserve the selected profile participant role.',
+  )
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'path' && participant.targets[0] === path),
+    'Sweep definitions should preserve the selected path participant role.',
+  )
+
+  const schema = getFeatureEditorFormSchema(completedSession)
+  const operationField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'sweep-operation-intent')
+  assert(operationField?.kind === 'enum', 'Sweep form schema should expose operation intent as a generic enum field.')
+
+  const subtractSession = patchFeatureEditSession(
+    completedSession,
+    createFeatureEditorFieldPatch(operationField, 'subtract'),
+  )
+  assert(buildFeatureDefinition(subtractSession) === null, 'Boolean sweep drafts should require explicit target bodies.')
+
+  const targetBodiesField = getFeatureEditorFormSchema(subtractSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'sweep-target-bodies')
+  assert(targetBodiesField?.kind === 'referenceCollection', 'Sweep form schema should expose target bodies as a reference collection.')
+
+  const booleanSession = patchFeatureEditSession(
+    subtractSession,
+    createFeatureEditorReferenceSelectionPatch(targetBodiesField, targetBody),
+  )
+  const booleanDefinition = buildFeatureDefinition(booleanSession)
+
+  assert(
+    booleanSession.featureType === 'sweep' &&
+      booleanDefinition?.kind === 'sweep' &&
+      booleanDefinition.parameters.operationIntent === 'subtract' &&
+      booleanDefinition.parameters.participants.some((participant) => participant.role === 'targetBody'),
+    'Sweep boolean authoring should build operation intent and explicit targetBody participants.',
+  )
 }
 
 function testProfileBasedAuthoringUsesReferenceCollections() {
@@ -130,10 +185,12 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const extrude = definitions.find((definition) => definition.metadata.kind === 'extrude')
   const fillet = definitions.find((definition) => definition.metadata.kind === 'fillet')
   const shell = definitions.find((definition) => definition.metadata.kind === 'shell')
+  const sweep = definitions.find((definition) => definition.metadata.kind === 'sweep')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
   assert(shell?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Shell should declare body participants for body-operation substrate coverage.')
+  assert(sweep?.advancedParticipants?.some((participant) => participant.role === 'path'), 'Sweep should declare path participants for profile/path substrate coverage.')
 
   const shellSession = createFeatureEditSession({
     featureType: 'shell',
@@ -159,6 +216,7 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/definition.ts',
     'src/domain/feature-authoring/form-schema.ts',
     'src/domain/feature-authoring/form-events.ts',
+    'src/domain/feature-authoring/features/sweep.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
 
@@ -298,6 +356,7 @@ function testGenericReferenceFormEventsPatchSingleAndMultiReferences() {
 
 testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
+testSweepDraftSelectionAndDefinitionBuilder()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

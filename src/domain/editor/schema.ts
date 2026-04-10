@@ -67,6 +67,7 @@ export type SelectionFilterKind =
   | 'sketchStart'
   | 'extrudeProfile'
   | 'revolveReferences'
+  | 'sweepReferences'
   | 'filletEdges'
   | 'shellReferences'
   | 'planeReferences'
@@ -271,6 +272,70 @@ export const revolveSelectionFilter: SelectionFilter = {
       slots: [
         {
           id: 'revolve-boolean-target',
+          label: 'Boolean target',
+          description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
+export const sweepSelectionFilter: SelectionFilter = {
+  kind: 'sweepReferences',
+  allowedKinds: ['region', 'face', 'edge', 'sketchEntity', 'body'],
+  label: 'Sweep references',
+  requirements: [
+    {
+      id: 'sweep-profile',
+      label: 'Profile target',
+      description: 'Sweep accepts one or more explicit region or planar face profiles.',
+      slots: [
+        {
+          id: 'sweep-profile',
+          label: 'Sweep profile',
+          description: 'Select one or more derived sketch regions or planar faces.',
+          acceptedKinds: ['region', 'face'],
+          acceptedSemantics: ['regionProfile', 'planarFace'],
+        },
+      ],
+    },
+    {
+      id: 'sweep-path',
+      label: 'Path target',
+      description: 'Sweep accepts one durable edge or sketch entity as its initial path.',
+      slots: [
+        {
+          id: 'sweep-path',
+          label: 'Sweep path',
+          description: 'Select one durable edge or sketch entity path.',
+          acceptedKinds: ['edge', 'sketchEntity'],
+          acceptedSemantics: ['edge', 'sketchEntity'],
+        },
+      ],
+    },
+    {
+      id: 'sweep-guide-curve',
+      label: 'Guide curve',
+      description: 'Guide curves are contract-visible but not yet supported by the OCC sweep builder.',
+      slots: [
+        {
+          id: 'sweep-guide-curve',
+          label: 'Guide curve',
+          description: 'Select a durable edge or sketch entity guide curve.',
+          acceptedKinds: ['edge', 'sketchEntity'],
+          acceptedSemantics: ['edge', 'sketchEntity'],
+        },
+      ],
+    },
+    {
+      id: 'sweep-boolean-target',
+      label: 'Boolean target',
+      description: 'Add, subtract, and intersect require one explicit target body.',
+      slots: [
+        {
+          id: 'sweep-boolean-target',
           label: 'Boolean target',
           description: 'Select one body target.',
           acceptedKinds: ['body'],
@@ -654,8 +719,10 @@ export function getSelectionPreviewLabel(
     filter.kind === 'extrudeProfile'
       ? 'extrude profile'
       : filter.kind === 'revolveReferences'
-        ? 'revolve reference'
-      : filter.kind === 'filletEdges'
+      ? 'revolve reference'
+      : filter.kind === 'sweepReferences'
+        ? 'sweep reference'
+        : filter.kind === 'filletEdges'
         ? 'fillet edge'
         : filter.kind === 'shellReferences'
           ? 'shell reference'

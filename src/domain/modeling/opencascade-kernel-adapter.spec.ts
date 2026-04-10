@@ -15,6 +15,7 @@ import type {
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 import type {
   BodySnapshotRecord,
+  AdvancedParticipantValue,
   CommitSketchRequest,
   FeatureDefinition,
   GetDocumentSnapshotResponse,
@@ -38,6 +39,7 @@ import {
   REVOLVE_FEATURE_SCHEMA_VERSION,
   SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
+import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
 import { OCC_CONTRACT_GAP_CODES } from '@/domain/modeling/occ/implementation-policy'
 import {
   DEFAULT_MOCK_SOLVER_TOLERANCES,
@@ -468,6 +470,46 @@ function createRevolveDefinition(
   }
 }
 
+function createSweepDefinition(
+  sketch: SketchSnapshotRecord,
+  pathBodyId: BodyId,
+  pathEdgeId: EdgeId,
+  extraParticipants: readonly AdvancedParticipantValue[] = [],
+): FeatureDefinition {
+  const region = sketch.sketch.regions[0]
+
+  if (!region) {
+    throw new Error('Committed sketch must expose a region for sweep testing.')
+  }
+
+  return {
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [{
+            kind: 'region',
+            sketchId: sketch.sketchId,
+            regionId: region.regionId,
+          }],
+        },
+        {
+          role: 'path',
+          targets: [{
+            kind: 'edge',
+            bodyId: pathBodyId,
+            edgeId: pathEdgeId,
+          }],
+        },
+        ...(extraParticipants ?? []),
+      ],
+    },
+  }
+}
+
 function createConstructionAxisRevolveDefinition(
   sketch: SketchSnapshotRecord,
   constructionId: `construction_${string}`,
@@ -626,6 +668,35 @@ async function findPreviewableRevolveAxisEdge(
   }
 
   throw new Error(`Expected body ${bodyId} to expose an edge-backed revolve axis.`)
+}
+
+async function findPreviewableSweepPathEdge(
+  adapter: OpenCascadeKernelAdapter,
+  revisionId: RevisionId,
+  sketch: SketchSnapshotRecord,
+  bodyId: BodyId,
+) {
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const body = requireBody(snapshot.snapshot, bodyId)
+
+  for (const edgeId of body.topology.edgeIds) {
+    const preview = await adapter.evaluatePreview({
+      contractVersion: CONTRACT_VERSION,
+      documentId: 'doc_workspace',
+      baseRevisionId: revisionId,
+      previewId: `preview_sweep_edge_${edgeId}`,
+      definition: createSweepDefinition(sketch, bodyId, edgeId),
+    })
+
+    if (!hasErrorDiagnostics(preview.diagnostics) && preview.render.records.length > 0) {
+      return edgeId
+    }
+  }
+
+  throw new Error(`Expected body ${bodyId} to expose a previewable sweep path edge.`)
 }
 
 async function testSnapshotFetchAndSketchCommit() {
@@ -847,6 +918,101 @@ async function testRevolvePreviewCreateAndConstructionAxisRejection() {
   assert(
     rejected.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
     'Construction-axis revolve rejection must surface structured diagnostics.',
+  )
+}
+
+async function testSweepPreviewCreateAndUnsupportedCases() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before sweep coverage.')
+  }
+
+  const firstSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sweepSketch = requirePrimarySketch(firstSnapshot.snapshot)
+  const pathBody = await createExtrudeBody(adapter, firstSnapshot.snapshot.revisionId, sweepSketch, 12)
+  const pathEdgeId = await findPreviewableSweepPathEdge(
+    adapter,
+    pathBody.response.revisionId,
+    sweepSketch,
+    pathBody.bodyId,
+  )
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: pathBody.response.revisionId,
+    previewId: 'preview_sweep_edge_path',
+    definition: createSweepDefinition(sweepSketch, pathBody.bodyId, pathEdgeId),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh sweep previews must report fresh freshness state.')
+  assert(preview.render.records.length > 0, 'Edge-backed sweep preview must return transient renderables.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Edge-backed sweep preview must not emit error diagnostics')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: pathBody.response.revisionId,
+    definition: createSweepDefinition(sweepSketch, pathBody.bodyId, pathEdgeId),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Edge-backed sweep create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Edge-backed sweep create must rebuild.')
+  assert(
+    created.changedTargets.some((target) => target.kind === 'body'),
+    'Edge-backed sweep create must report a produced body target.',
+  )
+
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const currentPathBody = requireBody(snapshot.snapshot, pathBody.bodyId)
+  const guideEdgeId = currentPathBody.topology.edgeIds.find((edgeId) => edgeId !== pathEdgeId) ?? pathEdgeId
+  const region = sweepSketch.sketch.regions[0]
+  assert(region, 'Committed sketch must expose a region for unsupported sweep coverage.')
+  const unsupportedGuide = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    previewId: 'preview_sweep_unsupported_guide',
+    definition: createSweepDefinition(sweepSketch, pathBody.bodyId, pathEdgeId, [
+      { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: pathBody.bodyId, edgeId: guideEdgeId }] },
+    ]),
+  })
+  const unsupportedBoolean = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: {
+      kind: 'sweep',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'subtract',
+        participants: [
+          {
+            role: 'profile',
+            targets: [{ kind: 'region', sketchId: sweepSketch.sketchId, regionId: region.regionId }],
+          },
+          {
+            role: 'path',
+            targets: [{ kind: 'edge', bodyId: pathBody.bodyId, edgeId: pathEdgeId }],
+          },
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: pathBody.bodyId }] },
+        ],
+      },
+    },
+  })
+
+  assert(hasErrorDiagnostics(unsupportedGuide.diagnostics), 'Guide-curve sweep preview must emit explicit unsupported diagnostics.')
+  assert(unsupportedBoolean.revisionState.kind === 'rejected', 'Boolean sweep create must reject unsupported composition explicitly.')
+  assert(
+    unsupportedBoolean.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
+    'Unsupported sweep create rejection must surface structured diagnostics.',
   )
 }
 
@@ -1756,6 +1922,7 @@ await testSnapshotFetchAndSketchCommit()
 await testPlaneFeatureCreateSupportsConstructionAndPlanarFaceReferences()
 await testExtrudePreviewCreateAndUpdateCommitGeometry()
 await testRevolvePreviewCreateAndConstructionAxisRejection()
+await testSweepPreviewCreateAndUnsupportedCases()
 await testFilletCreateAndUpdateMutateBodyTopology()
 await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()

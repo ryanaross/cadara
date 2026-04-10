@@ -7,6 +7,7 @@ import {
   EXTRUDE_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
+import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
 import { splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -554,6 +555,110 @@ async function testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithout
   assert(after.snapshot.features.length === before.snapshot.features.length, 'Rejected advanced create requests must not add committed features.')
 }
 
+async function testSweepPreviewAndCommitUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const sweepDefinition = {
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' }] },
+        { role: 'path', targets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }] },
+      ],
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_sweep_valid',
+    definition: sweepDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: sweepDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedSweep = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock sweep previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock sweep previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock sweep create requests should be accepted.')
+  assert(committedSweep?.definition.kind === 'sweep', 'Committed mock sweep should be present in the next snapshot.')
+  assert(
+    committedSweep.definition.parameters.participants.some((participant) => participant.role === 'path'),
+    'Committed mock sweep should preserve the path participant role.',
+  )
+}
+
+async function testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const guideCurveDefinition = {
+    kind: 'sweep',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' }] },
+        { role: 'path', targets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }] },
+        { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' }] },
+      ],
+    },
+  } as const
+  const booleanDefinition = {
+    ...guideCurveDefinition,
+    parameters: {
+      operationIntent: 'subtract' as const,
+      participants: [
+        { role: 'profile' as const, targets: [{ kind: 'region' as const, sketchId: 'sketch_primary' as const, regionId: 'region_primary-outer' as const }] },
+        { role: 'path' as const, targets: [{ kind: 'edge' as const, bodyId: 'body_part-1' as const, edgeId: 'edge_outer-0' as const }] },
+        { role: 'targetBody' as const, targets: [{ kind: 'body' as const, bodyId: 'body_part-1' as const }] },
+      ],
+    },
+  } as const
+
+  const guidePreview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_sweep_guide_unsupported',
+    definition: guideCurveDefinition,
+  })
+  const booleanCreate = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: booleanDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  assert(guidePreview.render.records.length === 0, 'Unsupported sweep previews must not return transient renderables.')
+  assert(
+    guidePreview.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'advancedFeatureValidation'),
+    'Unsupported sweep previews must return structured advanced-feature diagnostics.',
+  )
+  assert(booleanCreate.revisionState.kind === 'rejected', 'Unsupported sweep boolean create requests should be rejected.')
+  assert(after.snapshot.revisionId === before.snapshot.revisionId, 'Rejected sweep create requests must not mutate committed document state.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -787,6 +892,8 @@ await testPreviewStalenessReportsObservedRevision()
 await testResolveReferenceReportsMissingTargetsExplicitly()
 await testMockKernelRejectsUnsupportedContractEnvelope()
 await testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation()
+await testSweepPreviewAndCommitUseAdvancedParticipants()
+await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
 await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()
