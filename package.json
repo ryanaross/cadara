@@ -13,6 +13,7 @@
     "test:sketch-stability": "bun run test:editor-state-machine && bun run test:mock-kernel-contract && bun run test:occ-phase2 && bun run test:occ-phase6 && bun run test:e2e",
     "test:editor-state-machine": "bun x vite-node src/contracts/editor/state-machine.spec.ts",
     "test:solver-contract": "bun x vite-node src/contracts/solver/solver-contract.spec.ts",
+    "test:sketch-solver": "bun x vite-node src/contracts/sketch/solver-core.spec.ts",
     "test:mock-kernel-contract": "bun x vite-node src/domain/modeling/mock-kernel-adapter.spec.ts",
     "test:occ-phase0": "bun x vite-node src/domain/modeling/occ/implementation-policy.spec.ts",
     "test:occ-phase1-runtime": "bun x vite-node src/domain/modeling/occ/runtime.spec.ts",

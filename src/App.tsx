@@ -8,7 +8,7 @@ import {
   OCC_KERNEL_DOCUMENT_ID,
   OCC_KERNEL_INITIAL_REVISION_ID,
 } from '@/domain/modeling/opencascade-kernel-seed'
-import { MockSketchSolverAdapter } from '@/domain/solver/mock-sketch-solver-adapter'
+import { SketchConstraintSolverAdapter } from '@/domain/solver/sketch-constraint-solver-adapter'
 import { EditorProvider } from '@/hooks/editor-provider'
 import { ModelingServiceProvider } from '@/hooks/modeling-service-provider'
 import { ToolActionProvider } from '@/hooks/tool-action-provider'
@@ -17,7 +17,7 @@ import { createToolActionBus } from '@/domain/tools/tool-action-bus'
 function App() {
   const actionBus = useMemo(() => createToolActionBus(), [])
   const sketchSolver = useMemo(
-    () => new MockSketchSolverAdapter({
+    () => new SketchConstraintSolverAdapter({
       documentId: OCC_KERNEL_DOCUMENT_ID,
       revisionId: OCC_KERNEL_INITIAL_REVISION_ID,
     }),
@@ -28,7 +28,7 @@ function App() {
       new OpenCascadeKernelAdapter({
         solverAdapter: sketchSolver,
         solverAdapterFactory: (revisionId) =>
-          new MockSketchSolverAdapter({
+          new SketchConstraintSolverAdapter({
             documentId: OCC_KERNEL_DOCUMENT_ID,
             revisionId,
           }),

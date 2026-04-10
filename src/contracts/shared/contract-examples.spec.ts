@@ -28,6 +28,7 @@ import {
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 import {
   chamferAdvancedFeatureExample,
+  loftAdvancedFeatureExample,
   splitAdvancedFeatureExample,
   sweepAdvancedFeatureExample,
 } from '@/contracts/modeling/advanced-solid'
@@ -612,6 +613,8 @@ function testSolvedSketchVersionLiteralRemainsDocumented() {
 function testAdvancedSolidExamplesUseRoleSpecificParticipants() {
   assert(sweepAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'profile'), 'Sweep example must preserve a profile participant role.')
   assert(sweepAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'path'), 'Sweep example must preserve a path participant role.')
+  assert(loftAdvancedFeatureExample.parameters.participants[0]?.role === 'profile', 'Loft example must preserve ordered profile participants.')
+  assert(loftAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'guideCurve'), 'Loft example must preserve optional guide-curve participants.')
   assert(chamferAdvancedFeatureExample.parameters.participants[0]?.role === 'edge', 'Chamfer example must preserve topology modifier edge participants.')
   assert(splitAdvancedFeatureExample.parameters.operationIntent === 'subtract', 'Split example must preserve operation intent.')
   assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'toolBody'), 'Split example must preserve body-operation tool participants.')

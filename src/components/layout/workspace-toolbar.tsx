@@ -59,6 +59,7 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
   extrude: ArrowBigUpDash,
   revolve: Orbit,
   sweep: Spline,
+  loft: Shapes,
   fillet: Crop,
   chamfer: Diamond,
   shell: Cuboid,

@@ -283,14 +283,36 @@ function ReferenceCollectionCard(props: {
                 {props.field.picker.itemLabel ?? props.field.label}: {getPrimitiveRefLabel(target)}
               </span>
               {props.field.picker.allowsMultiple ? (
-                <button
-                  type="button"
-                  onClick={() => props.onPatch(createFeatureEditorRemoveReferenceItemPatch(props.field, target as PrimitiveRef))}
-                  aria-label={`Remove ${getPrimitiveRefLabel(target)}`}
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                <div className="flex items-center gap-1">
+                  {props.field.ordering ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => props.onPatch({ [props.field.ordering!.moveUpPatchKey]: target })}
+                        aria-label={`Move ${getPrimitiveRefLabel(target)} earlier`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-[var(--cad-border-strong)] hover:text-[var(--cad-foreground)]"
+                      >
+                        <Check className="h-3 w-3 rotate-180" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => props.onPatch({ [props.field.ordering!.moveDownPatchKey]: target })}
+                        aria-label={`Move ${getPrimitiveRefLabel(target)} later`}
+                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-[var(--cad-border-strong)] hover:text-[var(--cad-foreground)]"
+                      >
+                        <Check className="h-3 w-3" />
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => props.onPatch(createFeatureEditorRemoveReferenceItemPatch(props.field, target as PrimitiveRef))}
+                    aria-label={`Remove ${getPrimitiveRefLabel(target)}`}
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               ) : null}
             </div>
           ))}

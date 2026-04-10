@@ -157,6 +157,50 @@ export type ConstraintDefinition =
     }
   | {
       constraintId: ConstraintId
+      kind: 'fixPoint'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Constrained point. Must exist in `SketchDefinition.pointIds`. */
+      pointId: SketchPointId
+      /** Requested solved position in sketch-plane units. */
+      position: SketchPoint2D
+    }
+  | {
+      constraintId: ConstraintId
+      kind: 'angle'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Ordered point references `[point1, point2, middlePoint]`. */
+      pointIds: readonly [SketchPointId, SketchPointId, SketchPointId]
+      /** Requested enclosed angle in radians. */
+      valueRadians: number
+    }
+  | {
+      constraintId: ConstraintId
+      kind: 'parallel'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Two line entities that must solve parallel. */
+      entityIds: readonly [SketchEntityId, SketchEntityId]
+    }
+  | {
+      constraintId: ConstraintId
+      kind: 'perpendicular'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Two line entities that must solve perpendicular. */
+      entityIds: readonly [SketchEntityId, SketchEntityId]
+    }
+  | {
+      constraintId: ConstraintId
+      kind: 'equalLength'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Two line entities whose solved lengths must match. */
+      entityIds: readonly [SketchEntityId, SketchEntityId]
+    }
+  | {
+      constraintId: ConstraintId
       kind: 'vertical'
       /** Human-readable label owned by the producer of the sketch definition. */
       label: string
@@ -190,6 +234,46 @@ export type DimensionDefinition =
       entityId: SketchEntityId
       /** Requested radius value in sketch-plane units. */
       value: number
+    }
+  | {
+      dimensionId: DimensionId
+      kind: 'horizontalDistance'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Two referenced points whose solved horizontal separation must match `value`. */
+      pointIds: readonly [SketchPointId, SketchPointId]
+      /** Requested signed horizontal distance in sketch-plane units. */
+      value: number
+    }
+  | {
+      dimensionId: DimensionId
+      kind: 'verticalDistance'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Two referenced points whose solved vertical separation must match `value`. */
+      pointIds: readonly [SketchPointId, SketchPointId]
+      /** Requested signed vertical distance in sketch-plane units. */
+      value: number
+    }
+  | {
+      dimensionId: DimensionId
+      kind: 'arcStartPointCoincident'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Referenced arc entity. */
+      entityId: SketchEntityId
+      /** Referenced authored point that must coincide with the solved arc start point. */
+      pointId: SketchPointId
+    }
+  | {
+      dimensionId: DimensionId
+      kind: 'arcEndPointCoincident'
+      /** Human-readable label owned by the producer of the sketch definition. */
+      label: string
+      /** Referenced arc entity. */
+      entityId: SketchEntityId
+      /** Referenced authored point that must coincide with the solved arc end point. */
+      pointId: SketchPointId
     }
 
 /**

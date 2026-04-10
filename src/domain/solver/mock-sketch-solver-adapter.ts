@@ -544,6 +544,11 @@ function solveDefinition(
           status: entity?.kind === 'lineSegment' ? 'satisfied' : 'conflicting',
         } as const
       }
+      default:
+        return {
+          constraintId: constraint.constraintId,
+          status: 'conflicting',
+        } as const
     }
   })
   const dimensionStatuses = definition.dimensions.map((dimension) => {
@@ -565,6 +570,12 @@ function solveDefinition(
           solvedValue: entity?.kind === 'circle' ? entity.radius : null,
         } as const
       }
+      default:
+        return {
+          dimensionId: dimension.dimensionId,
+          status: 'unsatisfied',
+          solvedValue: null,
+        } as const
     }
   })
   const errorCount = validationDiagnostics.filter((diagnostic) => diagnostic.severity === 'error').length

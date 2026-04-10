@@ -8,8 +8,8 @@ import {
 import {
   DEFAULT_MOCK_SKETCH_PLANE_FRAME,
   DEFAULT_MOCK_SOLVER_TOLERANCES,
-  MockSketchSolverAdapter,
 } from '@/domain/solver/mock-sketch-solver-adapter'
+import { SketchConstraintSolverAdapter } from '@/domain/solver/sketch-constraint-solver-adapter'
 import { CONTRACT_VERSION } from '@/contracts/shared/versioning'
 import type { SketchDefinition } from '@/contracts/sketch/schema'
 
@@ -165,7 +165,7 @@ function createValidateRequest(): ValidateSketchRequest {
   }
 }
 
-function createSolveRequest(projectedReferences: Awaited<ReturnType<MockSketchSolverAdapter['projectExternalReferences']>>['projectedReferences']): SolveSketchRequest {
+function createSolveRequest(projectedReferences: Awaited<ReturnType<SketchConstraintSolverAdapter['projectExternalReferences']>>['projectedReferences']): SolveSketchRequest {
   return {
     contractVersion: CONTRACT_VERSION,
     solverSchemaVersion: SOLVER_SCHEMA_VERSION,
@@ -183,7 +183,7 @@ function createSolveRequest(projectedReferences: Awaited<ReturnType<MockSketchSo
 }
 
 async function testProjectionAndSolveFlow() {
-  const adapter = new MockSketchSolverAdapter()
+  const adapter = new SketchConstraintSolverAdapter()
   const projection = await adapter.projectExternalReferences(createProjectRequest())
 
   assert(projection.requestId === 'request_project_1', 'Projection must echo the originating request ID.')
@@ -198,9 +198,9 @@ async function testProjectionAndSolveFlow() {
   const solved = await adapter.solveSketch(createSolveRequest(projection.projectedReferences))
   assert(
     solved.status.solveState === 'solved' && solved.status.constraintState === 'wellConstrained',
-    'Mock solve should return a machine-readable solved and constrained status.',
+    'Solve should return a machine-readable solved and constrained status.',
   )
-  assert(solved.solvedSnapshot.solvedEntities.length === 4, 'Mock solve should return solved entity geometry.')
+  assert(solved.solvedSnapshot.solvedEntities.length === 4, 'Solve should return solved entity geometry.')
   assert(
     projection.projectedReferences.every((reference) =>
       reference.geometry.every((geometry) => geometry.geometryId.startsWith('projected_geometry_')),
@@ -246,7 +246,7 @@ async function testProjectionAndSolveFlow() {
     .at(0)
 
   if (!projectedGeometryTarget) {
-    throw new Error('Mock projection must expose one projected-geometry target for resolution coverage.')
+    throw new Error('Projection must expose one projected-geometry target for resolution coverage.')
   }
 
   const projectedResolution = await adapter.resolveSketchReference({
@@ -273,7 +273,7 @@ async function testProjectionAndSolveFlow() {
 }
 
 async function testRevisionDiagnosticsAreExplicit() {
-  const adapter = new MockSketchSolverAdapter()
+  const adapter = new SketchConstraintSolverAdapter()
   let didThrow = false
   try {
     await adapter.validateSketch({
@@ -290,7 +290,7 @@ async function testRevisionDiagnosticsAreExplicit() {
 }
 
 async function testVersioningAndIdBijectionAreEnforced() {
-  const adapter = new MockSketchSolverAdapter()
+  const adapter = new SketchConstraintSolverAdapter()
   let versionRejected = false
 
   try {
@@ -302,7 +302,7 @@ async function testVersioningAndIdBijectionAreEnforced() {
     versionRejected = error instanceof Error && error.message.includes('Unsupported solver schema version')
   }
 
-  assert(versionRejected, 'Mock solver must reject unsupported solver schema versions.')
+  assert(versionRejected, 'Solver must reject unsupported solver schema versions.')
 
   const projected = await adapter.projectExternalReferences(createProjectRequest())
   const invalid = await adapter.validateSketch({
@@ -316,7 +316,7 @@ async function testVersioningAndIdBijectionAreEnforced() {
 
   assert(
     invalid.diagnostics.some((diagnostic) => diagnostic.code === 'point-missing-from-records'),
-    'Mock validation must reject ID arrays that reference records that do not exist.',
+    'Validation must reject ID arrays that reference records that do not exist.',
   )
 }
 
