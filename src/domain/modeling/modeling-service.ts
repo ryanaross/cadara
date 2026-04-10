@@ -60,6 +60,7 @@ import type {
   PlaneFeatureParameters,
   RevolveAxisRef,
   RevolveFeatureParameters,
+  ShellFeatureParameters,
 } from '@/contracts/modeling/schema'
 import type { RenderExport, RenderableEntityRecord } from '@/contracts/render/schema'
 import type {
@@ -92,6 +93,7 @@ import {
   FILLET_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
   REVOLVE_FEATURE_SCHEMA_VERSION,
+  SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 
 export interface ModelingService {
@@ -459,6 +461,16 @@ function assertFilletEdgeRef(value: unknown): FilletEdgeRef {
   return target
 }
 
+function assertShellFaceRef(value: unknown): Extract<PrimitiveRef, { kind: 'face' }> {
+  const target = assertPrimitiveRef(value)
+
+  if (target.kind !== 'face') {
+    throw new Error('Invalid shell face reference payload.')
+  }
+
+  return target
+}
+
 function assertRevolveAxisRef(value: unknown): RevolveAxisRef {
   const target = assertPrimitiveRef(value)
 
@@ -603,6 +615,43 @@ function normalizeRevolveFeatureParameters(value: unknown): RevolveFeatureParame
   }
 }
 
+function normalizeShellFeatureParameters(value: unknown): ShellFeatureParameters {
+  if (!isRecord(value) || typeof value.thickness !== 'number' || !Array.isArray(value.faceTargets)) {
+    throw new Error('Invalid shell feature parameters payload.')
+  }
+
+  if (value.thickness <= 0) {
+    throw new Error('Shell thickness must be positive.')
+  }
+
+  const bodyTarget = assertPrimitiveRef(value.bodyTarget)
+
+  if (bodyTarget.kind !== 'body') {
+    throw new Error('Shell bodyTarget must resolve to one durable body.')
+  }
+
+  if (value.operation !== 'newBody' && value.operation !== 'join' && value.operation !== 'cut' && value.operation !== 'intersect') {
+    throw new Error('Invalid shell operation payload.')
+  }
+
+  if (value.faceTargets.length === 0) {
+    throw new Error('Shell requests must include at least one removable face target.')
+  }
+
+  return {
+    bodyTarget,
+    faceTargets: value.faceTargets.map((target) => assertShellFaceRef(target)),
+    thickness: value.thickness,
+    operation: value.operation,
+    booleanScope:
+      isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBody' && isString(value.booleanScope.bodyId)
+        ? { kind: 'targetBody', bodyId: value.booleanScope.bodyId as BodyId }
+        : isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBodies' && Array.isArray(value.booleanScope.bodyIds)
+          ? { kind: 'targetBodies', bodyIds: value.booleanScope.bodyIds.map((bodyId) => assertBodyId(bodyId)) }
+          : { kind: 'standalone' },
+  }
+}
+
 function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
   if (!isRecord(value) || !isString(value.kind) || !isString(value.featureTypeVersion)) {
     throw new Error('Invalid feature definition payload.')
@@ -644,6 +693,15 @@ function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
             ? value.featureTypeVersion
             : REVOLVE_FEATURE_SCHEMA_VERSION,
         parameters: normalizeRevolveFeatureParameters(value.parameters),
+      }
+    case 'shell':
+      return {
+        kind: 'shell',
+        featureTypeVersion:
+          value.featureTypeVersion === SHELL_FEATURE_SCHEMA_VERSION
+            ? value.featureTypeVersion
+            : SHELL_FEATURE_SCHEMA_VERSION,
+        parameters: normalizeShellFeatureParameters(value.parameters),
       }
     default:
       throw new Error('Invalid feature definition kind.')

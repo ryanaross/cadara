@@ -1,12 +1,16 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
 import {
-  buildExtrudeFeatureDefinition,
-  createExtrudeFeatureEditSession,
-  hydrateExtrudeFeatureEditSession,
-  targetMatchesExtrudeProfile,
-  updateExtrudeDraft,
-  type ExtrudeFeatureParameterDraft,
+  applySelectionToFeatureEditSession,
+  buildFeatureDefinition,
+  createCommitMissingInputsDiagnostics,
+  createFeatureEditSession,
+  createPreviewMissingInputsDiagnostics,
+  getFeaturePrimarySelectionTarget,
+  getFeatureSessionPreviewLabel,
+  hydrateFeatureEditSession,
+  patchFeatureEditSession,
+  type FeatureDraftPatch,
   type FeatureEditSessionState,
 } from '@/domain/editor/feature-editing'
 import {
@@ -21,13 +25,12 @@ import {
 import { openSketchSessionFromSelection } from '@/domain/editor/sketch-session-controller'
 import {
   defaultSelectionFilter,
-  extrudeSelectionFilter,
   getDefaultSelectionFilterForMode,
   getPrimitiveRefKey,
-  getPrimitiveRefLabel,
   getSelectionFilterForCommand,
   getSelectionFilterRejectionLabel,
   getSelectionPreviewLabel,
+  getSelectionFilterForFeatureType,
   primitiveRefEquals,
   resolveSelectionCandidate,
   selectionFilterAllowsTarget,
@@ -252,11 +255,11 @@ export interface SketchPointerReleasedEvent {
   point: readonly [number, number]
 }
 
-/** Applies a partial edit to the active extrude draft parameters. */
-export interface FormExtrudePatchedEvent {
-  type: 'form.extrudePatched'
+/** Applies a partial edit to the active feature draft parameters. */
+export interface FormFeaturePatchedEvent {
+  type: 'form.featurePatched'
   /** Partial draft patch owned by the editor form layer. */
-  patch: Partial<ExtrudeFeatureParameterDraft>
+  patch: FeatureDraftPatch
 }
 
 /** Completes a snapshot fetch with the resulting typed snapshot payload. */
@@ -294,7 +297,7 @@ export type EditorEvent =
   | ViewportSelectionRequestedEvent
   | SketchPointerMovedEvent
   | SketchPointerReleasedEvent
-  | FormExtrudePatchedEvent
+  | FormFeaturePatchedEvent
   | SnapshotLoadedEvent
   | SnapshotFailedEvent
   | {
@@ -704,14 +707,14 @@ function createSelectionPreview(state: EditorState, filter: SelectionFilter | nu
   }
 }
 
-function createExtrudeSelectionPreview(
-  target: PrimitiveRef | null,
-  prefix = 'Extrude profile',
+function createFeatureSelectionPreview(
+  session: FeatureEditSessionState,
+  prefix = 'Draft',
 ): CommandPreview {
   return {
     kind: 'selection',
-    label: target ? `${prefix} ${getPrimitiveRefLabel(target)} selected` : 'Select a sketch or profile for extrude',
-    target,
+    label: getFeatureSessionPreviewLabel(session, prefix),
+    target: getFeaturePrimarySelectionTarget(session),
   }
 }
 
@@ -728,9 +731,9 @@ function createFeatureEditingState(
     previewRenderables: state.previewRenderables,
     selection: state.selection,
     hoverTarget: state.hoverTarget,
-    selectionFilter: extrudeSelectionFilter,
+    selectionFilter: getSelectionFilterForFeatureType(session.featureType),
     selectionCatalog: state.selectionCatalog,
-    preview: createExtrudeSelectionPreview(session.draft.profileTarget),
+    preview: createFeatureSelectionPreview(session),
     nextCommandSequence: state.nextCommandSequence,
     nextRequestSequence: state.nextRequestSequence,
     pendingSnapshotRequestId: state.pendingSnapshotRequestId,
@@ -754,30 +757,6 @@ function createPreviewFailedDiagnostics(
       severity: 'error',
       message,
       target,
-      detail: null,
-    },
-  ]
-}
-
-function createPreviewMissingProfileDiagnostics(): ModelingDiagnostic[] {
-  return [
-    {
-      code: 'feature-preview-missing-profile',
-      severity: 'warning',
-      message: 'Select a derived sketch region or planar face before previewing extrude.',
-      target: null,
-      detail: null,
-    },
-  ]
-}
-
-function createCommitMissingProfileDiagnostics(): ModelingDiagnostic[] {
-  return [
-    {
-      code: 'feature-commit-missing-profile',
-      severity: 'error',
-      message: 'Extrude requires an explicit profile target.',
-      target: null,
       detail: null,
     },
   ]
@@ -822,7 +801,7 @@ function emitFeaturePreview(state: FeatureEditorState): EditorTransitionResult {
     }
   }
 
-  const definition = buildExtrudeFeatureDefinition(state.session.draft)
+  const definition = buildFeatureDefinition(state.session)
 
   if (!definition) {
     return {
@@ -832,7 +811,7 @@ function emitFeaturePreview(state: FeatureEditorState): EditorTransitionResult {
         session: {
           ...state.session,
           status: 'idle',
-          diagnostics: createPreviewMissingProfileDiagnostics(),
+          diagnostics: createPreviewMissingInputsDiagnostics(state.session),
         },
       },
       effects: [],
@@ -885,7 +864,7 @@ function emitFeatureCommit(state: FeatureEditorState): EditorTransitionResult {
     }
   }
 
-  const definition = buildExtrudeFeatureDefinition(state.session.draft)
+  const definition = buildFeatureDefinition(state.session)
 
   if (!definition) {
     return {
@@ -894,7 +873,7 @@ function emitFeatureCommit(state: FeatureEditorState): EditorTransitionResult {
         session: {
           ...state.session,
           status: 'idle',
-          diagnostics: createCommitMissingProfileDiagnostics(),
+          diagnostics: createCommitMissingInputsDiagnostics(state.session),
         },
       },
       effects: [],
@@ -1126,6 +1105,14 @@ function eventMatchesOptionalDocument(
   return eventMatchesDocument(state, documentId, revisionId)
 }
 
+function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane'> {
+  return toolId === 'extrude'
+    || toolId === 'revolve'
+    || toolId === 'fillet'
+    || toolId === 'shell'
+    || toolId === 'plane'
+}
+
 /**
  * Pure editor transition function for Phase 1.
  * The reducer never performs async work directly and emits only typed effect requests.
@@ -1194,13 +1181,14 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         }
       }
 
-      if (event.toolId === 'extrude') {
+      if (isFeatureTool(event.toolId)) {
+        const selectionFilter = getSelectionFilterForFeatureType(event.toolId)
         const nextState = createCommandState(
           state,
           event.toolId,
           'part',
-          extrudeSelectionFilter,
-          createSelectionPreview(state, extrudeSelectionFilter),
+          selectionFilter,
+          createSelectionPreview(state, selectionFilter),
         )
 
         const selectedTarget = nextState.selection[0] ?? null
@@ -1209,13 +1197,9 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           return emitFeatureHydration(nextState, selectedTarget.featureId)
         }
 
-        const session = createExtrudeFeatureEditSession({
-          selectedTarget:
-            selectedTarget &&
-            (selectedTarget.kind === 'region' ||
-              selectedTarget.kind === 'face')
-              ? selectedTarget
-              : null,
+        const session = createFeatureEditSession({
+          featureType: event.toolId,
+          selectedTarget,
         })
 
         return emitFeaturePreview(createFeatureEditingState(nextState, nextState.command, session))
@@ -1283,7 +1267,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
             : state.kind === 'selectionCommand'
               ? createSelectionPreview(state, state.selectionFilter)
               : state.kind === 'editingFeature'
-                ? createExtrudeSelectionPreview(state.session.draft.profileTarget)
+                ? createFeatureSelectionPreview(state.session)
                 : state.preview,
         ),
         effects: [],
@@ -1351,17 +1335,10 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
 
       if (state.kind === 'editingFeature') {
         const nextSelection = [event.target]
-        const nextSession: FeatureEditSessionState =
-          event.target.kind === 'region' ||
-          event.target.kind === 'face'
-            ? {
-                ...state.session,
-                draft: updateExtrudeDraft(state.session.draft, {
-                  profileTarget: event.target,
-                }),
-                status: 'idle',
-              }
-            : state.session
+        const nextSession: FeatureEditSessionState = {
+          ...applySelectionToFeatureEditSession(state.session, event.target),
+          status: 'idle',
+        }
 
         return emitFeaturePreview({
           ...state,
@@ -1371,14 +1348,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
             ...state.command,
             phase: 'collecting',
           },
-          preview:
-            targetMatchesExtrudeProfile(event.target, nextSession.draft)
-              ? {
-                  kind: 'selection',
-                  label: `Extrude profile ${getPrimitiveRefLabel(event.target)} selected`,
-                  target: event.target,
-                }
-              : state.preview,
+          preview: createFeatureSelectionPreview(nextSession, 'Selected'),
           session: nextSession,
           pendingPreviewRequestId: null,
         })
@@ -1490,7 +1460,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           effects: [],
         }
       }
-    case 'form.extrudePatched':
+    case 'form.featurePatched':
       if (state.kind !== 'editingFeature') {
         return {
           state,
@@ -1498,18 +1468,16 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         }
       }
 
+      const nextSession = {
+        ...patchFeatureEditSession(state.session, event.patch),
+        status: 'idle' as const,
+      }
+
       return emitFeaturePreview({
         ...state,
-        session: {
-          ...state.session,
-          draft: updateExtrudeDraft(state.session.draft, event.patch),
-          status: 'idle',
-        },
+        session: nextSession,
         pendingPreviewRequestId: null,
-        preview: createExtrudeSelectionPreview(
-          updateExtrudeDraft(state.session.draft, event.patch).profileTarget,
-          'Extrude draft on',
-        ),
+        preview: createFeatureSelectionPreview(nextSession),
       })
     case 'effect.snapshotLoaded':
       if (state.pendingSnapshotRequestId !== event.payload.requestId) {
@@ -1628,7 +1596,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
     case 'effect.featureSessionHydrated':
       if (
         state.kind !== 'selectionCommand' ||
-        state.command.toolId !== 'extrude' ||
+        !isFeatureTool(state.command.toolId) ||
         state.pendingRequestId !== event.requestId ||
         state.command.commandSessionId !== event.commandSessionId ||
         !eventMatchesDocument(state, event.documentId, event.revisionId)
@@ -1652,7 +1620,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
     case 'effect.featureSessionHydrationFailed':
       if (
         state.kind !== 'selectionCommand' ||
-        state.command.toolId !== 'extrude' ||
+        !isFeatureTool(state.command.toolId) ||
         state.pendingRequestId !== event.requestId ||
         state.command.commandSessionId !== event.commandSessionId ||
         !eventMatchesDocument(state, event.documentId, event.revisionId)
@@ -1737,7 +1705,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
             status: 'idle',
             diagnostics: createPreviewFailedDiagnostics(
               event.message,
-              state.session.draft.profileTarget,
+              getFeaturePrimarySelectionTarget(state.session),
             ),
           },
         },
@@ -1827,18 +1795,18 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
             ...state.command,
             phase: 'editing',
           },
-          session: {
-            ...state.session,
-            status: 'idle',
-            diagnostics: [
-              {
-                code: 'feature-commit-failed',
-                severity: 'error',
-                message: event.message,
-                target: state.session.draft.profileTarget,
-                detail: null,
-              },
-            ],
+            session: {
+              ...state.session,
+              status: 'idle',
+              diagnostics: [
+                {
+                  code: 'feature-commit-failed',
+                  severity: 'error',
+                  message: event.message,
+                  target: getFeaturePrimarySelectionTarget(state.session),
+                  detail: null,
+                },
+              ],
           },
         },
         effects: [],
@@ -2016,7 +1984,7 @@ export async function runEditorEffect(
             documentId: snapshot.documentId,
             revisionId: snapshot.revisionId,
             commandSessionId: effect.commandSessionId,
-            message: `Feature ${effect.selectedFeatureId} cannot be edited as an extrude session.`,
+            message: `Feature ${effect.selectedFeatureId} cannot be edited in the current feature session flow.`,
           }
         }
 
@@ -2205,9 +2173,7 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
   evaluatePreview: (input: {
     baseRevisionId: RevisionId
     previewId: FeatureEditSessionState['previewId']
-    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
-      ? NonNullable<TDefinition>
-      : never
+    definition: NonNullable<ReturnType<typeof buildFeatureDefinition>>
   }) => Promise<{
     revisionId: RevisionId
     stale: boolean
@@ -2216,9 +2182,7 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
   }>
   createFeature: (input: {
     baseRevisionId: RevisionId
-    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
-      ? NonNullable<TDefinition>
-      : never
+    definition: NonNullable<ReturnType<typeof buildFeatureDefinition>>
   }) => Promise<{
     revisionId: RevisionId
     featureId: FeatureId
@@ -2230,9 +2194,7 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
   }>
   updateFeature: (input: {
     baseRevisionId: RevisionId
-    definition: ReturnType<typeof buildExtrudeFeatureDefinition> extends infer TDefinition
-      ? NonNullable<TDefinition>
-      : never
+    definition: NonNullable<ReturnType<typeof buildFeatureDefinition>>
     featureId: FeatureId
   }) => Promise<{
     revisionId: RevisionId
@@ -2274,10 +2236,10 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
       }
     },
     async evaluatePreview(input) {
-      const definition = buildExtrudeFeatureDefinition(input.featureSession.draft)
+      const definition = buildFeatureDefinition(input.featureSession)
 
       if (!definition) {
-        throw new Error('Feature preview failed because the extrude profile target is missing.')
+        throw new Error('Feature preview failed because the draft is incomplete.')
       }
 
       const result = await modelingService.evaluatePreview({
@@ -2294,10 +2256,10 @@ export function createModelingServiceEditorEffectRuntime(modelingService: {
       }
     },
     async commitFeature(input) {
-      const definition = buildExtrudeFeatureDefinition(input.featureSession.draft)
+      const definition = buildFeatureDefinition(input.featureSession)
 
       if (!definition) {
-        throw new Error('Feature commit failed because the extrude profile target is missing.')
+        throw new Error('Feature commit failed because the draft is incomplete.')
       }
 
       const baseInput = {
@@ -2386,7 +2348,7 @@ export function hydrateFeatureSessionFromSnapshot(
 ): FeatureEditSessionState | null {
   const feature = snapshot.features.find((entry) => entry.featureId === featureId)
 
-  return feature ? hydrateExtrudeFeatureEditSession(feature) : null
+  return feature ? hydrateFeatureEditSession(feature) : null
 }
 
 /**

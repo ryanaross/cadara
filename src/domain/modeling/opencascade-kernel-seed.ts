@@ -33,8 +33,8 @@ export const OCC_KERNEL_SETTINGS: ModelingDocumentSettings = {
 }
 
 export const OCC_KERNEL_CAPABILITIES: ModelingKernelCapabilities = {
-  supportedFeatureKinds: ['extrude', 'fillet', 'plane', 'revolve'],
-  previewableFeatureKinds: ['extrude', 'fillet', 'plane', 'revolve'],
+  supportedFeatureKinds: ['extrude', 'fillet', 'plane', 'revolve', 'shell'],
+  previewableFeatureKinds: ['extrude', 'fillet', 'plane', 'revolve', 'shell'],
   supportedProfileKinds: ['region', 'face'],
   supportsFaceBackedSketchPlanes: true,
   supportsDurableTopologyNaming: false,

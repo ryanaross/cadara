@@ -488,6 +488,101 @@ function testFeaturePreviewIgnoresStaleResponseIds() {
   )
 }
 
+function testRevolveActivationStartsFeaturePreviewFlow() {
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'region', sketchId: 'sketch_a', regionId: 'region_profile_a' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'revolve',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Revolve activation should enter feature editing.')
+  assert(activation.state.session.featureType === 'revolve', 'Revolve activation should create a revolve session.')
+  assert(activation.effects.length === 0, 'Revolve activation without an axis should stay local until the draft is complete.')
+
+  const completed = transitionEditorState(activation.state, {
+    type: 'viewport.selectionRequested',
+    target: { kind: 'edge', bodyId: 'body_a', edgeId: 'edge_axis' },
+  })
+
+  assert(completed.state.kind === 'editingFeature', 'Revolve selection updates should remain in feature editing.')
+  assert(completed.effects.length === 1, 'Selecting the missing revolve axis should emit one preview effect.')
+  assert(completed.effects[0]?.type === 'feature.evaluatePreview', 'Completed revolve drafts should request a preview effect.')
+}
+
+function testRevolveActivationSupportsFaceThenEdgeSelection() {
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'revolve',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Face-selected revolve activation should enter feature editing.')
+  assert(activation.state.session.featureType === 'revolve', 'Face-selected revolve activation should create a revolve session.')
+  assert(
+    activation.state.session.draft.profileTarget?.kind === 'face',
+    'Face-selected revolve activation should keep the selected face as the revolve profile.',
+  )
+  assert(activation.effects.length === 0, 'Face-selected revolve activation should wait for an axis before previewing.')
+
+  const completed = transitionEditorState(activation.state, {
+    type: 'viewport.selectionRequested',
+    target: { kind: 'edge', bodyId: 'body_a', edgeId: 'edge_axis' },
+  })
+
+  assert(completed.state.kind === 'editingFeature', 'Revolve face-then-edge flow should remain in feature editing.')
+  assert(completed.state.session.featureType === 'revolve', 'Revolve face-then-edge flow should preserve the revolve session kind.')
+  assert(
+    completed.state.session.draft.axisTarget?.kind === 'edge',
+    'Revolve face-then-edge flow should preserve the selected edge as the axis target.',
+  )
+  assert(completed.effects.length === 1, 'Selecting the axis after a face profile should emit one preview effect.')
+  assert(completed.effects[0]?.type === 'feature.evaluatePreview', 'Completed face-then-edge revolve drafts should request a preview effect.')
+}
+
+function testShellActivationSeedsBodyFromSelectedFace() {
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'shell',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Shell activation should enter feature editing.')
+  assert(activation.state.session.featureType === 'shell', 'Shell activation should create a shell session.')
+  assert(activation.state.session.draft.bodyTarget?.bodyId === 'body_a', 'Shell activation should infer the source body from a selected face.')
+  assert(activation.effects.length === 1, 'Shell activation with a face target should emit one preview effect.')
+  assert(activation.effects[0]?.type === 'feature.evaluatePreview', 'Shell activation should request a preview effect.')
+}
+
 function testReplayIsDeterministic() {
   const snapshot = createSnapshot()
   const payload = {
@@ -757,6 +852,9 @@ testSketchActivationEmitsCorrelatedOpenEffect()
 testSketchActivationAcceptsAllPrimaryConstructionPlanes()
 testSketchSessionPreservesStoredPlaneDefinition()
 testFeaturePreviewIgnoresStaleResponseIds()
+testRevolveActivationStartsFeaturePreviewFlow()
+testRevolveActivationSupportsFaceThenEdgeSelection()
+testShellActivationSeedsBodyFromSelectedFace()
 testReplayIsDeterministic()
 testSelectionKeyUsesDurableRefs()
 await testRuntimeLoopProcessesSketchOpen()

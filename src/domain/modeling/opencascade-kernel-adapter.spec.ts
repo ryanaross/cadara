@@ -36,6 +36,7 @@ import {
   FILLET_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
   REVOLVE_FEATURE_SCHEMA_VERSION,
+  SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import { OCC_CONTRACT_GAP_CODES } from '@/domain/modeling/occ/implementation-policy'
 import {
@@ -512,6 +513,20 @@ function createFilletDefinition(bodyId: BodyId, edgeId: EdgeId, radius: number):
   }
 }
 
+function createShellDefinition(bodyId: BodyId, faceId: FaceId, thickness: number): FeatureDefinition {
+  return {
+    kind: 'shell',
+    featureTypeVersion: SHELL_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      bodyTarget: { kind: 'body', bodyId },
+      faceTargets: [{ kind: 'face', bodyId, faceId }],
+      thickness,
+      operation: 'newBody',
+      booleanScope: { kind: 'standalone' },
+    },
+  }
+}
+
 async function createExtrudeBody(
   adapter: OpenCascadeKernelAdapter,
   baseRevisionId: RevisionId,
@@ -898,6 +913,76 @@ async function testFilletCreateAndUpdateMutateBodyTopology() {
     committedBodySignature(updatedSnapshot.snapshot, extrude.bodyId) !== createdSignature,
     'Fillet update must rebuild the body topology for the new radius.',
   )
+}
+
+async function testShellPreviewCreateUpdateAndSnapshotRoundTrip() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before shell coverage.')
+  }
+
+  const committedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(committedSnapshot.snapshot)
+  const extrude = await createExtrudeBody(adapter, committedSnapshot.snapshot.revisionId, sketch, 8)
+  const extrudedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sourceBody = requireBody(extrudedSnapshot.snapshot, extrude.bodyId)
+  const removableFaceId = sourceBody.topology.faceIds[0]
+
+  if (!removableFaceId) {
+    throw new Error('Extruded source body must expose at least one face for shell coverage.')
+  }
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrudedSnapshot.snapshot.revisionId,
+    previewId: 'preview_shell_1',
+    definition: createShellDefinition(extrude.bodyId, removableFaceId, 0.75),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh shell previews must report fresh freshness state.')
+  assert(preview.render.records.length > 0, 'Shell preview must return transient renderables.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Shell preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrudedSnapshot.snapshot.revisionId,
+    definition: createShellDefinition(extrude.bodyId, removableFaceId, 0.75),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Shell create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Shell create must rebuild.')
+  assert(
+    created.changedTargets.some((target) => target.kind === 'body'),
+    'Shell create must report a produced body target.',
+  )
+
+  const createdSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const createdFeature = createdSnapshot.snapshot.features.find((feature) => feature.featureId === created.featureId)
+  assert(createdFeature?.definition.kind === 'shell', 'Shell create must serialize through feature snapshots with the shell contract kind.')
+
+  const updated = await adapter.updateFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    featureId: created.featureId,
+    definition: createShellDefinition(extrude.bodyId, removableFaceId, 1.25),
+  })
+
+  assert(updated.revisionState.kind === 'accepted', 'Shell update must be accepted.')
+  assert(updated.rebuildResult.kind === 'rebuilt', 'Shell update must rebuild.')
 }
 
 async function testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs() {
@@ -1524,6 +1609,7 @@ await testPlaneFeatureCreateSupportsConstructionAndPlanarFaceReferences()
 await testExtrudePreviewCreateAndUpdateCommitGeometry()
 await testRevolvePreviewCreateAndConstructionAxisRejection()
 await testFilletCreateAndUpdateMutateBodyTopology()
+await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()
 await testReorderFeatureAndConflictHandling()
 await testPreviewFreshness()

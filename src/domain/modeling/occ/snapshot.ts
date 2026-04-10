@@ -47,6 +47,7 @@ import {
   PLANE_FEATURE_SCHEMA_VERSION,
   RENDER_EXPORT_SCHEMA_VERSION,
   REVOLVE_FEATURE_SCHEMA_VERSION,
+  SHELL_FEATURE_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import {
@@ -185,6 +186,7 @@ function collectFeatureConsumedTargets(definition: OccAuthoringState['features']
   let booleanScope:
     | Extract<typeof definition, { kind: 'extrude' }>['parameters']['booleanScope']
     | Extract<typeof definition, { kind: 'revolve' }>['parameters']['booleanScope']
+    | Extract<typeof definition, { kind: 'shell' }>['parameters']['booleanScope']
     | null = null
 
   switch (definition.kind) {
@@ -200,6 +202,10 @@ function collectFeatureConsumedTargets(definition: OccAuthoringState['features']
       break
     case 'revolve':
       targets.push(definition.parameters.profile, definition.parameters.axis)
+      booleanScope = definition.parameters.booleanScope
+      break
+    case 'shell':
+      targets.push(definition.parameters.bodyTarget, ...definition.parameters.faceTargets)
       booleanScope = definition.parameters.booleanScope
       break
   }
@@ -299,6 +305,18 @@ function createSnapshotFeatureDefinition(
           startAngle: definition.parameters.startAngle,
           extent: definition.parameters.extent,
           angle: definition.parameters.extent.radians,
+          operation: definition.parameters.operation,
+          booleanScope: definition.parameters.booleanScope,
+        },
+      }
+    case 'shell':
+      return {
+        kind: 'shell',
+        featureTypeVersion: SHELL_FEATURE_SCHEMA_VERSION,
+        parameters: {
+          bodyTarget: definition.parameters.bodyTarget,
+          faceTargets: definition.parameters.faceTargets,
+          thickness: definition.parameters.thickness,
           operation: definition.parameters.operation,
           booleanScope: definition.parameters.booleanScope,
         },

@@ -23,6 +23,7 @@ import {
   CONTRACT_VERSION,
   EXTRUDE_FEATURE_SCHEMA_VERSION,
   RENDER_EXPORT_SCHEMA_VERSION,
+  SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 
@@ -373,6 +374,34 @@ const previewExtrudeResponse: EvaluatePreviewResponse = {
   ],
 }
 
+const createShellRequest: CreateFeatureRequest = {
+  contractVersion: CONTRACT_VERSION,
+  documentId: 'doc_workspace',
+  baseRevisionId: 'rev_8',
+  definition: {
+    kind: 'shell',
+    featureTypeVersion: SHELL_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      bodyTarget: {
+        kind: 'body',
+        bodyId: 'body_main',
+      },
+      faceTargets: [
+        {
+          kind: 'face',
+          bodyId: 'body_main',
+          faceId: 'face_side_1',
+        },
+      ],
+      thickness: 2,
+      operation: 'newBody',
+      booleanScope: {
+        kind: 'standalone',
+      },
+    },
+  },
+}
+
 const resolveDeadReferenceRequest: ResolveReferenceRequest = {
   contractVersion: CONTRACT_VERSION,
   documentId: 'doc_workspace',
@@ -539,6 +568,13 @@ function testPreviewExtrudeExampleReusesFeatureDefinition() {
   assert(previewExtrudeResponse.diagnostics[0]?.detail?.kind === 'stalePreview', 'Preview example must encode stale previews as machine-readable diagnostics.')
 }
 
+function testCreateShellExampleUsesTypedBodyAndFaceRefs() {
+  assert(createShellRequest.definition.kind === 'shell', 'Create-shell example must use the shell feature family.')
+  assert(createShellRequest.definition.parameters.bodyTarget.kind === 'body', 'Create-shell example must keep the source body explicit.')
+  assert(createShellRequest.definition.parameters.faceTargets[0]?.kind === 'face', 'Create-shell example must keep removable faces explicit.')
+  assert(createShellRequest.definition.parameters.thickness > 0, 'Create-shell example must use a positive thickness.')
+}
+
 function testResolveDeadReferenceExampleIsExplicit() {
   assert(resolveDeadReferenceRequest.target.kind === 'face', 'Dead-reference example must use an explicit durable target.')
   assert(resolveDeadReferenceRequest.target.faceId === 'face_deleted', 'Dead-reference example must name the exact dead durable target.')
@@ -575,6 +611,7 @@ function testSolvedSketchVersionLiteralRemainsDocumented() {
 testSolveSketchExampleIsFullyTyped()
 testCreateExtrudeExampleUsesTypedProfileRef()
 testPreviewExtrudeExampleReusesFeatureDefinition()
+testCreateShellExampleUsesTypedBodyAndFaceRefs()
 testResolveDeadReferenceExampleIsExplicit()
 testTopologyChangingRebuildExampleSeparatesPreservedAndInvalidatedTargets()
 testRenderMeshWithBindingsExampleIsSelectionCapable()

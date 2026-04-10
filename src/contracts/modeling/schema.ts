@@ -31,6 +31,7 @@ import type {
   FilletFeatureSchemaVersion,
   PlaneFeatureSchemaVersion,
   RevolveFeatureSchemaVersion,
+  ShellFeatureSchemaVersion,
   SnapshotSchemaVersion,
 } from '@/contracts/shared/versioning'
 
@@ -51,7 +52,7 @@ export type SketchPoint = SketchPoint2D
  * Canonical feature families currently exposed by the kernel contract.
  * This union is closed so callers cannot invent feature types ad hoc.
  */
-export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve'
+export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'
 
 /**
  * Explicit kernel capability matrix for the current contract revision.
@@ -221,6 +222,36 @@ export interface RevolveFeatureParameters {
 }
 
 /**
+ * Durable face reference accepted by the shell contract.
+ */
+export interface ShellFaceRef {
+  /** Durable removable face reference. */
+  kind: 'face'
+  /** Owning body of the face. */
+  bodyId: BodyId
+  /** Exact durable face identity. */
+  faceId: FaceId
+}
+
+/**
+ * Fully typed shell parameters.
+ * `bodyTarget` names the source solid to hollow.
+ * `faceTargets` lists the exact removable faces.
+ */
+export interface ShellFeatureParameters {
+  /** Explicit durable source body that will be shelled. */
+  bodyTarget: { kind: 'body'; bodyId: BodyId }
+  /** Explicit removable faces for the shell opening. */
+  faceTargets: readonly ShellFaceRef[]
+  /** Positive shell thickness in document modeling units. */
+  thickness: number
+  /** Boolean behavior applied to the shell result. */
+  operation: FeatureBooleanOperation
+  /** Explicit participant scope for non-standalone boolean operations. */
+  booleanScope: FeatureBooleanScope
+}
+
+/**
  * Canonical typed feature definitions used across requests and snapshots.
  * Each variant owns its required references and parameters directly.
  */
@@ -256,6 +287,14 @@ export type FeatureDefinition =
       featureTypeVersion: RevolveFeatureSchemaVersion
       /** Exact rebuild inputs owned by this revolve feature instance. */
       parameters: RevolveFeatureParameters
+    }
+  | {
+      /** Stable discriminant for shell features. */
+      kind: 'shell'
+      /** Per-variant schema version owned by the shell contract family. */
+      featureTypeVersion: ShellFeatureSchemaVersion
+      /** Exact rebuild inputs owned by this shell feature instance. */
+      parameters: ShellFeatureParameters
     }
 
 /**

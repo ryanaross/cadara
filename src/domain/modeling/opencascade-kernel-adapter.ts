@@ -485,6 +485,20 @@ function getFeatureConsumedTargets(definition: FeatureDefinition) {
 
       return targets
     }
+    case 'shell': {
+      const targets: NonNullable<ModelingDiagnostic['target']>[] = [
+        definition.parameters.bodyTarget,
+        ...definition.parameters.faceTargets,
+      ]
+      const scope = definition.parameters.booleanScope
+      if (scope.kind === 'targetBody') {
+        targets.push({ kind: 'body', bodyId: scope.bodyId })
+      } else if (scope.kind === 'targetBodies') {
+        targets.push(...scope.bodyIds.map((bodyId) => ({ kind: 'body', bodyId } as const)))
+      }
+
+      return targets
+    }
   }
 }
 

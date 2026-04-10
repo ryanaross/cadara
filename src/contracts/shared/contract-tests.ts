@@ -121,7 +121,7 @@ type KernelSnapshotBoundaryIsTyped = Assert<
 >
 
 type FeatureDefinitionIsClosedUnion = Assert<
-  Equals<FeatureDefinition['kind'], 'extrude' | 'fillet' | 'plane' | 'revolve'>
+  Equals<FeatureDefinition['kind'], 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'>
 >
 
 type CreateFeatureUsesTypedDefinition = Assert<

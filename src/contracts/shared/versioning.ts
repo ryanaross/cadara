@@ -32,6 +32,11 @@ export type PlaneFeatureSchemaVersion = 'feature-type/plane/v1alpha1'
 export type RevolveFeatureSchemaVersion = 'feature-type/revolve/v1alpha1'
 
 /**
+ * Versioned schema for shell feature definitions.
+ */
+export type ShellFeatureSchemaVersion = 'feature-type/shell/v1alpha1'
+
+/**
  * Closed union of all feature-definition schema versions.
  */
 export type FeatureTypeVersion =
@@ -39,6 +44,7 @@ export type FeatureTypeVersion =
   | FilletFeatureSchemaVersion
   | PlaneFeatureSchemaVersion
   | RevolveFeatureSchemaVersion
+  | ShellFeatureSchemaVersion
 
 /**
  * Legacy generic feature-definition schema version retained for transitional callers.
@@ -80,6 +86,11 @@ export const PLANE_FEATURE_SCHEMA_VERSION: PlaneFeatureSchemaVersion = 'feature-
  * Current revolve feature schema version literal.
  */
 export const REVOLVE_FEATURE_SCHEMA_VERSION: RevolveFeatureSchemaVersion = 'feature-type/revolve/v1alpha1'
+
+/**
+ * Current shell feature schema version literal.
+ */
+export const SHELL_FEATURE_SCHEMA_VERSION: ShellFeatureSchemaVersion = 'feature-type/shell/v1alpha1'
 
 /**
  * Legacy alias retained for older callers that still import one generic

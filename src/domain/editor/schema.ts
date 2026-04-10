@@ -66,7 +66,9 @@ export type SelectionFilterKind =
   | 'sketchSession'
   | 'sketchStart'
   | 'extrudeProfile'
+  | 'revolveReferences'
   | 'filletEdges'
+  | 'shellReferences'
   | 'planeReferences'
 
 export interface SelectionFilter {
@@ -206,6 +208,56 @@ export const filletSelectionFilter: SelectionFilter = {
   ],
 }
 
+export const revolveSelectionFilter: SelectionFilter = {
+  kind: 'revolveReferences',
+  allowedKinds: ['region', 'face', 'edge', 'construction', 'body'],
+  label: 'Revolve references',
+  requirements: [
+    {
+      id: 'revolve-profile',
+      label: 'Profile target',
+      description: 'Revolve accepts one explicit region or planar face profile.',
+      slots: [
+        {
+          id: 'revolve-profile',
+          label: 'Revolve profile',
+          description: 'Select one derived sketch region or planar face.',
+          acceptedKinds: ['region', 'face'],
+          acceptedSemantics: ['regionProfile', 'planarFace'],
+        },
+      ],
+    },
+    {
+      id: 'revolve-axis',
+      label: 'Axis target',
+      description: 'Revolve accepts one explicit durable edge or construction axis.',
+      slots: [
+        {
+          id: 'revolve-axis',
+          label: 'Revolve axis',
+          description: 'Select one linear edge or construction axis.',
+          acceptedKinds: ['edge', 'construction'],
+          acceptedSemantics: ['edge', 'constructionPlane'],
+        },
+      ],
+    },
+    {
+      id: 'revolve-boolean-target',
+      label: 'Boolean target',
+      description: 'Join, cut, and intersect require one explicit target body.',
+      slots: [
+        {
+          id: 'revolve-boolean-target',
+          label: 'Boolean target',
+          description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
 export const planeSelectionFilter: SelectionFilter = {
   kind: 'planeReferences',
   allowedKinds: ['construction', 'face'],
@@ -222,6 +274,42 @@ export const planeSelectionFilter: SelectionFilter = {
           description: 'Select a construction plane or planar face.',
           acceptedKinds: ['construction', 'face'],
           acceptedSemantics: ['planarReference'],
+        },
+      ],
+    },
+  ],
+}
+
+export const shellSelectionFilter: SelectionFilter = {
+  kind: 'shellReferences',
+  allowedKinds: ['body', 'face'],
+  label: 'Shell references',
+  requirements: [
+    {
+      id: 'shell-body',
+      label: 'Source body',
+      description: 'Shell requires one explicit body target.',
+      slots: [
+        {
+          id: 'shell-body',
+          label: 'Body target',
+          description: 'Select one body to shell.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+    {
+      id: 'shell-face',
+      label: 'Removable face',
+      description: 'Shell accepts one explicit removable face per selection interaction.',
+      slots: [
+        {
+          id: 'shell-face',
+          label: 'Removable face',
+          description: 'Select one face to remove.',
+          acceptedKinds: ['face'],
+          acceptedSemantics: ['face'],
         },
       ],
     },
@@ -299,12 +387,33 @@ export function getSelectionFilterForCommand(
       return sketchStartSelectionFilter
     case 'extrude':
       return extrudeSelectionFilter
+    case 'revolve':
+      return revolveSelectionFilter
     case 'fillet':
       return filletSelectionFilter
+    case 'shell':
+      return shellSelectionFilter
     case 'plane':
       return planeSelectionFilter
     default:
       return getDefaultSelectionFilterForMode(mode)
+  }
+}
+
+export function getSelectionFilterForFeatureType(
+  featureType: 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane',
+): SelectionFilter {
+  switch (featureType) {
+    case 'extrude':
+      return extrudeSelectionFilter
+    case 'revolve':
+      return revolveSelectionFilter
+    case 'fillet':
+      return filletSelectionFilter
+    case 'shell':
+      return shellSelectionFilter
+    case 'plane':
+      return planeSelectionFilter
   }
 }
 
@@ -520,8 +629,12 @@ export function getSelectionPreviewLabel(
   const noun =
     filter.kind === 'extrudeProfile'
       ? 'extrude profile'
+      : filter.kind === 'revolveReferences'
+        ? 'revolve reference'
       : filter.kind === 'filletEdges'
         ? 'fillet edge'
+        : filter.kind === 'shellReferences'
+          ? 'shell reference'
         : filter.kind === 'planeReferences'
           ? 'plane reference'
           : filter.kind === 'sketchStart'

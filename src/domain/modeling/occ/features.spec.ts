@@ -25,6 +25,7 @@ import {
   FILLET_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
   REVOLVE_FEATURE_SCHEMA_VERSION,
+  SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import type {
   BodyId,
@@ -813,6 +814,29 @@ async function testFilletRejectsEmptyEdgeTargetList() {
   assert(thrownMessage === 'Fillet requires at least one target edge.', 'Fillet should reject empty target-edge lists explicitly.')
 }
 
+async function testShellBuildsPreviewableSolidFromExplicitBodyAndFaces() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const boxBody = await makeBoxBody(oc, 'body_phase4_shell' as BodyId, 4, 4, 4, 'feature_phase4_shell_seed' as FeatureId)
+  const removableFaceId = findFaceIdByDirection(oc, boxBody, [0, 0, 1])
+  assert(removableFaceId != null, 'Expected box body to expose a removable top face for shell.')
+  const context = await createContext({ bodies: [boxBody] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_shell' as FeatureId, {
+    kind: 'shell',
+    featureTypeVersion: SHELL_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      bodyTarget: { kind: 'body', bodyId: boxBody.bodyId },
+      faceTargets: [{ kind: 'face', bodyId: boxBody.bodyId, faceId: removableFaceId }],
+      thickness: 0.4,
+      operation: 'newBody',
+      booleanScope: { kind: 'standalone' },
+    },
+  })
+
+  assert(result.producedTargets[0]?.kind === 'body', 'Shell should report its produced body target.')
+  assert(result.bodies.length === 2, 'Standalone shell should preserve the source body and append the shelled result body.')
+}
+
 async function testOccAuthoringStateRebuildUsesFeatureExecutionFlow() {
   const oc = await getDefaultOpenCascadeInstance()
   const plane = createStandardPlaneDefinition('xy')
@@ -918,6 +942,7 @@ await testRevolveRejectsConstructionAxisAndBuildsEdgeBackedSolid()
 await testRevolveRejectsNonPlanarFaceProfilesExplicitly()
 await testFilletReplacesAffectedBody()
 await testFilletRejectsEmptyEdgeTargetList()
+await testShellBuildsPreviewableSolidFromExplicitBodyAndFaces()
 await testOccAuthoringStateRebuildUsesFeatureExecutionFlow()
 await testOccAuthoringStateRebuildIsDeterministicAcrossRepeatedRuns()
 

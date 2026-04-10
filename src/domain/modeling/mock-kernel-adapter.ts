@@ -243,6 +243,8 @@ function getFeatureDefinitionChangedTargets(definition: FeatureDefinition) {
       return [definition.parameters.reference.target]
     case 'revolve':
       return [definition.parameters.profile, definition.parameters.axis]
+    case 'shell':
+      return [definition.parameters.bodyTarget, ...definition.parameters.faceTargets]
   }
 }
 
@@ -507,6 +509,12 @@ function validateFeatureDefinitionAgainstSnapshot(
         accepted: false as const,
         reasonCode: 'mock-unsupported-revolve',
         diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement revolve creation yet.')],
+      }
+    case 'shell':
+      return {
+        accepted: false as const,
+        reasonCode: 'mock-unsupported-shell',
+        diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement shell creation yet.')],
       }
   }
 }

@@ -214,11 +214,8 @@ export function CadWorkbench() {
         </main>
         <FeatureInspector
           featureSnapshot={editableFeatureSnapshot}
-          onDepthChange={(value) =>
-            dispatch({ type: 'form.extrudePatched', patch: { depth: value } })
-          }
-          onOperationChange={(value) =>
-            dispatch({ type: 'form.extrudePatched', patch: { operation: value } })
+          onPatch={(patch) =>
+            dispatch({ type: 'form.featurePatched', patch })
           }
           onCommit={commitFeature}
           onCancel={cancelFeature}

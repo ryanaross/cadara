@@ -7,6 +7,7 @@ import type {
   FilletFeatureParameters,
   PlaneFeatureParameters,
   RevolveFeatureParameters,
+  ShellFeatureParameters,
   SketchSnapshotRecord,
   SnapshotEntityRecord,
 } from '@/contracts/modeling/schema'
@@ -772,6 +773,70 @@ function executeFilletFeature(
   }
 }
 
+function buildShellFeatureShape(
+  context: OccFeatureExecutionContext,
+  parameters: ShellFeatureParameters,
+) {
+  if (parameters.thickness <= 0) {
+    throw new Error('Shell thickness must be positive.')
+  }
+
+  if (parameters.faceTargets.length === 0) {
+    throw new Error('Shell requires at least one removable face.')
+  }
+
+  const sourceBody = requireBody(context, parameters.bodyTarget.bodyId)
+  const closingFaces = new context.oc.TopTools_ListOfShape_1()
+
+  for (const target of parameters.faceTargets) {
+    if (target.bodyId !== parameters.bodyTarget.bodyId) {
+      throw new Error('Shell removable faces must belong to the selected source body.')
+    }
+
+    closingFaces.Append_1(requireFace(sourceBody, target.faceId))
+  }
+
+  const shell = new context.oc.BRepOffsetAPI_MakeThickSolid()
+  shell.MakeThickSolidByJoin(
+    sourceBody.shape,
+    closingFaces,
+    -parameters.thickness,
+    context.modelingTolerance,
+    context.oc.BRepOffset_Mode.BRepOffset_Skin as never,
+    false,
+    false,
+    context.oc.GeomAbs_JoinType.GeomAbs_Arc as never,
+    false,
+    new context.oc.Message_ProgressRange_1(),
+  )
+  shell.Build(new context.oc.Message_ProgressRange_1())
+
+  if (!shell.IsDone()) {
+    throw new Error('OCC shell build failed.')
+  }
+
+  return shell.Shape()
+}
+
+function executeShellFeature(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  parameters: ShellFeatureParameters,
+): OccFeatureExecutionResult {
+  const featureShape = buildShellFeatureShape(context, parameters)
+  const result = applyBooleanPolicy(context, ownerFeatureId, parameters.operation, parameters.booleanScope, featureShape)
+
+  return {
+    bodies: result.bodies,
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets: result.producedTargets,
+    entities: [],
+    renderRecords: [],
+    historyInvalidations: result.historyInvalidations,
+  }
+}
+
 export function executeOccFeature(
   context: OccFeatureExecutionContext,
   ownerFeatureId: FeatureId,
@@ -786,6 +851,8 @@ export function executeOccFeature(
       return executeRevolveFeature(context, ownerFeatureId, definition.parameters)
     case 'fillet':
       return executeFilletFeature(context, ownerFeatureId, definition.parameters)
+    case 'shell':
+      return executeShellFeature(context, ownerFeatureId, definition.parameters)
   }
 }
 
