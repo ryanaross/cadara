@@ -67,6 +67,10 @@ function formatDiagnosticDetail(diagnostic: ModelingDiagnostic) {
       return `Preview ${detail.previewId} used ${detail.requestedRevisionId}; current is ${detail.currentRevisionId}`
     case 'rebuildFailure':
       return `Affected features: ${detail.affectedFeatureIds.join(', ') || 'none'}`
+    case 'advancedFeatureValidation':
+      return detail.diagnostic.role
+        ? `${detail.diagnostic.role}: ${detail.diagnostic.message}`
+        : detail.diagnostic.message
   }
 }
 
@@ -98,6 +102,18 @@ function FieldMessage(props: { helper?: string; error?: { message: string } | nu
   ) : null
 }
 
+function formatParticipantHelper(field: FeatureEditorFormField) {
+  const participant = field.advancedParticipant
+  if (!participant) {
+    return field.helper
+  }
+
+  const max = participant.cardinality.max === null ? '+' : `-${participant.cardinality.max}`
+  const status = participant.required ? 'Required' : 'Optional'
+  const participantStatus = `${status}; ${participant.selectedCount} selected; expected ${participant.cardinality.min}${max}.`
+  return field.helper ? `${participantStatus} ${field.helper}` : participantStatus
+}
+
 function NumericField(props: {
   field: FeatureNumericField
   onPatch: (patch: Record<string, unknown>) => void
@@ -117,7 +133,7 @@ function NumericField(props: {
         aria-invalid={props.field.error ? true : undefined}
         className={`h-10 rounded-md bg-[rgba(12,16,22,0.8)] ${fieldBorderClass(props.field)}`}
       />
-      <FieldMessage helper={props.field.helper} error={props.field.error} />
+      <FieldMessage helper={formatParticipantHelper(props.field)} error={props.field.error} />
     </section>
   )
 }
@@ -148,7 +164,7 @@ function EnumField(props: {
           </button>
         ))}
       </div>
-      <FieldMessage helper={props.field.helper} error={props.field.error} />
+      <FieldMessage helper={formatParticipantHelper(props.field)} error={props.field.error} />
     </section>
   )
 }
@@ -281,7 +297,7 @@ function ReferenceCollectionCard(props: {
         </div>
       ) : null}
       <div className="mt-2">
-        <FieldMessage helper={props.field.helper} error={props.field.error} />
+        <FieldMessage helper={formatParticipantHelper(props.field)} error={props.field.error} />
       </div>
     </div>
   )
@@ -308,7 +324,7 @@ function FeatureFormFieldRenderer(props: {
         <ReferenceCard
           title={field.label}
           value={renderReference(field.value) || field.emptyLabel}
-          helper={field.helper}
+          helper={formatParticipantHelper(field)}
           error={field.error}
           isActive={props.activeReferencePickerFieldId === field.id}
           onActivate={() => props.onReferencePickerActivate(field.id)}

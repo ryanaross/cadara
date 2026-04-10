@@ -1,0 +1,249 @@
+import type { BodyId } from '@/contracts/shared/ids'
+import type { DurableRef } from '@/contracts/shared/references'
+
+export const ADVANCED_SOLID_FEATURE_SCHEMA_VERSION = 'advanced-solid-feature/v0' as const
+
+export type AdvancedParticipantRole =
+  | 'profile'
+  | 'path'
+  | 'guideCurve'
+  | 'face'
+  | 'edge'
+  | 'body'
+  | 'toolBody'
+  | 'targetBody'
+  | 'plane'
+  | 'axis'
+  | 'transformReference'
+  | 'enclosingRegionSeed'
+
+export type AdvancedSolidOperationIntent = 'create' | 'add' | 'subtract' | 'intersect'
+
+export type AdvancedSolidFeatureKind =
+  | 'sweep'
+  | 'loft'
+  | 'wrap'
+  | 'thicken'
+  | 'enclose'
+  | 'split'
+  | 'deleteSolid'
+  | 'faceBlend'
+  | 'chamfer'
+  | 'hole'
+  | 'externalThread'
+  | 'mirror'
+  | 'transform'
+
+export type AdvancedParticipantTargetKind = DurableRef['kind']
+
+export interface AdvancedParticipantCardinality {
+  min: number
+  max: number | null
+}
+
+export interface AdvancedParticipantDescriptor {
+  role: AdvancedParticipantRole
+  label: string
+  required: boolean
+  cardinality: AdvancedParticipantCardinality
+  acceptedKinds: readonly AdvancedParticipantTargetKind[]
+}
+
+export interface AdvancedOperationIntentDescriptor {
+  supportedIntents: readonly AdvancedSolidOperationIntent[]
+  requiredParticipantsByIntent?: Partial<Record<AdvancedSolidOperationIntent, readonly AdvancedParticipantRole[]>>
+}
+
+export interface AdvancedParticipantValue {
+  role: AdvancedParticipantRole
+  targets: readonly DurableRef[]
+}
+
+export interface AdvancedSolidFeatureParameters {
+  participants: readonly AdvancedParticipantValue[]
+  operationIntent?: AdvancedSolidOperationIntent
+  options?: Record<string, unknown>
+}
+
+export interface AdvancedSolidFeatureDefinition {
+  kind: AdvancedSolidFeatureKind
+  featureTypeVersion: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  parameters: AdvancedSolidFeatureParameters
+}
+
+export interface AdvancedSolidFeatureAuthoringDescriptor {
+  featureKind: AdvancedSolidFeatureKind
+  participants: readonly AdvancedParticipantDescriptor[]
+  operationIntent?: AdvancedOperationIntentDescriptor
+}
+
+export interface AdvancedFeatureValidationDiagnostic {
+  code:
+    | 'advanced-feature-missing-participant'
+    | 'advanced-feature-invalid-cardinality'
+    | 'advanced-feature-invalid-target-kind'
+    | 'advanced-feature-unsupported-operation'
+    | 'advanced-feature-unsupported-kernel-case'
+  severity: 'error'
+  message: string
+  role: AdvancedParticipantRole | null
+  target: DurableRef | null
+}
+
+const advancedSolidFeatureKinds: readonly AdvancedSolidFeatureKind[] = [
+  'sweep',
+  'loft',
+  'wrap',
+  'thicken',
+  'enclose',
+  'split',
+  'deleteSolid',
+  'faceBlend',
+  'chamfer',
+  'hole',
+  'externalThread',
+  'mirror',
+  'transform',
+]
+
+const advancedParticipantRoles: readonly AdvancedParticipantRole[] = [
+  'profile',
+  'path',
+  'guideCurve',
+  'face',
+  'edge',
+  'body',
+  'toolBody',
+  'targetBody',
+  'plane',
+  'axis',
+  'transformReference',
+  'enclosingRegionSeed',
+]
+
+export function isAdvancedSolidFeatureKind(value: unknown): value is AdvancedSolidFeatureKind {
+  return typeof value === 'string' && advancedSolidFeatureKinds.includes(value as AdvancedSolidFeatureKind)
+}
+
+export function isAdvancedParticipantRole(value: unknown): value is AdvancedParticipantRole {
+  return typeof value === 'string' && advancedParticipantRoles.includes(value as AdvancedParticipantRole)
+}
+
+export function getAdvancedParticipant(
+  definition: AdvancedSolidFeatureDefinition,
+  role: AdvancedParticipantRole,
+) {
+  return definition.parameters.participants.find((participant) => participant.role === role) ?? null
+}
+
+function createAdvancedDiagnostic(input: {
+  code: AdvancedFeatureValidationDiagnostic['code']
+  message: string
+  role: AdvancedParticipantRole | null
+  target?: DurableRef | null
+}): AdvancedFeatureValidationDiagnostic {
+  return {
+    code: input.code,
+    severity: 'error',
+    message: input.message,
+    role: input.role,
+    target: input.target ?? null,
+  }
+}
+
+export function validateAdvancedSolidFeatureDefinition(
+  definition: AdvancedSolidFeatureDefinition,
+  descriptor: AdvancedSolidFeatureAuthoringDescriptor,
+): AdvancedFeatureValidationDiagnostic[] {
+  const diagnostics: AdvancedFeatureValidationDiagnostic[] = []
+  const participantsByRole = new Map<AdvancedParticipantRole, readonly DurableRef[]>()
+
+  for (const participant of definition.parameters.participants) {
+    participantsByRole.set(participant.role, participant.targets)
+  }
+
+  const operationIntent = definition.parameters.operationIntent
+  if (operationIntent && !descriptor.operationIntent?.supportedIntents.includes(operationIntent)) {
+    diagnostics.push(createAdvancedDiagnostic({
+      code: 'advanced-feature-unsupported-operation',
+      role: null,
+      message: `${definition.kind} does not support ${operationIntent} operation intent.`,
+    }))
+  }
+
+  const operationRequiredRoles = operationIntent
+    ? descriptor.operationIntent?.requiredParticipantsByIntent?.[operationIntent] ?? []
+    : []
+
+  for (const participantDescriptor of descriptor.participants) {
+    const targets = participantsByRole.get(participantDescriptor.role) ?? []
+    const min = operationRequiredRoles.includes(participantDescriptor.role)
+      ? Math.max(1, participantDescriptor.cardinality.min)
+      : participantDescriptor.cardinality.min
+    const max = participantDescriptor.cardinality.max
+
+    if ((participantDescriptor.required || min > 0) && targets.length < min) {
+      diagnostics.push(createAdvancedDiagnostic({
+        code: 'advanced-feature-missing-participant',
+        role: participantDescriptor.role,
+        message: `${participantDescriptor.label} requires at least ${min} selected target${min === 1 ? '' : 's'}.`,
+      }))
+    }
+
+    if (targets.length < min || (max !== null && targets.length > max)) {
+      diagnostics.push(createAdvancedDiagnostic({
+        code: 'advanced-feature-invalid-cardinality',
+        role: participantDescriptor.role,
+        message: `${participantDescriptor.label} has ${targets.length} target${targets.length === 1 ? '' : 's'}; expected ${min}${max === null ? '+' : `-${max}`}.`,
+      }))
+    }
+
+    for (const target of targets) {
+      if (!participantDescriptor.acceptedKinds.includes(target.kind)) {
+        diagnostics.push(createAdvancedDiagnostic({
+          code: 'advanced-feature-invalid-target-kind',
+          role: participantDescriptor.role,
+          target,
+          message: `${participantDescriptor.label} does not accept ${target.kind} targets.`,
+        }))
+      }
+    }
+  }
+
+  return diagnostics
+}
+
+export const sweepAdvancedFeatureExample = {
+  kind: 'sweep',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    operationIntent: 'create',
+    participants: [
+      { role: 'profile', targets: [{ kind: 'region', sketchId: 'sketch_profile', regionId: 'region_profile' }] },
+      { role: 'path', targets: [{ kind: 'edge', bodyId: 'body_path', edgeId: 'edge_path' }] },
+    ],
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
+export const chamferAdvancedFeatureExample = {
+  kind: 'chamfer',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    participants: [
+      { role: 'edge', targets: [{ kind: 'edge', bodyId: 'body_part', edgeId: 'edge_outer' }] },
+    ],
+    options: { distance: 1 },
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
+export const splitAdvancedFeatureExample = {
+  kind: 'split',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    operationIntent: 'subtract',
+    participants: [
+      { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
+      { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_tool' as BodyId }] },
+    ],
+  },
+} satisfies AdvancedSolidFeatureDefinition

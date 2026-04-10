@@ -15,6 +15,15 @@ export const filletAuthoringDefinition = {
   },
   featureTypeVersion: FILLET_FEATURE_SCHEMA_VERSION,
   selectionFilter: filletSelectionFilter,
+  advancedParticipants: [
+    {
+      role: 'edge',
+      label: 'Edge targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['edge'],
+    },
+  ],
   createDraft(input) {
     const edgeTarget = asEdgeRef(input.selectedTarget)
     return {
@@ -92,6 +101,12 @@ export const filletAuthoringDefinition = {
             emptyLabel: 'None selected',
             helper: 'Each selected durable edge is preserved explicitly in the draft.',
             error: session.draft.edgeTargets.length > 0 ? null : { message: 'Select at least one edge target.' },
+            advancedParticipant: {
+              role: 'edge',
+              required: true,
+              cardinality: { min: 1, max: null },
+              selectedCount: session.draft.edgeTargets.length,
+            },
             picker: {
               mode: 'appendUnique',
               allowsMultiple: true,

@@ -84,6 +84,16 @@ export function createFeatureEditSession(input: {
 export function hydrateFeatureEditSession(
   feature: FeatureSnapshotRecord,
 ): FeatureEditSessionState | null {
+  if (
+    feature.definition.kind !== 'extrude'
+    && feature.definition.kind !== 'fillet'
+    && feature.definition.kind !== 'plane'
+    && feature.definition.kind !== 'revolve'
+    && feature.definition.kind !== 'shell'
+  ) {
+    return null
+  }
+
   const definition = findFeatureAuthoringDefinition(feature.definition.kind)
 
   if (!definition) {

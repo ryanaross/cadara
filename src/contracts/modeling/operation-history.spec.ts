@@ -9,6 +9,7 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
+import { splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -227,8 +228,53 @@ function testRejectsLegacyAndInvalidProfileCollections() {
   assert(!duplicatePayload.ok && duplicatePayload.reasonCode === 'duplicate-profile-reference', 'Duplicate profile collection history payloads should be rejected.')
 }
 
+function testPreservesAdvancedParticipantsAndOperationIntent() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: splitAdvancedFeatureExample,
+      }),
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Advanced solid feature history payloads should validate.')
+  assert(
+    result.ok &&
+      result.payload.entries[0]?.kind === 'createFeature' &&
+      result.payload.entries[0].payload.definition.kind === 'split' &&
+      result.payload.entries[0].payload.definition.parameters.operationIntent === 'subtract',
+    'Advanced solid operation history must preserve feature kind and operation intent.',
+  )
+}
+
+function testRejectsInvalidAdvancedParticipants() {
+  const result = validateOperationHistoryPayload({
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [{
+      kind: 'createFeature',
+      payload: {
+        definition: {
+          ...splitAdvancedFeatureExample,
+          parameters: {
+            ...splitAdvancedFeatureExample.parameters,
+            participants: [{ role: 'targetBody', targets: 'body_target' }],
+          },
+        },
+      },
+    }],
+  })
+
+  assert(!result.ok && result.reasonCode === 'invalid-advanced-participant', 'Invalid advanced participants should report a stable reason code.')
+}
+
 testValidatesRepresentativeHistory()
 testRejectsUnsupportedVersion()
 testRejectsTransportMetadataLeak()
 testValidatesProfileCollectionFeaturePayloads()
 testRejectsLegacyAndInvalidProfileCollections()
+testPreservesAdvancedParticipantsAndOperationIntent()
+testRejectsInvalidAdvancedParticipants()

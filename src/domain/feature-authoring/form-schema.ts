@@ -1,4 +1,5 @@
 import type { ModelingDiagnostic } from '@/contracts/modeling/schema'
+import type { AdvancedParticipantDescriptor, AdvancedParticipantRole } from '@/contracts/modeling/schema'
 import type { PrimitiveRef, SelectionFilter } from '@/domain/editor/schema'
 
 export type FeatureEditorPatch = Record<string, unknown>
@@ -37,6 +38,15 @@ export interface FeatureFormFieldBase {
   error?: FeatureEditorFieldError | null
   hidden?: boolean
   disabled?: boolean
+  advancedParticipant?: FeatureAdvancedParticipantBinding
+}
+
+export interface FeatureAdvancedParticipantBinding {
+  role: AdvancedParticipantRole
+  required: boolean
+  cardinality: AdvancedParticipantDescriptor['cardinality']
+  selectedCount: number
+  diagnostics?: readonly ModelingDiagnostic[]
 }
 
 export interface FeatureNumericField extends FeatureFormFieldBase {

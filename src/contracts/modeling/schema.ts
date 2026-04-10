@@ -34,6 +34,21 @@ import type {
   ShellFeatureSchemaVersion,
   SnapshotSchemaVersion,
 } from '@/contracts/shared/versioning'
+import type { AdvancedFeatureValidationDiagnostic, AdvancedSolidFeatureDefinition, AdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
+export type {
+  AdvancedFeatureValidationDiagnostic,
+  AdvancedOperationIntentDescriptor,
+  AdvancedParticipantCardinality,
+  AdvancedParticipantDescriptor,
+  AdvancedParticipantRole,
+  AdvancedParticipantTargetKind,
+  AdvancedParticipantValue,
+  AdvancedSolidFeatureAuthoringDescriptor,
+  AdvancedSolidFeatureDefinition,
+  AdvancedSolidFeatureKind,
+  AdvancedSolidFeatureParameters,
+  AdvancedSolidOperationIntent,
+} from '@/contracts/modeling/advanced-solid'
 
 /** Re-exported preview identifier used by modeling preview requests. */
 export type { PreviewId }
@@ -53,6 +68,7 @@ export type SketchPoint = SketchPoint2D
  * This union is closed so callers cannot invent feature types ad hoc.
  */
 export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'
+export type ModelingFeatureKind = FeatureKind | AdvancedSolidFeatureKind
 
 /** Ordered collection that must contain at least one entry. */
 export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]]
@@ -64,9 +80,9 @@ export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]]
  */
 export interface ModelingKernelCapabilities {
   /** Feature kinds the kernel can commit durably at this contract version. */
-  supportedFeatureKinds: FeatureKind[]
+  supportedFeatureKinds: ModelingFeatureKind[]
   /** Feature kinds the kernel can evaluate as transient previews. */
-  previewableFeatureKinds: FeatureKind[]
+  previewableFeatureKinds: ModelingFeatureKind[]
   /** Sketch profile seed kinds accepted by profile-based solid features. */
   supportedProfileKinds: ExtrudeProfileRef['kind'][]
   /** True when sketch commits may target planar body faces directly. */
@@ -293,6 +309,7 @@ export type FeatureDefinition =
       /** Exact rebuild inputs owned by this shell feature instance. */
       parameters: ShellFeatureParameters
     }
+  | AdvancedSolidFeatureDefinition
 
 /**
  * Machine-readable invalidation payload for destroyed or replaced references.
@@ -353,6 +370,12 @@ export type ModelingDiagnosticDetail =
       affectedFeatureIds: FeatureId[]
       /** Durable targets invalidated or implicated by the rebuild failure. */
       affectedTargets: PrimitiveRef[]
+    }
+  | {
+      /** Stable discriminant for advanced-feature contract and adapter gaps. */
+      kind: 'advancedFeatureValidation'
+      /** Role-specific validation or unsupported-case diagnostic. */
+      diagnostic: AdvancedFeatureValidationDiagnostic
     }
 
 /**

@@ -7,6 +7,7 @@ import {
   EXTRUDE_FEATURE_SCHEMA_VERSION,
   PLANE_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
+import { splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -518,6 +519,41 @@ async function testMockKernelRejectsUnsupportedContractEnvelope() {
   assert(documentRejected, 'Mock kernel must reject unsupported document IDs.')
 }
 
+async function testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_split_unsupported',
+    definition: splitAdvancedFeatureExample,
+  })
+  const create = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: splitAdvancedFeatureExample,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  assert(preview.render.records.length === 0, 'Unsupported advanced previews must not return preview geometry.')
+  assert(
+    preview.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'advancedFeatureValidation'),
+    'Unsupported advanced previews must return structured advanced-feature diagnostics.',
+  )
+  assert(create.revisionState.kind === 'rejected', 'Unsupported advanced create requests should be rejected.')
+  assert(after.snapshot.revisionId === before.snapshot.revisionId, 'Rejected advanced create requests must not mutate the committed document revision.')
+  assert(after.snapshot.features.length === before.snapshot.features.length, 'Rejected advanced create requests must not add committed features.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -750,6 +786,7 @@ await testMissingMutationTargetsAreRejected()
 await testPreviewStalenessReportsObservedRevision()
 await testResolveReferenceReportsMissingTargetsExplicitly()
 await testMockKernelRejectsUnsupportedContractEnvelope()
+await testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation()
 await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()

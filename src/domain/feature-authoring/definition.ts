@@ -13,6 +13,8 @@ import type {
   RevolveAxisRef,
   RevolveFeatureParameters,
   ShellFeatureParameters,
+  AdvancedOperationIntentDescriptor,
+  AdvancedParticipantDescriptor,
 } from '@/contracts/modeling/schema'
 import type { BodyId } from '@/contracts/shared/ids'
 import type {
@@ -132,6 +134,8 @@ export interface FeatureAuthoringDefinition<TKind extends FeatureKind = FeatureK
   metadata: FeatureAuthoringMetadata<TKind>
   featureTypeVersion: FeatureVersionByKind[TKind]
   selectionFilter: SelectionFilter
+  advancedParticipants?: readonly AdvancedParticipantDescriptor[]
+  operationIntent?: AdvancedOperationIntentDescriptor
   createDraft(input: CreateFeatureDraftInput): FeatureDraftByKind[TKind]
   hydrateDraft(feature: Extract<FeatureSnapshotRecord['definition'], { kind: TKind }>): FeatureDraftByKind[TKind]
   applyPatch(draft: FeatureDraftByKind[TKind], patch: FeatureDraftPatch): FeatureDraftByKind[TKind]

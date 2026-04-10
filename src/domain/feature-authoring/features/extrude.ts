@@ -16,6 +16,30 @@ export const extrudeAuthoringDefinition = {
   },
   featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
   selectionFilter: extrudeSelectionFilter,
+  advancedParticipants: [
+    {
+      role: 'profile',
+      label: 'Profile targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['region', 'face'],
+    },
+    {
+      role: 'targetBody',
+      label: 'Boolean target bodies',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['body'],
+    },
+  ],
+  operationIntent: {
+    supportedIntents: ['create', 'add', 'subtract', 'intersect'],
+    requiredParticipantsByIntent: {
+      add: ['targetBody'],
+      subtract: ['targetBody'],
+      intersect: ['targetBody'],
+    },
+  },
   createDraft(input) {
     const profileTarget = asExtrudeProfileRef(input.selectedTarget)
     return {
@@ -111,6 +135,12 @@ export const extrudeAuthoringDefinition = {
             emptyLabel: 'None selected',
             helper: 'Accepted targets: derived sketch regions or planar faces.',
             error: session.draft.profileTargets.length > 0 ? null : { message: 'Select at least one profile target.' },
+            advancedParticipant: {
+              role: 'profile',
+              required: true,
+              cardinality: { min: 1, max: null },
+              selectedCount: session.draft.profileTargets.length,
+            },
             picker: {
               mode: 'appendUnique',
               allowsMultiple: true,

@@ -14,6 +14,7 @@ import type {
   DocumentSnapshot,
   FeatureDefinition,
   FeatureTreeNodeRecord,
+  ModelingFeatureKind,
   ModelingDiagnostic,
   ObjectTreeNodeRecord,
   ReferenceRecord,
@@ -120,8 +121,8 @@ type KernelSnapshotBoundaryIsTyped = Assert<
   >
 >
 
-type FeatureDefinitionIsClosedUnion = Assert<
-  Equals<FeatureDefinition['kind'], 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'>
+type FeatureDefinitionUsesModelingFeatureKind = Assert<
+  Equals<FeatureDefinition['kind'], ModelingFeatureKind>
 >
 
 type CreateFeatureUsesTypedDefinition = Assert<
@@ -178,7 +179,7 @@ export const CONTRACT_TYPE_TESTS: readonly [
   SolverBarrelExportsSchemaVersion,
   SolverBarrelExportsAdapterInterface,
   KernelSnapshotBoundaryIsTyped,
-  FeatureDefinitionIsClosedUnion,
+  FeatureDefinitionUsesModelingFeatureKind,
   CreateFeatureUsesTypedDefinition,
   ReorderFeatureRequestIsTyped,
   DiagnosticsUseCanonicalRefs,

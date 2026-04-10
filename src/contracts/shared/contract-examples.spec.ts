@@ -26,6 +26,11 @@ import {
   SHELL_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
+import {
+  chamferAdvancedFeatureExample,
+  splitAdvancedFeatureExample,
+  sweepAdvancedFeatureExample,
+} from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -604,6 +609,14 @@ function testSolvedSketchVersionLiteralRemainsDocumented() {
   assert(SOLVED_SKETCH_SCHEMA_VERSION === 'solved-sketch/v1alpha1', 'Solved sketch schema version literal must remain explicit in examples.')
 }
 
+function testAdvancedSolidExamplesUseRoleSpecificParticipants() {
+  assert(sweepAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'profile'), 'Sweep example must preserve a profile participant role.')
+  assert(sweepAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'path'), 'Sweep example must preserve a path participant role.')
+  assert(chamferAdvancedFeatureExample.parameters.participants[0]?.role === 'edge', 'Chamfer example must preserve topology modifier edge participants.')
+  assert(splitAdvancedFeatureExample.parameters.operationIntent === 'subtract', 'Split example must preserve operation intent.')
+  assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'toolBody'), 'Split example must preserve body-operation tool participants.')
+}
+
 testSolveSketchExampleIsFullyTyped()
 testCreateExtrudeExampleUsesTypedProfileRef()
 testPreviewExtrudeExampleReusesFeatureDefinition()
@@ -612,3 +625,4 @@ testResolveDeadReferenceExampleIsExplicit()
 testTopologyChangingRebuildExampleSeparatesPreservedAndInvalidatedTargets()
 testRenderMeshWithBindingsExampleIsSelectionCapable()
 testSolvedSketchVersionLiteralRemainsDocumented()
+testAdvancedSolidExamplesUseRoleSpecificParticipants()

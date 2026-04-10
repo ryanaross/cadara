@@ -16,6 +16,30 @@ export const shellAuthoringDefinition = {
   },
   featureTypeVersion: SHELL_FEATURE_SCHEMA_VERSION,
   selectionFilter: shellSelectionFilter,
+  advancedParticipants: [
+    {
+      role: 'body',
+      label: 'Source body',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['body'],
+    },
+    {
+      role: 'face',
+      label: 'Removable faces',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['face'],
+    },
+  ],
+  operationIntent: {
+    supportedIntents: ['create', 'add', 'subtract', 'intersect'],
+    requiredParticipantsByIntent: {
+      add: ['targetBody'],
+      subtract: ['targetBody'],
+      intersect: ['targetBody'],
+    },
+  },
   createDraft(input) {
     const selectedFace = asFaceRef(input.selectedTarget)
     return {
@@ -121,6 +145,12 @@ export const shellAuthoringDefinition = {
               emptyLabel: 'None selected',
               helper: 'Shell requires one explicit source body.',
               error: session.draft.bodyTarget ? null : { message: 'Select a source body.' },
+              advancedParticipant: {
+                role: 'body',
+                required: true,
+                cardinality: { min: 1, max: 1 },
+                selectedCount: session.draft.bodyTarget ? 1 : 0,
+              },
               picker: {
                 mode: 'replace',
                 allowsMultiple: false,
@@ -136,6 +166,12 @@ export const shellAuthoringDefinition = {
               emptyLabel: 'None selected',
               helper: 'The draft preserves each removable face explicitly.',
               error: session.draft.faceTargets.length > 0 ? null : { message: 'Select at least one removable face.' },
+              advancedParticipant: {
+                role: 'face',
+                required: true,
+                cardinality: { min: 1, max: null },
+                selectedCount: session.draft.faceTargets.length,
+              },
               picker: {
                 mode: 'appendUnique',
                 allowsMultiple: true,

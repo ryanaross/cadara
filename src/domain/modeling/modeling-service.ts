@@ -68,8 +68,10 @@ import type {
   RevolveAxisRef,
   RevolveFeatureParameters,
   ShellFeatureParameters,
+  AdvancedSolidFeatureParameters,
 } from '@/contracts/modeling/schema'
 import type { RenderExport, RenderableEntityRecord } from '@/contracts/render/schema'
+import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION, isAdvancedParticipantRole, isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 import {
   createCommitSketchHistoryEntry,
   createCreateFeatureHistoryEntry,
@@ -722,6 +724,38 @@ function normalizeShellFeatureParameters(value: unknown): ShellFeatureParameters
   }
 }
 
+function normalizeAdvancedSolidFeatureParameters(value: unknown): AdvancedSolidFeatureParameters {
+  if (!isRecord(value) || !Array.isArray(value.participants)) {
+    throw new Error('Invalid advanced solid feature parameters payload.')
+  }
+
+  const operationIntent = value.operationIntent
+  if (
+    operationIntent !== undefined
+    && operationIntent !== 'create'
+    && operationIntent !== 'add'
+    && operationIntent !== 'subtract'
+    && operationIntent !== 'intersect'
+  ) {
+    throw new Error('Invalid advanced solid operation intent payload.')
+  }
+
+  return {
+    participants: value.participants.map((participant) => {
+      if (!isRecord(participant) || !isAdvancedParticipantRole(participant.role) || !Array.isArray(participant.targets)) {
+        throw new Error('Invalid advanced solid participant payload.')
+      }
+
+      return {
+        role: participant.role,
+        targets: participant.targets.map((target) => assertPrimitiveRef(target)),
+      }
+    }),
+    ...(operationIntent ? { operationIntent } : {}),
+    ...(isRecord(value.options) ? { options: { ...value.options } } : {}),
+  }
+}
+
 function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
   if (!isRecord(value) || !isString(value.kind) || !isString(value.featureTypeVersion)) {
     throw new Error('Invalid feature definition payload.')
@@ -774,6 +808,13 @@ function normalizeFeatureDefinition(value: unknown): FeatureDefinition {
         parameters: normalizeShellFeatureParameters(value.parameters),
       }
     default:
+      if (isAdvancedSolidFeatureKind(value.kind)) {
+        return {
+          kind: value.kind,
+          featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+          parameters: normalizeAdvancedSolidFeatureParameters(value.parameters),
+        }
+      }
       throw new Error('Invalid feature definition kind.')
   }
 }

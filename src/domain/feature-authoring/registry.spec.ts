@@ -1,3 +1,6 @@
+// @ts-expect-error vite-node executes this spec under Node even though app tsconfig excludes Node globals.
+import { readFileSync } from 'node:fs'
+
 import {
   applySelectionToFeatureEditSession,
   buildFeatureDefinition,
@@ -12,6 +15,7 @@ import {
   createFeatureEditorRemoveReferenceItemPatch,
 } from '@/domain/feature-authoring/form-events'
 import { getRegisteredFeatureAuthoringDefinitions } from '@/domain/feature-authoring/registry'
+import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -119,6 +123,49 @@ function testShellOwnsFaceSelectionDefaultsAndFormSchema() {
   assert(fieldIds.includes('shell-thickness'), 'Shell form schema should describe its thickness numeric field.')
   assert(fieldIds.includes('shell-operation'), 'Shell form schema should describe its operation choice field.')
   assert(fieldIds.includes('shell-faces'), 'Shell form schema should describe its removable-face collection.')
+}
+
+function testAdvancedParticipantDescriptorsAreMachineReadable() {
+  const definitions: readonly FeatureAuthoringDefinition[] = getRegisteredFeatureAuthoringDefinitions()
+  const extrude = definitions.find((definition) => definition.metadata.kind === 'extrude')
+  const fillet = definitions.find((definition) => definition.metadata.kind === 'fillet')
+  const shell = definitions.find((definition) => definition.metadata.kind === 'shell')
+
+  assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
+  assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
+  assert(shell?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Shell should declare body participants for body-operation substrate coverage.')
+
+  const shellSession = createFeatureEditSession({
+    featureType: 'shell',
+    selectedTarget: { kind: 'face', bodyId: 'body_a', faceId: 'face_top' },
+  })
+  const shellFacesField = getFeatureEditorFormSchema(shellSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'shell-faces')
+
+  assert(shellFacesField?.kind === 'referenceCollection', 'Shell form should expose removable faces as a reference collection.')
+  assert(shellFacesField.advancedParticipant?.role === 'face', 'Shell form should expose the face participant role on the generic field.')
+
+  const patch = createFeatureEditorReferenceSelectionPatch(shellFacesField, {
+    kind: 'face',
+    bodyId: 'body_a',
+    faceId: 'face_side',
+  })
+  assert(patch.participantRole === 'face', 'Generic reference selection patches should preserve the participant role.')
+}
+
+function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
+  const files = [
+    'src/domain/feature-authoring/definition.ts',
+    'src/domain/feature-authoring/form-schema.ts',
+    'src/domain/feature-authoring/form-events.ts',
+    'src/components/layout/feature-inspector.tsx',
+  ]
+
+  for (const file of files) {
+    const source = readFileSync(file, 'utf8')
+    assert(!source.includes('/occ/') && !source.includes('opencascade'), `${file} should not import kernel-specific modules.`)
+  }
 }
 
 function testGenericFormEventsPatchRevolveAndShellDrafts() {
@@ -253,5 +300,7 @@ testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
+testAdvancedParticipantDescriptorsAreMachineReadable()
+testAdvancedAuthoringAndInspectorDoNotImportKernelModules()
 testGenericFormEventsPatchRevolveAndShellDrafts()
 testGenericReferenceFormEventsPatchSingleAndMultiReferences()

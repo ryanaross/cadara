@@ -13,6 +13,7 @@ import {
   type ContractVersion,
   type OperationHistorySchemaVersion,
 } from '@/contracts/shared/versioning'
+import { isAdvancedParticipantRole, isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 
 export type PersistedCommitSketchPayload = Omit<
   CommitSketchRequest,
@@ -218,6 +219,58 @@ function validateProfileBasedFeatureDefinition(
   return { ok: true }
 }
 
+function validateAdvancedSolidFeatureDefinition(
+  definition: Record<string, unknown>,
+  index: number,
+): OperationHistoryEntryValidationResult {
+  if (!isAdvancedSolidFeatureKind(definition.kind)) {
+    return { ok: true }
+  }
+
+  if (!isRecord(definition.parameters) || !Array.isArray(definition.parameters.participants)) {
+    return {
+      ok: false,
+      reasonCode: 'invalid-advanced-feature-parameters',
+      message: `Operation history entry ${index} has invalid ${definition.kind} advanced feature parameters.`,
+    }
+  }
+
+  const operationIntent = definition.parameters.operationIntent
+  if (
+    operationIntent !== undefined
+    && operationIntent !== 'create'
+    && operationIntent !== 'add'
+    && operationIntent !== 'subtract'
+    && operationIntent !== 'intersect'
+  ) {
+    return {
+      ok: false,
+      reasonCode: 'invalid-advanced-operation-intent',
+      message: `Operation history entry ${index} has an invalid ${definition.kind} operation intent.`,
+    }
+  }
+
+  for (const participant of definition.parameters.participants) {
+    if (!isRecord(participant) || !isAdvancedParticipantRole(participant.role) || !Array.isArray(participant.targets)) {
+      return {
+        ok: false,
+        reasonCode: 'invalid-advanced-participant',
+        message: `Operation history entry ${index} has an invalid advanced participant.`,
+      }
+    }
+  }
+
+  return { ok: true }
+}
+
+function validateFeatureDefinition(
+  definition: Record<string, unknown>,
+  index: number,
+): OperationHistoryEntryValidationResult {
+  const profileResult = validateProfileBasedFeatureDefinition(definition, index)
+  return profileResult.ok ? validateAdvancedSolidFeatureDefinition(definition, index) : profileResult
+}
+
 function validateEntry(value: unknown, index: number): OperationHistoryEntryValidationResult {
   if (!isRecord(value) || !isString(value.kind) || !isRecord(value.payload)) {
     return {
@@ -259,7 +312,7 @@ function validateEntry(value: unknown, index: number): OperationHistoryEntryVali
           message: `Operation history entry ${index} has an invalid createFeature payload.`,
         }
       }
-      return validateProfileBasedFeatureDefinition(value.payload.definition, index)
+      return validateFeatureDefinition(value.payload.definition, index)
     case 'updateFeature':
       if (!isString(value.payload.featureId) || !isRecord(value.payload.definition)) {
         return {
@@ -268,7 +321,7 @@ function validateEntry(value: unknown, index: number): OperationHistoryEntryVali
           message: `Operation history entry ${index} has an invalid updateFeature payload.`,
         }
       }
-      return validateProfileBasedFeatureDefinition(value.payload.definition, index)
+      return validateFeatureDefinition(value.payload.definition, index)
     case 'deleteFeature':
       if (!isString(value.payload.featureId)) {
         return {

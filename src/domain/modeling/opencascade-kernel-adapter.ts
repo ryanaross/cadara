@@ -26,6 +26,7 @@ import type {
   UpdateFeatureRequest,
   UpdateFeatureResponse,
 } from '@/contracts/modeling/schema'
+import { isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 import type {
   BodyId,
   DocumentId,
@@ -93,6 +94,7 @@ const OCC_STALE_PREVIEW_CODE = 'occ-stale-preview'
 const OCC_REBUILD_DIAGNOSTIC_CODES = new Set<string>([
   ...Object.values(OCC_CONTRACT_GAP_CODES),
   'unsupported-profile-group',
+  'advanced-feature-unsupported-kernel-case',
 ])
 
 function assertSupportedModelingRequest(
@@ -215,6 +217,28 @@ function createRebuildFailureDiagnostic(
       kind: 'rebuildFailure',
       affectedFeatureIds,
       affectedTargets,
+    },
+  )
+}
+
+function createAdvancedUnsupportedDiagnostic(
+  featureId: FeatureId,
+  message: string,
+): ModelingDiagnostic {
+  return createDiagnostic(
+    'advanced-feature-unsupported-kernel-case',
+    'error',
+    message,
+    { kind: 'feature', featureId },
+    {
+      kind: 'advancedFeatureValidation',
+      diagnostic: {
+        code: 'advanced-feature-unsupported-kernel-case',
+        severity: 'error',
+        message,
+        role: null,
+        target: null,
+      },
     },
   )
 }
@@ -531,6 +555,8 @@ function getFeatureConsumedTargets(definition: FeatureDefinition) {
 
       return targets
     }
+    default:
+      return definition.parameters.participants.flatMap((participant) => [...participant.targets])
   }
 }
 
@@ -915,14 +941,21 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
         return {
           ok: false,
           reasonCode: deriveRebuildFailureCode(error),
-          diagnostics: [
-            createRebuildFailureDiagnostic(
-              deriveRebuildFailureCode(error),
-              error instanceof Error ? error.message : 'OCC rebuild failed.',
-              [feature.featureId],
-              uniqueTargets(consumedTargets),
-            ),
-          ],
+          diagnostics: isAdvancedSolidFeatureKind(feature.definition.kind)
+            ? [
+                createAdvancedUnsupportedDiagnostic(
+                  feature.featureId,
+                  error instanceof Error ? error.message : `OCC adapter does not implement ${feature.definition.kind} yet.`,
+                ),
+              ]
+            : [
+                createRebuildFailureDiagnostic(
+                  deriveRebuildFailureCode(error),
+                  error instanceof Error ? error.message : 'OCC rebuild failed.',
+                  [feature.featureId],
+                  uniqueTargets(consumedTargets),
+                ),
+              ],
         }
       }
     }
@@ -1589,17 +1622,22 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
         ...(request.baseRevisionId === currentRevisionId
           ? []
           : [createStalePreviewDiagnostic(request.previewId, request.baseRevisionId, currentRevisionId)]),
-        createDiagnostic(
-          deriveRebuildFailureCode(error),
-          'error',
-          error instanceof Error ? error.message : 'OCC preview rebuild failed.',
-          { kind: 'feature', featureId: previewFeatureId },
-          {
-            kind: 'rebuildFailure',
-            affectedFeatureIds: [previewFeatureId],
-            affectedTargets: [{ kind: 'feature', featureId: previewFeatureId }],
-          },
-        ),
+        isAdvancedSolidFeatureKind(request.definition.kind)
+          ? createAdvancedUnsupportedDiagnostic(
+              previewFeatureId,
+              error instanceof Error ? error.message : `OCC adapter does not implement ${request.definition.kind} yet.`,
+            )
+          : createDiagnostic(
+              deriveRebuildFailureCode(error),
+              'error',
+              error instanceof Error ? error.message : 'OCC preview rebuild failed.',
+              { kind: 'feature', featureId: previewFeatureId },
+              {
+                kind: 'rebuildFailure',
+                affectedFeatureIds: [previewFeatureId],
+                affectedTargets: [{ kind: 'feature', featureId: previewFeatureId }],
+              },
+            ),
       ]
 
       return {

@@ -208,6 +208,9 @@ function collectFeatureConsumedTargets(definition: OccAuthoringState['features']
       targets.push(definition.parameters.bodyTarget, ...definition.parameters.faceTargets)
       booleanScope = definition.parameters.booleanScope
       break
+    default:
+      targets.push(...definition.parameters.participants.flatMap((participant) => [...participant.targets]))
+      break
   }
 
   if (booleanScope?.kind === 'targetBody') {
@@ -312,6 +315,18 @@ function createSnapshotFeatureDefinition(
           thickness: definition.parameters.thickness,
           operation: definition.parameters.operation,
           booleanScope: definition.parameters.booleanScope,
+        },
+      }
+    default:
+      return {
+        kind: definition.kind,
+        featureTypeVersion: definition.featureTypeVersion,
+        parameters: {
+          ...definition.parameters,
+          participants: definition.parameters.participants.map((participant) => ({
+            role: participant.role,
+            targets: [...participant.targets],
+          })),
         },
       }
   }

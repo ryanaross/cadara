@@ -46,6 +46,7 @@ import type {
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { DurableRef } from '@/contracts/shared/references'
+import { isAdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 import {
   RENDER_EXPORT_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
@@ -289,6 +290,8 @@ function getFeatureDefinitionChangedTargets(definition: FeatureDefinition) {
       return [...definition.parameters.profiles, definition.parameters.axis]
     case 'shell':
       return [definition.parameters.bodyTarget, ...definition.parameters.faceTargets]
+    default:
+      return definition.parameters.participants.flatMap((participant) => [...participant.targets])
   }
 }
 
@@ -296,12 +299,25 @@ function createUnsupportedFeatureDiagnostic(
   target: FeatureDefinition,
   message: string,
 ) {
+  const advancedDetail = isAdvancedSolidFeatureKind(target.kind)
+    ? {
+        kind: 'advancedFeatureValidation' as const,
+        diagnostic: {
+          code: 'advanced-feature-unsupported-kernel-case' as const,
+          severity: 'error' as const,
+          message,
+          role: null,
+          target: null,
+        },
+      }
+    : null
+
   return {
     code: `mock-unsupported-${target.kind}`,
     severity: 'error' as const,
     message,
     target: null,
-    detail: null,
+    detail: advancedDetail,
   }
 }
 
@@ -588,6 +604,12 @@ function validateFeatureDefinitionAgainstSnapshot(
         accepted: false as const,
         reasonCode: 'mock-unsupported-shell',
         diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement shell creation yet.')],
+      }
+    default:
+      return {
+        accepted: false as const,
+        reasonCode: 'advanced-feature-unsupported-kernel-case',
+        diagnostics: [createUnsupportedFeatureDiagnostic(definition, `Mock kernel does not implement ${definition.kind} advanced solid features yet.`)],
       }
   }
 }

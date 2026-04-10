@@ -97,6 +97,10 @@ assert(
   'Feature inspector should list every selected instance for multi-instance reference fields.',
 )
 assert(
+  activeShellMarkup.includes('Required; 2 selected; expected 1+.'),
+  'Feature inspector should render participant required status, cardinality, and selected count without feature-specific branching.',
+)
+assert(
   activeShellMarkup.includes('Clear Removable faces') && activeShellMarkup.includes('Remove body_a.face_side'),
   'Feature inspector should render clear-all and per-instance remove controls for multi-instance fields.',
 )

@@ -863,6 +863,8 @@ export function executeOccFeature(
       return executeFilletFeature(context, ownerFeatureId, definition.parameters)
     case 'shell':
       return executeShellFeature(context, ownerFeatureId, definition.parameters)
+    default:
+      throw new Error(`advanced-feature-unsupported-kernel-case: OCC adapter does not implement ${definition.kind} yet.`)
   }
 }
 

@@ -27,12 +27,18 @@ export function createFeatureEditorReferenceSelectionPatch(
   field: FeatureEditorReferenceField,
   target: PrimitiveRef,
 ): FeatureEditorPatch {
+  const role = field.advancedParticipant?.role
+
   if (!field.picker.allowsMultiple) {
-    return createFeatureEditorFieldPatch(field, target)
+    return role
+      ? { participantRole: role, [field.patch.patchKey]: target }
+      : createFeatureEditorFieldPatch(field, target)
   }
 
   if (field.picker.mode === 'replace') {
-    return createFeatureEditorFieldPatch(field, [target])
+    return role
+      ? { participantRole: role, [field.patch.patchKey]: [target] }
+      : createFeatureEditorFieldPatch(field, [target])
   }
 
   const current = getReferenceArray(field)
@@ -40,7 +46,9 @@ export function createFeatureEditorReferenceSelectionPatch(
     ? current
     : [...current, target]
 
-  return createFeatureEditorFieldPatch(field, next)
+  return role
+    ? { participantRole: role, [field.patch.patchKey]: next }
+    : createFeatureEditorFieldPatch(field, next)
 }
 
 export function createFeatureEditorClearReferencePatch(field: FeatureEditorReferenceField): FeatureEditorPatch {

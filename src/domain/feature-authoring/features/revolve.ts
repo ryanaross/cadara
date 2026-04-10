@@ -16,6 +16,37 @@ export const revolveAuthoringDefinition = {
   },
   featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
   selectionFilter: revolveSelectionFilter,
+  advancedParticipants: [
+    {
+      role: 'profile',
+      label: 'Profile targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['region', 'face'],
+    },
+    {
+      role: 'axis',
+      label: 'Axis target',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['edge', 'construction'],
+    },
+    {
+      role: 'targetBody',
+      label: 'Boolean target bodies',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['body'],
+    },
+  ],
+  operationIntent: {
+    supportedIntents: ['create', 'add', 'subtract', 'intersect'],
+    requiredParticipantsByIntent: {
+      add: ['targetBody'],
+      subtract: ['targetBody'],
+      intersect: ['targetBody'],
+    },
+  },
   createDraft(input) {
     const profileTarget = asExtrudeProfileRef(input.selectedTarget)
     return {
@@ -128,6 +159,12 @@ export const revolveAuthoringDefinition = {
               emptyLabel: 'None selected',
               helper: 'Accepted targets: derived sketch regions or planar faces.',
               error: session.draft.profileTargets.length > 0 ? null : { message: 'Select at least one profile target.' },
+              advancedParticipant: {
+                role: 'profile',
+                required: true,
+                cardinality: { min: 1, max: null },
+                selectedCount: session.draft.profileTargets.length,
+              },
               picker: {
                 mode: 'appendUnique',
                 allowsMultiple: true,
@@ -144,6 +181,12 @@ export const revolveAuthoringDefinition = {
               emptyLabel: 'None selected',
               helper: 'Accepted targets: one durable edge or one construction axis.',
               error: session.draft.axisTarget ? null : { message: 'Select a revolve axis.' },
+              advancedParticipant: {
+                role: 'axis',
+                required: true,
+                cardinality: { min: 1, max: 1 },
+                selectedCount: session.draft.axisTarget ? 1 : 0,
+              },
               picker: {
                 mode: 'replace',
                 allowsMultiple: false,
