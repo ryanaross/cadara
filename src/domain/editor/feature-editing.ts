@@ -18,6 +18,8 @@ export type {
   FeatureDraftPatch,
   FeatureEditSessionState,
   FeatureEditSessionStateBase,
+  ChamferFeatureEditSessionState,
+  ChamferFeatureParameterDraft,
   FilletFeatureEditSessionState,
   FilletFeatureParameterDraft,
   PlaneFeatureEditSessionState,
@@ -93,6 +95,7 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'revolve'
     && feature.definition.kind !== 'shell'
     && feature.definition.kind !== 'sweep'
+    && feature.definition.kind !== 'chamfer'
   ) {
     return null
   }

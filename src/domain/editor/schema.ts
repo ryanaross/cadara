@@ -69,6 +69,7 @@ export type SelectionFilterKind =
   | 'revolveReferences'
   | 'sweepReferences'
   | 'filletEdges'
+  | 'chamferEdges'
   | 'shellReferences'
   | 'planeReferences'
 
@@ -222,6 +223,28 @@ export const filletSelectionFilter: SelectionFilter = {
       slots: [
         {
           id: 'fillet-edge',
+          label: 'Edge target',
+          description: 'Select one edge reference.',
+          acceptedKinds: ['edge'],
+          acceptedSemantics: ['edge'],
+        },
+      ],
+    },
+  ],
+}
+
+export const chamferSelectionFilter: SelectionFilter = {
+  kind: 'chamferEdges',
+  allowedKinds: ['edge'],
+  label: 'Chamfer edges',
+  requirements: [
+    {
+      id: 'chamfer-edge',
+      label: 'Edge target',
+      description: 'Chamfer accepts one or more durable edge references.',
+      slots: [
+        {
+          id: 'chamfer-edge',
           label: 'Edge target',
           description: 'Select one edge reference.',
           acceptedKinds: ['edge'],

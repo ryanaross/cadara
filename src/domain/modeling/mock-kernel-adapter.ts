@@ -684,6 +684,44 @@ function validateFeatureDefinitionAgainstSnapshot(
 
       return { accepted: true as const, diagnostics: [] }
     }
+    case 'chamfer': {
+      const edgeTargets = getAdvancedParticipant(definition, 'edge')?.targets ?? []
+      const distance = definition.parameters.options?.distance
+
+      if (edgeTargets.length === 0 || edgeTargets.some((target) => target.kind !== 'edge')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-chamfer',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Chamfer requires at least one durable edge participant.')],
+        }
+      }
+
+      if (typeof distance !== 'number' || !Number.isFinite(distance) || distance <= 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-chamfer',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Chamfer requires a positive constant distance option.')],
+        }
+      }
+
+      if (edgeTargets.some((target) => target.kind !== 'edge' || !hasEdgeTarget(snapshot, target.bodyId, target.edgeId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-chamfer',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Chamfer edge participants must resolve to live durable edges.')],
+        }
+      }
+
+      if (definition.parameters.operationIntent !== undefined && definition.parameters.operationIntent !== 'create') {
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock chamfer does not implement operation intents yet.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     default:
       return {
         accepted: false as const,
@@ -697,6 +735,11 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
   if (definition.kind === 'sweep') {
     const profile = getAdvancedParticipant(definition, 'profile')?.targets[0]
     return profile ? createPreviewRenderableSet(getPrimitiveRefKey(profile)) : []
+  }
+
+  if (definition.kind === 'chamfer') {
+    const edge = getAdvancedParticipant(definition, 'edge')?.targets[0]
+    return edge ? createPreviewRenderableSet(getPrimitiveRefKey(edge)) : []
   }
 
   if (definition.kind !== 'extrude') {
@@ -1361,8 +1404,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       angularToleranceRadians: 0.0001,
     },
     capabilities: {
-      supportedFeatureKinds: ['extrude', 'fillet', 'sweep'],
-      previewableFeatureKinds: ['extrude', 'sweep'],
+      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'chamfer'],
+      previewableFeatureKinds: ['extrude', 'sweep', 'chamfer'],
       supportedProfileKinds: ['region', 'face'],
       supportsFaceBackedSketchPlanes: true,
       supportsDurableTopologyNaming: false,

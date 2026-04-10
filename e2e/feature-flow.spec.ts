@@ -56,6 +56,19 @@ test('fillet previews and commits from a durable body edge', async ({ page }) =>
   await workbench.commitFeature('feature_fillet-1')
 })
 
+test('chamfer previews and commits from a durable body edge', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  await workbench.createBaseExtrudeFixture()
+  await workbench.activateFeature('chamfer')
+  await workbench.selectFirstViewportTargetMatching(/^body_feature_extrude-1\.edge_/)
+  await workbench.setNumericField('Distance', 0.4)
+
+  await workbench.expectFeaturePreviewReady('chamfer')
+  await workbench.commitFeature('feature_chamfer-1')
+})
+
 test('shell previews, commits, and keeps consecutive canvas frames stable', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

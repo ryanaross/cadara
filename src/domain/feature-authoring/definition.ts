@@ -73,6 +73,11 @@ export interface SweepFeatureParameterDraft {
   options: Record<string, unknown>
 }
 
+export interface ChamferFeatureParameterDraft {
+  edgeTargets: readonly Extract<PrimitiveRef, { kind: 'edge' }>[]
+  distance: number
+}
+
 export interface FeatureDraftByKind {
   extrude: ExtrudeFeatureParameterDraft
   revolve: RevolveFeatureParameterDraft
@@ -80,6 +85,7 @@ export interface FeatureDraftByKind {
   plane: PlaneFeatureParameterDraft
   shell: ShellFeatureParameterDraft
   sweep: SweepFeatureParameterDraft
+  chamfer: ChamferFeatureParameterDraft
 }
 
 export interface FeatureParametersByKind {
@@ -89,6 +95,7 @@ export interface FeatureParametersByKind {
   plane: PlaneFeatureParameters
   shell: ShellFeatureParameters
   sweep: AdvancedSolidFeatureParameters
+  chamfer: AdvancedSolidFeatureParameters
 }
 
 export interface FeatureVersionByKind {
@@ -98,11 +105,12 @@ export interface FeatureVersionByKind {
   plane: PlaneFeatureSchemaVersion
   shell: ShellFeatureSchemaVersion
   sweep: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  chamfer: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
 }
 
 export type FeatureDefinitionByKind<TKind extends AuthoredFeatureKind> =
-  TKind extends 'sweep'
-    ? AdvancedSolidFeatureDefinition & { kind: 'sweep' }
+  TKind extends 'sweep' | 'chamfer'
+    ? AdvancedSolidFeatureDefinition & { kind: TKind }
     : Extract<FeatureDefinition, { kind: TKind }>
 
 export interface FeatureEditSessionStateBase {
@@ -127,6 +135,7 @@ export type FilletFeatureEditSessionState = FeatureEditSessionStateForKind<'fill
 export type PlaneFeatureEditSessionState = FeatureEditSessionStateForKind<'plane'>
 export type ShellFeatureEditSessionState = FeatureEditSessionStateForKind<'shell'>
 export type SweepFeatureEditSessionState = FeatureEditSessionStateForKind<'sweep'>
+export type ChamferFeatureEditSessionState = FeatureEditSessionStateForKind<'chamfer'>
 
 export type FeatureEditSessionState =
   | ExtrudeFeatureEditSessionState
@@ -135,6 +144,7 @@ export type FeatureEditSessionState =
   | PlaneFeatureEditSessionState
   | ShellFeatureEditSessionState
   | SweepFeatureEditSessionState
+  | ChamferFeatureEditSessionState
 
 export type FeatureDraftPatch = Record<string, unknown>
 

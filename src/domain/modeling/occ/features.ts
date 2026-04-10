@@ -897,6 +897,121 @@ function executeFilletFeature(
   }
 }
 
+function getChamferDistance(definition: AdvancedSolidFeatureDefinition & { kind: 'chamfer' }) {
+  const distance = definition.parameters.options?.distance
+
+  if (typeof distance !== 'number' || !Number.isFinite(distance) || distance <= 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC chamfer requires a positive constant distance option.')
+  }
+
+  return distance
+}
+
+function getChamferEdgeTargets(definition: AdvancedSolidFeatureDefinition & { kind: 'chamfer' }) {
+  const edgeTargets = getAdvancedParticipant(definition, 'edge')?.targets ?? []
+
+  if (edgeTargets.length === 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC chamfer requires at least one edge target.')
+  }
+
+  for (const target of edgeTargets) {
+    if (target.kind !== 'edge') {
+      throw new Error('advanced-feature-unsupported-kernel-case: OCC chamfer edge participants must be durable edge targets.')
+    }
+  }
+
+  return edgeTargets as readonly Extract<DurableRef, { kind: 'edge' }>[]
+}
+
+function requireAdjacentFaceForChamfer(
+  context: OccFeatureExecutionContext,
+  body: OccTrackedBody,
+  edge: InstanceType<OpenCascadeInstance['TopoDS_Edge']>,
+  edgeId: `edge_${string}`,
+) {
+  const edgeFaceMap = new context.oc.TopTools_IndexedDataMapOfShapeListOfShape_1()
+  context.oc.TopExp.MapShapesAndAncestors(
+    body.shape,
+    context.oc.TopAbs_ShapeEnum.TopAbs_EDGE as never,
+    context.oc.TopAbs_ShapeEnum.TopAbs_FACE as never,
+    edgeFaceMap,
+  )
+
+  const index = edgeFaceMap.FindIndex(edge)
+  if (index <= 0) {
+    throw new Error(`advanced-feature-unsupported-kernel-case: OCC chamfer could not find adjacent faces for edge ${edgeId}.`)
+  }
+
+  const faces = edgeFaceMap.FindFromIndex(index)
+  if (faces.Size() <= 0) {
+    throw new Error(`advanced-feature-unsupported-kernel-case: OCC chamfer edge ${edgeId} has no adjacent faces.`)
+  }
+
+  return context.oc.TopoDS.Face_1(faces.First_1())
+}
+
+function executeChamferFeature(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'chamfer' },
+): OccFeatureExecutionResult {
+  if (definition.parameters.operationIntent !== undefined && definition.parameters.operationIntent !== 'create') {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC chamfer does not support boolean operation intents.')
+  }
+
+  const distance = getChamferDistance(definition)
+  const edgeTargets = getChamferEdgeTargets(definition)
+  const targetsByBody = new Map<BodyId, typeof edgeTargets>()
+
+  for (const target of edgeTargets) {
+    const list = targetsByBody.get(target.bodyId) ?? []
+    targetsByBody.set(target.bodyId, [...list, target])
+  }
+
+  const nextBodies = [...context.bodies]
+  const producedTargets: DurableRef[] = []
+  const historyInvalidations = new Map<string, OccReferenceInvalidationRecord>()
+
+  for (const [bodyId, targets] of targetsByBody.entries()) {
+    const body = requireBody(context, bodyId)
+    const chamfer = new context.oc.BRepFilletAPI_MakeChamfer(body.shape)
+
+    for (const target of targets) {
+      const edge = requireEdge(body, target.edgeId)
+      chamfer.Add_3(distance, distance, edge, requireAdjacentFaceForChamfer(context, body, edge, target.edgeId))
+    }
+
+    chamfer.Build(new context.oc.Message_ProgressRange_1())
+
+    if (!chamfer.IsDone()) {
+      throw new Error(`advanced-feature-unsupported-kernel-case: OCC chamfer build failed for body ${bodyId}.`)
+    }
+
+    const replacementResult = resolveReplacementBodies(context, bodyId, chamfer.Shape(), ownerFeatureId, {
+      allowEmpty: false,
+      historySource: chamfer,
+    })
+    const index = nextBodies.findIndex((entry) => entry.bodyId === bodyId)
+    nextBodies.splice(index, 1, ...replacementResult.replacements)
+    for (const replacement of replacementResult.replacements) {
+      producedTargets.push({ kind: 'body', bodyId: replacement.bodyId })
+    }
+    for (const [key, value] of replacementResult.historyInvalidations) {
+      historyInvalidations.set(key, value)
+    }
+  }
+
+  return {
+    bodies: nextBodies,
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets,
+    entities: [],
+    renderRecords: [],
+    historyInvalidations,
+  }
+}
+
 function buildShellFeatureShape(
   context: OccFeatureExecutionContext,
   parameters: ShellFeatureParameters,
@@ -979,6 +1094,8 @@ export function executeOccFeature(
       return executeShellFeature(context, ownerFeatureId, definition.parameters)
     case 'sweep':
       return executeSweepFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'sweep' })
+    case 'chamfer':
+      return executeChamferFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'chamfer' })
     default:
       throw new Error(`advanced-feature-unsupported-kernel-case: OCC adapter does not implement ${definition.kind} yet.`)
   }

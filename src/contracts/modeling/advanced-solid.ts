@@ -54,6 +54,13 @@ export interface AdvancedOperationIntentDescriptor {
   requiredParticipantsByIntent?: Partial<Record<AdvancedSolidOperationIntent, readonly AdvancedParticipantRole[]>>
 }
 
+export interface AdvancedFeatureOptionDescriptor {
+  key: string
+  label: string
+  required: boolean
+  valueKind: 'positiveNumber'
+}
+
 export interface AdvancedParticipantValue {
   role: AdvancedParticipantRole
   targets: readonly DurableRef[]
@@ -75,6 +82,7 @@ export interface AdvancedSolidFeatureAuthoringDescriptor {
   featureKind: AdvancedSolidFeatureKind
   participants: readonly AdvancedParticipantDescriptor[]
   operationIntent?: AdvancedOperationIntentDescriptor
+  options?: readonly AdvancedFeatureOptionDescriptor[]
 }
 
 export interface AdvancedFeatureValidationDiagnostic {
@@ -82,6 +90,7 @@ export interface AdvancedFeatureValidationDiagnostic {
     | 'advanced-feature-missing-participant'
     | 'advanced-feature-invalid-cardinality'
     | 'advanced-feature-invalid-target-kind'
+    | 'advanced-feature-invalid-option'
     | 'advanced-feature-unsupported-operation'
     | 'advanced-feature-unsupported-kernel-case'
   severity: 'error'
@@ -207,6 +216,32 @@ export function validateAdvancedSolidFeatureDefinition(
           message: `${participantDescriptor.label} does not accept ${target.kind} targets.`,
         }))
       }
+    }
+  }
+
+  const options = definition.parameters.options ?? {}
+  for (const option of descriptor.options ?? []) {
+    const value = options[option.key]
+
+    if (option.required && value === undefined) {
+      diagnostics.push(createAdvancedDiagnostic({
+        code: 'advanced-feature-invalid-option',
+        role: null,
+        message: `${option.label} is required.`,
+      }))
+      continue
+    }
+
+    if (
+      value !== undefined &&
+      option.valueKind === 'positiveNumber' &&
+      (typeof value !== 'number' || !Number.isFinite(value) || value <= 0)
+    ) {
+      diagnostics.push(createAdvancedDiagnostic({
+        code: 'advanced-feature-invalid-option',
+        role: null,
+        message: `${option.label} must be a positive number.`,
+      }))
     }
   }
 

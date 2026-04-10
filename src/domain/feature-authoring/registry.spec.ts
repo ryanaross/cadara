@@ -29,7 +29,7 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['extrude', 'fillet', 'plane', 'revolve', 'shell', 'sweep']),
+    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'plane', 'revolve', 'shell', 'sweep']),
     'The feature authoring registry should contain every current authored feature kind.',
   )
 }
@@ -109,6 +109,51 @@ function testSweepDraftSelectionAndDefinitionBuilder() {
   )
 }
 
+function testChamferDraftSelectionDistanceAndDefinitionBuilder() {
+  const edgeA = { kind: 'edge' as const, bodyId: 'body_a' as const, edgeId: 'edge_a' as const }
+  const edgeB = { kind: 'edge' as const, bodyId: 'body_a' as const, edgeId: 'edge_b' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'chamfer',
+    selectedTarget: edgeA,
+  })
+
+  assert(initialSession.featureType === 'chamfer', 'Chamfer activation should create a chamfer authoring session.')
+
+  const edgesField = getFeatureEditorFormSchema(initialSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'chamfer-edges')
+  assert(edgesField?.kind === 'referenceCollection', 'Chamfer form schema should expose selected edges as a reference collection.')
+  assert(edgesField.advancedParticipant?.role === 'edge', 'Chamfer edge field should expose the edge participant role.')
+
+  const multiEdgeSession = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(edgesField, edgeB),
+  )
+  const distanceField = getFeatureEditorFormSchema(multiEdgeSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'chamfer-distance')
+  assert(distanceField?.kind === 'numeric', 'Chamfer form schema should expose distance as a numeric field.')
+
+  const completedSession = patchFeatureEditSession(
+    multiEdgeSession,
+    createFeatureEditorFieldPatch(distanceField, 0.75),
+  )
+  const definition = buildFeatureDefinition(completedSession)
+
+  assert(definition?.kind === 'chamfer', 'Completed chamfer drafts should build a chamfer advanced-solid definition.')
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'edge' && participant.targets.length === 2),
+    'Chamfer definitions should preserve explicit edge participants.',
+  )
+  assert(definition.parameters.options?.distance === 0.75, 'Chamfer definitions should preserve the constant distance option.')
+
+  const invalidDistanceSession = patchFeatureEditSession(
+    completedSession,
+    createFeatureEditorFieldPatch(distanceField, 0),
+  )
+  assert(buildFeatureDefinition(invalidDistanceSession) === null, 'Chamfer drafts with non-positive distance should not build a definition.')
+}
+
 function testProfileBasedAuthoringUsesReferenceCollections() {
   const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
   const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
@@ -186,11 +231,13 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const fillet = definitions.find((definition) => definition.metadata.kind === 'fillet')
   const shell = definitions.find((definition) => definition.metadata.kind === 'shell')
   const sweep = definitions.find((definition) => definition.metadata.kind === 'sweep')
+  const chamfer = definitions.find((definition) => definition.metadata.kind === 'chamfer')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
   assert(shell?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Shell should declare body participants for body-operation substrate coverage.')
   assert(sweep?.advancedParticipants?.some((participant) => participant.role === 'path'), 'Sweep should declare path participants for profile/path substrate coverage.')
+  assert(chamfer?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Chamfer should declare edge participants for topology modifier substrate coverage.')
 
   const shellSession = createFeatureEditSession({
     featureType: 'shell',
@@ -217,6 +264,7 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/form-schema.ts',
     'src/domain/feature-authoring/form-events.ts',
     'src/domain/feature-authoring/features/sweep.ts',
+    'src/domain/feature-authoring/features/chamfer.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
 
@@ -357,6 +405,7 @@ function testGenericReferenceFormEventsPatchSingleAndMultiReferences() {
 testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
 testSweepDraftSelectionAndDefinitionBuilder()
+testChamferDraftSelectionDistanceAndDefinitionBuilder()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

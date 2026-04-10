@@ -18,6 +18,7 @@ export type ToolIconId =
   | 'revolve'
   | 'sweep'
   | 'fillet'
+  | 'chamfer'
   | 'shell'
   | 'linearPattern'
   | 'circularPattern'

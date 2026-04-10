@@ -341,7 +341,7 @@ const toolbarSections = [
     label: 'Features',
     align: 'center',
     modes: ['part'],
-    toolIds: ['extrude', 'revolve', 'sweep', 'fillet', 'shell', 'plane', 'combine'],
+    toolIds: ['extrude', 'revolve', 'sweep', 'fillet', 'chamfer', 'shell', 'plane', 'combine'],
   },
   {
     id: 'patterns',

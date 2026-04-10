@@ -337,6 +337,13 @@ function hasErrorDiagnostics(diagnostics: readonly ModelingDiagnostic[]) {
   return diagnostics.some((diagnostic) => diagnostic.severity === 'error')
 }
 
+function hasFeatureExecutionFailureDiagnostics(diagnostics: readonly ModelingDiagnostic[]) {
+  return diagnostics.some((diagnostic) =>
+    diagnostic.detail?.kind === 'rebuildFailure'
+    || diagnostic.detail?.kind === 'advancedFeatureValidation',
+  )
+}
+
 function assertNoErrorDiagnostics(diagnostics: readonly ModelingDiagnostic[], message: string) {
   const errors = diagnostics.filter((diagnostic) => diagnostic.severity === 'error')
 
@@ -553,6 +560,19 @@ function createFilletDefinition(bodyId: BodyId, edgeId: EdgeId, radius: number):
   }
 }
 
+function createChamferDefinition(bodyId: BodyId, edgeId: EdgeId, distance: number): FeatureDefinition {
+  return {
+    kind: 'chamfer',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'edge', targets: [{ kind: 'edge', bodyId, edgeId }] },
+      ],
+      options: { distance },
+    },
+  }
+}
+
 function createShellDefinition(bodyId: BodyId, faceId: FaceId, thickness: number): FeatureDefinition {
   return {
     kind: 'shell',
@@ -639,6 +659,43 @@ async function findPreviewableFilletEdge(
   }
 
   return edgeId
+}
+
+async function findPreviewableChamferEdge(
+  adapter: OpenCascadeKernelAdapter,
+  revisionId: RevisionId,
+  bodyId: BodyId,
+) {
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const body = requireBody(snapshot.snapshot, bodyId)
+  const rejectionSummaries: string[] = []
+
+  for (const edgeId of body.topology.edgeIds) {
+    const preview = await adapter.evaluatePreview({
+      contractVersion: CONTRACT_VERSION,
+      documentId: 'doc_workspace',
+      baseRevisionId: revisionId,
+      previewId: `preview_chamfer_edge_${edgeId}`,
+      definition: createChamferDefinition(bodyId, edgeId, 0.05),
+    })
+
+    if (!hasFeatureExecutionFailureDiagnostics(preview.diagnostics) && preview.render.records.length > 0) {
+      return edgeId
+    }
+
+    rejectionSummaries.push(
+      `${edgeId}: records=${preview.render.records.length}; diagnostics=${
+        preview.diagnostics.map((diagnostic) => `${diagnostic.code}:${diagnostic.message}`).join(' | ')
+      }`,
+    )
+  }
+
+  throw new Error(
+    `Expected body ${bodyId} to expose a previewable chamfer edge. Tried ${body.topology.edgeIds.length} edges:\n${rejectionSummaries.join('\n')}`,
+  )
 }
 
 async function findPreviewableRevolveAxisEdge(
@@ -1076,6 +1133,78 @@ async function testFilletCreateAndUpdateMutateBodyTopology() {
   assert(
     committedBodySignature(updatedSnapshot.snapshot, extrude.bodyId) !== createdSignature,
     'Fillet update must rebuild the body topology for the new radius.',
+  )
+}
+
+async function testChamferPreviewCreateAndUnsupportedCases() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before chamfer coverage.')
+  }
+
+  const committedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(committedSnapshot.snapshot)
+  const extrude = await createExtrudeBody(adapter, committedSnapshot.snapshot.revisionId, sketch, 12)
+  const preChamferSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const preChamferSignature = committedBodySignature(preChamferSnapshot.snapshot, extrude.bodyId)
+  const edgeId = await findPreviewableChamferEdge(adapter, extrude.response.revisionId, extrude.bodyId)
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    previewId: 'preview_chamfer_edge',
+    definition: createChamferDefinition(extrude.bodyId, edgeId, 0.05),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh chamfer previews must report fresh freshness state.')
+  assert(preview.render.records.length > 0, 'Edge-backed chamfer preview must return transient renderables.')
+  assert(
+    !hasFeatureExecutionFailureDiagnostics(preview.diagnostics),
+    'Edge-backed chamfer preview must not emit feature execution failure diagnostics.',
+  )
+
+  const unsupported = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    definition: createChamferDefinition(extrude.bodyId, edgeId, 0),
+  })
+
+  assert(unsupported.revisionState.kind === 'rejected', 'Invalid chamfer distance must reject explicitly.')
+  assert(
+    unsupported.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
+    'Invalid chamfer rejection must surface structured rebuild diagnostics.',
+  )
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    definition: createChamferDefinition(extrude.bodyId, edgeId, 0.05),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Chamfer create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Chamfer create must rebuild.')
+  assert(
+    created.changedTargets.some((target) => target.kind === 'body'),
+    'Chamfer create must report a produced body target.',
+  )
+
+  const createdSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  assert(
+    committedBodySignature(createdSnapshot.snapshot, extrude.bodyId) !== preChamferSignature,
+    'Chamfer create must mutate the owning body topology in later snapshots.',
   )
 }
 
@@ -1924,6 +2053,7 @@ await testExtrudePreviewCreateAndUpdateCommitGeometry()
 await testRevolvePreviewCreateAndConstructionAxisRejection()
 await testSweepPreviewCreateAndUnsupportedCases()
 await testFilletCreateAndUpdateMutateBodyTopology()
+await testChamferPreviewCreateAndUnsupportedCases()
 await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()
 await testReorderFeatureAndConflictHandling()

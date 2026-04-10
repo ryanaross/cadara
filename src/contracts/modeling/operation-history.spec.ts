@@ -9,7 +9,7 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import { sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import { chamferAdvancedFeatureExample, sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -272,6 +272,45 @@ function testPreservesAdvancedParticipantsAndOperationIntent() {
   )
 }
 
+function testPreservesChamferParticipantsAndDistanceOptions() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: chamferAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_chamfer-1',
+          definition: {
+            ...chamferAdvancedFeatureExample,
+            parameters: {
+              ...chamferAdvancedFeatureExample.parameters,
+              options: { distance: 2 },
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Chamfer advanced solid feature history payloads should validate.')
+  assert(
+    result.ok &&
+      result.payload.entries[0]?.kind === 'createFeature' &&
+      result.payload.entries[0].payload.definition.kind === 'chamfer' &&
+      result.payload.entries[0].payload.definition.parameters.participants.some((participant) => participant.role === 'edge') &&
+      result.payload.entries[1]?.kind === 'updateFeature' &&
+      result.payload.entries[1].payload.definition.kind === 'chamfer' &&
+      result.payload.entries[1].payload.definition.parameters.options?.distance === 2,
+    'Chamfer operation history must preserve edge participant roles and distance options across create and update entries.',
+  )
+}
+
 function testRejectsInvalidAdvancedParticipants() {
   const result = validateOperationHistoryPayload({
     ...createEmptyOperationHistory('doc_workspace'),
@@ -298,4 +337,5 @@ testRejectsTransportMetadataLeak()
 testValidatesProfileCollectionFeaturePayloads()
 testRejectsLegacyAndInvalidProfileCollections()
 testPreservesAdvancedParticipantsAndOperationIntent()
+testPreservesChamferParticipantsAndDistanceOptions()
 testRejectsInvalidAdvancedParticipants()

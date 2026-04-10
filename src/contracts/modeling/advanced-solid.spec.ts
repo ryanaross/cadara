@@ -51,6 +51,27 @@ const sweepDescriptor = {
   },
 } satisfies AdvancedSolidFeatureAuthoringDescriptor
 
+const chamferDescriptor = {
+  featureKind: 'chamfer',
+  participants: [
+    {
+      role: 'edge',
+      label: 'Edge targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['edge'],
+    },
+  ],
+  options: [
+    {
+      key: 'distance',
+      label: 'Distance',
+      required: true,
+      valueKind: 'positiveNumber',
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
 function testAdvancedParticipantValidationAcceptsRoleSpecificPayloads() {
   const diagnostics = validateAdvancedSolidFeatureDefinition({
     kind: 'sweep',
@@ -164,7 +185,51 @@ function testSweepPathCardinalityAndBooleanTargetValidation() {
   assert(validBoolean.length === 0, 'Boolean sweep validation should accept an explicit targetBody participant.')
 }
 
+function testChamferEdgeParticipantsAndDistanceValidation() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'chamfer',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'edge', targets: [{ kind: 'edge', bodyId: 'body_a', edgeId: 'edge_outer' }] },
+      ],
+      options: { distance: 0.5 },
+    },
+  }, chamferDescriptor)
+  const wrongKind = validateAdvancedSolidFeatureDefinition({
+    kind: 'chamfer',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'edge', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }] },
+      ],
+      options: { distance: 0.5 },
+    },
+  }, chamferDescriptor)
+  const invalidDistance = validateAdvancedSolidFeatureDefinition({
+    kind: 'chamfer',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'edge', targets: [{ kind: 'edge', bodyId: 'body_a', edgeId: 'edge_outer' }] },
+      ],
+      options: { distance: 0 },
+    },
+  }, chamferDescriptor)
+
+  assert(valid.length === 0, 'Chamfer validation should accept edge participants and a positive constant distance.')
+  assert(
+    wrongKind.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'edge'),
+    'Chamfer validation should reject non-edge participants.',
+  )
+  assert(
+    invalidDistance.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-option'),
+    'Chamfer validation should reject non-positive distances.',
+  )
+}
+
 testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
 testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
 testAdvancedOperationIntentValidationRejectsUnsupportedModes()
 testSweepPathCardinalityAndBooleanTargetValidation()
+testChamferEdgeParticipantsAndDistanceValidation()

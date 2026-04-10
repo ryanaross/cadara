@@ -8,7 +8,7 @@ export const FEATURE_FIXTURE = {
   body: 'body_feature_extrude-1',
 } as const
 
-type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'fillet' | 'shell' | 'plane'
+type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'fillet' | 'chamfer' | 'shell' | 'plane'
 
 export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   constructor(page: Page) {
@@ -58,6 +58,7 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
       revolve: 'Create a revolved solid or surface.',
       sweep: 'Create a swept solid or surface.',
       fillet: 'Round selected edges.',
+      chamfer: 'Bevel selected edges.',
       shell: 'Hollow a solid body.',
       plane: 'Create a construction plane.',
     }

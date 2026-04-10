@@ -1,5 +1,6 @@
 import type { AuthoredFeatureKind } from '@/contracts/modeling/schema'
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
+import { chamferAuthoringDefinition } from '@/domain/feature-authoring/features/chamfer'
 import { extrudeAuthoringDefinition } from '@/domain/feature-authoring/features/extrude'
 import { filletAuthoringDefinition } from '@/domain/feature-authoring/features/fillet'
 import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/plane'
@@ -14,6 +15,7 @@ export const featureAuthoringDefinitions = [
   planeAuthoringDefinition,
   shellAuthoringDefinition,
   sweepAuthoringDefinition,
+  chamferAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
 const featureAuthoringRegistry = new Map<AuthoredFeatureKind, FeatureAuthoringDefinition>(

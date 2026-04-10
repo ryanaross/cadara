@@ -659,6 +659,68 @@ async function testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutati
   assert(after.snapshot.revisionId === before.snapshot.revisionId, 'Rejected sweep create requests must not mutate committed document state.')
 }
 
+async function testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const chamferDefinition = {
+    kind: 'chamfer',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'edge', targets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' }] },
+      ],
+      options: { distance: 0.5 },
+    },
+  } as const
+  const invalidDistanceDefinition = {
+    ...chamferDefinition,
+    parameters: {
+      ...chamferDefinition.parameters,
+      options: { distance: 0 },
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_chamfer_valid',
+    definition: chamferDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: chamferDefinition,
+  })
+  const invalid = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: invalidDistanceDefinition,
+  })
+  const afterInvalid = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedChamfer = afterInvalid.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock chamfer previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock chamfer previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock chamfer create requests should be accepted.')
+  assert(committedChamfer?.definition.kind === 'chamfer', 'Committed mock chamfer should be present in the next snapshot.')
+  assert(
+    committedChamfer.definition.parameters.participants.some((participant) => participant.role === 'edge'),
+    'Committed mock chamfer should preserve the edge participant role.',
+  )
+  assert(committedChamfer.definition.parameters.options?.distance === 0.5, 'Committed mock chamfer should preserve the distance option.')
+  assert(invalid.revisionState.kind === 'rejected', 'Invalid chamfer distance should reject explicitly.')
+  assert(afterInvalid.snapshot.revisionId === created.revisionId, 'Rejected chamfer create requests must not mutate committed document state.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -894,6 +956,7 @@ await testMockKernelRejectsUnsupportedContractEnvelope()
 await testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation()
 await testSweepPreviewAndCommitUseAdvancedParticipants()
 await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
+await testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
 await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()

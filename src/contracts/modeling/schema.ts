@@ -37,6 +37,7 @@ import type {
 import type { AdvancedFeatureValidationDiagnostic, AdvancedSolidFeatureDefinition, AdvancedSolidFeatureKind } from '@/contracts/modeling/advanced-solid'
 export type {
   AdvancedFeatureValidationDiagnostic,
+  AdvancedFeatureOptionDescriptor,
   AdvancedOperationIntentDescriptor,
   AdvancedParticipantCardinality,
   AdvancedParticipantDescriptor,
@@ -68,7 +69,7 @@ export type SketchPoint = SketchPoint2D
  * This union is closed so callers cannot invent feature types ad hoc.
  */
 export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'
-export type AuthoredFeatureKind = FeatureKind | 'sweep'
+export type AuthoredFeatureKind = FeatureKind | 'sweep' | 'chamfer'
 export type ModelingFeatureKind = FeatureKind | AdvancedSolidFeatureKind
 
 /** Ordered collection that must contain at least one entry. */
