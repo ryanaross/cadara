@@ -26,9 +26,9 @@ function DiagnosticsList({ diagnostics }: { diagnostics: readonly ModelingDiagno
 
   return (
     <div className="space-y-2">
-      {diagnostics.map((diagnostic) => (
+      {diagnostics.map((diagnostic, index) => (
         <div
-          key={`${diagnostic.code}-${diagnostic.message}`}
+          key={`${diagnostic.code}-${diagnostic.message}-${index}`}
           className="rounded-lg border border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)] px-3 py-2"
         >
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--cad-muted)]">

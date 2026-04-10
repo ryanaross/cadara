@@ -1,4 +1,4 @@
-import { getPrimitiveRefKey } from '@/domain/editor/schema'
+import { getPrimitiveRefKey, getPrimitiveRefLabel } from '@/domain/editor/schema'
 import type { PrimitiveRef } from '@/domain/editor/schema'
 import type {
   DocumentSnapshot,
@@ -54,7 +54,12 @@ export function getSelectionDetail(
   const entity = getEntityRecordForTarget(snapshot, target)
 
   if (!entity) {
-    throw new Error(`Selection target ${getPrimitiveRefKey(target)} is missing from snapshot.entities.`)
+    return {
+      label: getPrimitiveRefLabel(target),
+      kindLabel: target.kind,
+      ownerLabel: 'Unresolved selection',
+      relatedLabels: [],
+    }
   }
 
   return {
@@ -89,6 +94,7 @@ export function buildSelectionTargetCatalog(snapshot: DocumentSnapshot): Selecti
   }))
 
   return {
+    selectableTargetKeys: entries.map((entry) => entry.key),
     existingSketchKeys: entries
       .filter((entry) => entry.semantics.includes('existingSketch'))
       .map((entry) => entry.key),

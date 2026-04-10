@@ -272,6 +272,7 @@ function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
 export function resolvePickTarget(
   intersections: THREE.Intersection<THREE.Object3D>[],
   pickIdToRenderable: Map<string, RenderableEntityRecord>,
+  acceptsTarget: ((target: PrimitiveRef) => boolean) | null = null,
 ) {
   const resolvedHits = intersections
     .map((intersection) => {
@@ -306,6 +307,10 @@ export function resolvePickTarget(
     })
 
   for (const hit of resolvedHits) {
+    if (acceptsTarget && !acceptsTarget(hit.target)) {
+      continue
+    }
+
     return {
       pickId: hit.pickId,
       target: hit.target,

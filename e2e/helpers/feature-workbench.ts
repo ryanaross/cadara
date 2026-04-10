@@ -70,14 +70,7 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   }
 
   async selectFirstReferenceMatching(pattern: RegExp) {
-    const ariaLabel = await this.page.getByRole('button').evaluateAll((buttons, source) => {
-      const regex = new RegExp(source)
-      const match = buttons.find((button) => {
-        const label = button.getAttribute('aria-label')
-        return label ? regex.test(label) : false
-      })
-      return match?.getAttribute('aria-label') ?? null
-    }, pattern.source)
+    const ariaLabel = await this.getFirstReferenceLabelMatching(pattern)
 
     if (!ariaLabel) {
       throw new Error(`No selectable reference matched ${pattern}.`)
@@ -85,6 +78,55 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
 
     await this.page.getByRole('button', { name: ariaLabel }).click()
     return ariaLabel
+  }
+
+  async selectFirstViewportTargetMatching(pattern: RegExp) {
+    const targetId = await this.clickFirstViewportTargetMatching(pattern)
+    return targetId
+  }
+
+  async clickFirstViewportTargetMatching(pattern: RegExp) {
+    const viewport = this.viewportSurface()
+    const box = await viewport.boundingBox()
+
+    if (!box) {
+      throw new Error('Viewport surface is not visible.')
+    }
+
+    const xSteps = 13
+    const ySteps = 9
+
+    for (let row = 1; row <= ySteps; row += 1) {
+      for (let column = 1; column <= xSteps; column += 1) {
+        const point = {
+          x: Math.round((box.width * column) / (xSteps + 1)),
+          y: Math.round((box.height * row) / (ySteps + 1)),
+        }
+
+        await this.clickViewportAtReal(point)
+        await this.page.waitForTimeout(30)
+
+        const selection = await this.currentEditorSelection()
+        const targetId = selection.match(pattern)?.[0]
+
+        if (targetId) {
+          return targetId
+        }
+      }
+    }
+
+    throw new Error(`Viewport target matching ${pattern} was not found in the current camera framing.`)
+  }
+
+  private async getFirstReferenceLabelMatching(pattern: RegExp) {
+    return this.page.getByRole('button').evaluateAll((buttons, source) => {
+      const regex = new RegExp(source)
+      const match = buttons.find((button) => {
+        const label = button.getAttribute('aria-label')
+        return label ? regex.test(label) : false
+      })
+      return match?.getAttribute('aria-label') ?? null
+    }, pattern.source)
   }
 
   async setNumericField(label: string, value: number) {
@@ -153,16 +195,17 @@ export class FeatureChainHarness {
 
   async addFilletFromFirstEdge() {
     await this.workbench.activateFeature('fillet')
-    await this.workbench.selectFirstReferenceMatching(/^Select .* body_feature_extrude-1\.edge_body_feature_extrude-1_t0001_10$/)
+    await this.workbench.selectFirstViewportTargetMatching(/^body_feature_extrude-1\.edge_/)
     await this.workbench.setNumericField('Radius', 0.5)
     await this.workbench.expectFeaturePreviewReady('fillet')
     await this.workbench.commitFeature('feature_fillet-1')
     return this
   }
 
-  async addPlaneFromFirstPlanarFace() {
+  async addPlaneFromTopPlane() {
     await this.workbench.activateFeature('plane')
-    await this.workbench.selectFirstReferenceMatching(/^Select .* body_feature_extrude-1\.face_/)
+    await this.workbench.page.getByRole('button', { name: /Top Plane/ }).first().click()
+    await expect.poll(() => this.workbench.currentEditorSelection(), { timeout: 10_000 }).toContain('construction_plane-xy')
     await this.workbench.expectFeaturePreviewReady('plane')
     await this.workbench.commitFeature('feature_plane-1')
     return this

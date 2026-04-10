@@ -34,6 +34,16 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function createSelectionCatalog(): SelectionTargetCatalog {
   return {
+    selectableTargetKeys: [
+      'sketch:sketch_a',
+      'construction:construction_plane-xy',
+      'construction:construction_plane-yz',
+      'construction:construction_plane-xz',
+      'face:body_a:face_top',
+      'body:body_a',
+      'edge:body_a:edge_a',
+      'edge:body_a:edge_axis',
+    ],
     existingSketchKeys: ['sketch:sketch_a'],
     constructionPlaneKeys: [
       'construction:construction_plane-xy',
@@ -46,6 +56,17 @@ function createSelectionCatalog(): SelectionTargetCatalog {
 
 function createRegionSelectionCatalog(): SelectionTargetCatalog {
   return {
+    selectableTargetKeys: [
+      'sketch:sketch_a',
+      'region:sketch_a:region_profile_a',
+      'construction:construction_plane-xy',
+      'construction:construction_plane-yz',
+      'construction:construction_plane-xz',
+      'face:body_a:face_top',
+      'body:body_a',
+      'edge:body_a:edge_a',
+      'edge:body_a:edge_axis',
+    ],
     existingSketchKeys: ['sketch:sketch_a', 'region:sketch_a:region_profile_a'],
     constructionPlaneKeys: [
       'construction:construction_plane-xy',
@@ -830,6 +851,7 @@ async function testRuntimeLoopReopensStoredSketchPlane() {
           snapshot: runtimeSnapshot,
           selectionCatalog: {
             ...createSelectionCatalog(),
+            selectableTargetKeys: [...createSelectionCatalog().selectableTargetKeys, 'sketch:sketch_yz'],
             existingSketchKeys: ['sketch:sketch_a', 'sketch:sketch_yz'],
           },
         },

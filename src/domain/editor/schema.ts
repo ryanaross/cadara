@@ -79,6 +79,7 @@ export interface SelectionFilter {
 }
 
 export interface SelectionTargetCatalog {
+  selectableTargetKeys: readonly string[]
   existingSketchKeys: readonly string[]
   constructionPlaneKeys: readonly string[]
   planarFaceKeys: readonly string[]
@@ -426,6 +427,11 @@ function getTargetSemantics(
   catalog: SelectionTargetCatalog | null,
 ): SelectionSemantic[] {
   const semantics: SelectionSemantic[] = []
+  const targetKey = getPrimitiveRefKey(target)
+
+  if (catalog?.selectableTargetKeys && !catalog.selectableTargetKeys.includes(targetKey)) {
+    return semantics
+  }
 
   switch (target.kind) {
     case 'body':
@@ -433,7 +439,7 @@ function getTargetSemantics(
       break
     case 'face':
       semantics.push('face')
-      if (catalog && catalog.planarFaceKeys.includes(getPrimitiveRefKey(target))) {
+      if (catalog && catalog.planarFaceKeys.includes(targetKey)) {
         semantics.push('planarFace', 'planarReference')
       }
       break
@@ -444,12 +450,12 @@ function getTargetSemantics(
       semantics.push('vertex')
       break
     case 'construction':
-      if (catalog && catalog.constructionPlaneKeys.includes(getPrimitiveRefKey(target))) {
+      if (catalog && catalog.constructionPlaneKeys.includes(targetKey)) {
         semantics.push('constructionPlane', 'planarReference')
       }
       break
     case 'sketch':
-      if (catalog && catalog.existingSketchKeys.includes(getPrimitiveRefKey(target))) {
+      if (catalog && catalog.existingSketchKeys.includes(targetKey)) {
         semantics.push('existingSketch')
       }
       break

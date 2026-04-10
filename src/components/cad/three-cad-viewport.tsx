@@ -191,6 +191,7 @@ export function ThreeCadViewport({
       primaryPointerDown: null,
       animationFrameId: 0,
     }
+    runtime.raycaster.params.Line.threshold = 16
 
     runtimeRef.current = runtime
 
@@ -347,7 +348,16 @@ export function ThreeCadViewport({
       runtime.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
       runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
       const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
-      return resolvePickTarget(intersections, renderScene.pickIdToRenderable)
+      return resolvePickTarget(
+        intersections,
+        renderScene.pickIdToRenderable,
+        (target) => selectionFilterAllowsTarget(
+          selectionFilterRef.current,
+          selectionRef.current,
+          target,
+          selectionCatalogRef.current,
+        ),
+      )
     }
 
     const projectSketchPoint = (event: PointerEvent): readonly [number, number] | null => {

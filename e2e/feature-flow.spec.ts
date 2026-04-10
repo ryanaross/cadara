@@ -29,13 +29,13 @@ test('revolve previews and commits with a region profile and durable edge axis',
   await workbench.commitFeature('feature_revolve-1')
 })
 
-test.fixme('fillet previews and commits from a durable body edge', async ({ page }) => {
+test('fillet previews and commits from a durable body edge', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 
   await workbench.open()
   await workbench.createBaseExtrudeFixture()
   await workbench.activateFeature('fillet')
-  await workbench.selectFirstReferenceMatching(/^Select .* body_feature_extrude-1\.edge_body_feature_extrude-1_t0001_10$/)
+  await workbench.selectFirstViewportTargetMatching(/^body_feature_extrude-1\.edge_/)
   await workbench.setNumericField('Radius', 0.5)
 
   await workbench.expectFeaturePreviewReady('fillet')
@@ -86,12 +86,12 @@ test('extrude boolean scope previews and commits with an explicit target body', 
   await workbench.commitFeature('feature_extrude-2')
 })
 
-test.fixme('feature chain carries durable context across feature steps', async ({ page }) => {
+test('feature chain carries durable context across feature steps', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 
   await workbench.open()
   const chain = await workbench.createFeatureChain()
 
   await chain.addFilletFromFirstEdge()
-  await chain.addPlaneFromFirstPlanarFace()
+  await chain.addPlaneFromTopPlane()
 })
