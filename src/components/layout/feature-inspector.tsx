@@ -224,15 +224,6 @@ export function FeatureInspector({
           </p>
         </div>
         <p className="mt-2 text-sm font-medium text-[var(--cad-foreground)]">{title}</p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Contract: `createFeature` / `updateFeature` + `evaluatePreview`
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Revision state:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {activeEditSession.lastPreviewRevisionId ?? activeEditSession.lastCommittedRevisionId ?? 'pending'}
-          </span>
-        </p>
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">

@@ -95,7 +95,7 @@ export class SketchWorkbenchHarness {
 
   async currentEditorSelection() {
     const bodyText = await this.page.locator('body').textContent()
-    const match = bodyText?.match(/Edit status:\s*[^\n]*Selection:\s*(.*?)Target rule:/s)
+    const match = bodyText?.match(/Selection targets:\s*(.*?)Revision:/s)
     return match?.[1]?.trim() ?? ''
   }
 

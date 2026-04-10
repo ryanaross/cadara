@@ -6,6 +6,7 @@ import { SketchToolPanel } from '@/components/cad/sketch-tool-panel'
 import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
+import { WorkbenchStateDebugger, type WorkbenchStateDebuggerModel } from '@/components/layout/workbench-state-debugger'
 import { mergeSketchRenderables } from '@/domain/editor/sketch-session-controller'
 import { getSketchToolPresentation } from '@/domain/editor/sketch-session'
 import {
@@ -29,7 +30,16 @@ export function CadWorkbench() {
   const modelingService = useModelingService()
   const {
     machineState,
-    state: { activeCommand, selection, hoverTarget, sketchSession, activeEditSession },
+    state: {
+      activeCommand,
+      selection,
+      hoverTarget,
+      sketchSession,
+      activeEditSession,
+      mode,
+      preview,
+      selectionFilter,
+    },
     dispatch,
   } = useEditorState()
   const snapshot = machineState.snapshot
@@ -110,6 +120,43 @@ export function CadWorkbench() {
     [previewRenderables, sketchSession, snapshot, visibleHiddenTargetKeys],
   )
   const sketchToolPresentation = sketchSession ? getSketchToolPresentation(sketchSession) : null
+  const debuggerState: WorkbenchStateDebuggerModel = {
+    activeMode: mode,
+    machineState: machineState.kind,
+    command: activeCommand?.toolId ?? 'none',
+    phase: activeCommand?.phase ?? 'idle',
+    selectionCount: visibleSelection.length,
+    selectionTargets:
+      visibleSelection.length > 0
+        ? visibleSelection.map((target) => getPrimitiveRefLabel(target)).join(', ')
+        : 'Nothing selected',
+    revision: snapshot?.document.revisionId ?? 'loading',
+    snapshotDiagnosticsCount: snapshot?.document.diagnostics.length ?? 0,
+    sketchSession: sketchSession?.commitRequest
+      ? `${sketchSession.commitRequest.definition.entityIds.length} entities staged`
+      : 'none',
+    sketchPlane: sketchSession?.plane.key?.toUpperCase() ?? 'none',
+    featureSession: activeEditSession
+      ? `${activeEditSession.mode}:${activeEditSession.featureType}:${activeEditSession.status}`
+      : 'none',
+    previewState: preview?.label ?? 'No active preview',
+    selectionFilterLabel: selectionFilter?.label ?? 'No active selection filter',
+    activeTargetRule: selectionFilter?.requirements[0]?.description ?? 'No active target rule',
+    requirements:
+      selectionFilter?.requirements.map((requirement) => ({
+        id: requirement.id,
+        label: requirement.label,
+        description: requirement.description,
+        slotCount: requirement.slots.length,
+      })) ?? [],
+    selectionDetail: {
+      label: selectionDetail?.label ?? 'none',
+      kindLabel: selectionDetail?.kindLabel ?? 'none',
+      ownerLabel: selectionDetail?.ownerLabel ?? 'n/a',
+      relatedLabels: selectionDetail?.relatedLabels ?? [],
+      targetLabel: primarySelection ? getPrimitiveRefLabel(primarySelection) : 'none',
+    },
+  }
 
   const handleViewportHover = (target: PrimitiveRef) => {
     dispatch({ type: 'viewport.hovered', target })
@@ -189,78 +236,7 @@ export function CadWorkbench() {
               </button>
             </div>
           ) : null}
-          <div className="pointer-events-none absolute bottom-4 left-4 grid gap-3 rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.9)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
-            <div>
-              Machine: <span className="text-[var(--cad-foreground)]">{machineState.kind}</span>
-            </div>
-            <div>
-              Command: <span className="text-[var(--cad-foreground)]">{activeCommand?.toolId ?? 'none'}</span>
-            </div>
-            <div>
-              Phase: <span className="text-[var(--cad-foreground)]">{activeCommand?.phase ?? 'idle'}</span>
-            </div>
-            <div>
-              Selection: <span className="text-[var(--cad-foreground)]">{visibleSelection.length}</span>
-            </div>
-            <div>
-              Revision:{' '}
-              <span className="text-[var(--cad-foreground)]">{snapshot?.document.revisionId ?? 'loading'}</span>
-            </div>
-            <div>
-              Snapshot diagnostics:{' '}
-              <span className="text-[var(--cad-foreground)]">{snapshot?.document.diagnostics.length ?? 0}</span>
-            </div>
-            <div>
-              Sketch session:{' '}
-              <span className="text-[var(--cad-foreground)]">
-                {sketchSession?.commitRequest
-                  ? `${sketchSession.commitRequest.definition.entityIds.length} entities staged`
-                  : 'none'}
-              </span>
-            </div>
-            <div>
-              Sketch plane:{' '}
-              <span className="text-[var(--cad-foreground)]">
-                {sketchSession?.plane.key?.toUpperCase() ?? 'none'}
-              </span>
-            </div>
-            <div>
-              Feature session:{' '}
-              <span className="text-[var(--cad-foreground)]">
-                {activeEditSession
-                  ? `${activeEditSession.mode}:${activeEditSession.featureType}:${activeEditSession.status}`
-                  : 'none'}
-              </span>
-            </div>
-            <div className="border-t border-[var(--cad-border)] pt-2">
-              <div>
-                Selection detail:{' '}
-                <span className="text-[var(--cad-foreground)]">{selectionDetail?.label ?? 'none'}</span>
-              </div>
-              <div>
-                Kind:{' '}
-                <span className="text-[var(--cad-foreground)]">{selectionDetail?.kindLabel ?? 'none'}</span>
-              </div>
-              <div>
-                Owner:{' '}
-                <span className="text-[var(--cad-foreground)]">{selectionDetail?.ownerLabel ?? 'n/a'}</span>
-              </div>
-              <div>
-                Related:{' '}
-                <span className="text-[var(--cad-foreground)]">
-                  {selectionDetail && selectionDetail.relatedLabels.length > 0
-                    ? selectionDetail.relatedLabels.join(', ')
-                    : 'none'}
-                </span>
-              </div>
-              <div>
-                Target:{' '}
-                <span className="text-[var(--cad-foreground)]">
-                  {primarySelection ? getPrimitiveRefLabel(primarySelection) : 'none'}
-                </span>
-              </div>
-            </div>
-          </div>
+          <WorkbenchStateDebugger state={debuggerState} />
         </main>
         <FeatureInspector
           featureSnapshot={editableFeatureSnapshot}

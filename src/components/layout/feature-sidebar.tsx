@@ -76,17 +76,8 @@ export function FeatureSidebar({
   visibleSelection,
 }: FeatureSidebarProps) {
   const {
-    state: { selection, selectionFilter, selectionCatalog, preview, activeEditSession, mode, sketchSession },
+    state: { selection, selectionFilter, selectionCatalog },
   } = useEditorState()
-
-  const selectedLabels = visibleSelection.map((target) => getPrimitiveRefLabel(target))
-  const activeFeatureLabel =
-    activeEditSession === null
-      ? 'No feature selected'
-      : activeEditSession.mode === 'create'
-        ? `New ${activeEditSession.featureType}`
-        : snapshot?.document.features.find((feature) => feature.featureId === activeEditSession.featureId)?.label ??
-          activeEditSession.featureId
 
   return (
     <aside className="flex w-[360px] min-w-[360px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
@@ -94,12 +85,6 @@ export function FeatureSidebar({
         <header className="border-b border-[var(--cad-border)] px-4 py-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
             Feature Tree
-          </p>
-          <p className="mt-1 text-sm text-[var(--cad-muted-foreground)]">
-            Active mode: <span className="text-[var(--cad-foreground)]">{mode}</span>
-          </p>
-          <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-            Filter: <span className="text-[var(--cad-foreground)]">{selectionFilter?.label ?? 'None'}</span>
           </p>
         </header>
         <ScrollArea className="min-h-0 flex-1">
@@ -334,52 +319,6 @@ export function FeatureSidebar({
         </ScrollArea>
       </section>
 
-      <section className="border-t border-[var(--cad-border)] px-4 py-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-          Editor Session
-        </p>
-        <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">
-          Preview: <span className="text-[var(--cad-foreground)]">{preview?.label ?? 'No active preview'}</span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Edit session:{' '}
-          <span className="text-[var(--cad-foreground)]">{activeFeatureLabel}</span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Edit status:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {activeEditSession?.status ?? 'idle'}
-          </span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Selection:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {selectedLabels.length > 0 ? selectedLabels.join(', ') : 'Nothing selected'}
-          </span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Target rule:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {selectionFilter?.requirements[0]?.description ?? 'No active target rule'}
-          </span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Target slots:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {selectionFilter?.requirements
-              .map((requirement) => requirement.slots.length)
-              .join(' / ') ?? '0'}
-          </span>
-        </p>
-        <p className="mt-1 text-xs text-[var(--cad-muted-foreground)]">
-          Sketch draft:{' '}
-          <span className="text-[var(--cad-foreground)]">
-            {sketchSession?.commitRequest
-              ? sketchSession.commitRequest.definition.entityIds.join(', ')
-              : 'No authored entities'}
-          </span>
-        </p>
-      </section>
     </aside>
   )
 }
