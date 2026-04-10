@@ -592,6 +592,23 @@ export type FeatureSnapshotRecord = FeatureSnapshotRecordBase & {
 }
 
 /**
+ * Durable document feature cursor.
+ * Empty documents use an explicit empty position. Non-empty documents reference
+ * the last feature that is currently applied.
+ */
+export type DocumentFeatureCursor =
+  | {
+      /** No authored features exist in the document. */
+      kind: 'empty'
+    }
+  | {
+      /** Last applied feature in durable document feature order. */
+      kind: 'feature'
+      /** Durable feature identity referenced by the cursor. */
+      featureId: FeatureId
+    }
+
+/**
  * Durable topology membership for a body snapshot.
  */
 export interface BodyTopologySnapshotRecord {
@@ -689,6 +706,8 @@ export interface KernelDocumentSnapshot {
   objects: ObjectTreeNodeRecord[]
   /** Durable feature records owned by this revision. */
   features: FeatureSnapshotRecord[]
+  /** Last applied feature position for rollback-aware rebuilds. */
+  cursor: DocumentFeatureCursor
   /** Durable sketch records owned by this revision. */
   sketches: SketchSnapshotRecord[]
   /** Durable body records owned by this revision. */
@@ -746,6 +765,8 @@ export interface WorkspaceSnapshot {
   objects: DocumentPresentationSnapshot['objects']
   /** Deprecated passthrough for `document.features`. */
   features: KernelDocumentSnapshot['features']
+  /** Deprecated passthrough for `document.cursor`. */
+  cursor: KernelDocumentSnapshot['cursor']
   /** Deprecated passthrough for `document.sketches`. */
   sketches: KernelDocumentSnapshot['sketches']
   /** Deprecated passthrough for `document.bodies`. */
@@ -900,6 +921,23 @@ export interface ReorderFeatureResponse extends ModelingOperationResult {
   featureId: FeatureId
   /** Final insertion anchor accepted by the kernel for this reorder request. */
   beforeFeatureId: FeatureId | null
+}
+
+/**
+ * Feature cursor request.
+ * Moves the document rollback cursor without deleting feature records.
+ */
+export interface SetFeatureCursorRequest extends DocumentMutationRequest {
+  /** Cursor position to make active for subsequent rebuilds and feature inserts. */
+  cursor: DocumentFeatureCursor
+}
+
+/**
+ * Feature cursor response.
+ */
+export interface SetFeatureCursorResponse extends ModelingOperationResult {
+  /** Cursor position accepted by the kernel. */
+  cursor: DocumentFeatureCursor
 }
 
 /**

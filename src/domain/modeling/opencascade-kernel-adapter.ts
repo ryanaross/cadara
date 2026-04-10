@@ -20,6 +20,8 @@ import type {
   ReorderFeatureResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
+  SetFeatureCursorRequest,
+  SetFeatureCursorResponse,
   SketchSnapshotRecord,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
@@ -369,6 +371,33 @@ function featureOrdinalForLabel(
   return state.features.filter((feature) => feature.definition.kind === kind).length + 1
 }
 
+function isValidFeatureCursor(cursor: OccAuthoringState['cursor'], features: readonly OccAuthoringFeatureRecord[]) {
+  return cursor.kind === 'empty'
+    ? features.length === 0
+    : features.some((feature) => feature.featureId === cursor.featureId)
+}
+
+function getCursorInsertionIndex(cursor: OccAuthoringState['cursor'], features: readonly OccAuthoringFeatureRecord[]) {
+  if (cursor.kind === 'empty') {
+    return 0
+  }
+
+  const index = features.findIndex((feature) => feature.featureId === cursor.featureId)
+  return index < 0 ? features.length : index + 1
+}
+
+function getAppliedFeatures(
+  features: readonly OccAuthoringFeatureRecord[],
+  cursor: OccAuthoringState['cursor'],
+) {
+  if (cursor.kind === 'empty') {
+    return []
+  }
+
+  const cursorIndex = features.findIndex((feature) => feature.featureId === cursor.featureId)
+  return cursorIndex < 0 ? features : features.slice(0, cursorIndex + 1)
+}
+
 function uniqueTargets(targets: readonly NonNullable<ModelingDiagnostic['target']>[]) {
   const seen = new Set<string>()
   const result: NonNullable<ModelingDiagnostic['target']>[] = []
@@ -605,6 +634,7 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
       revisionId: RevisionId
       sketches?: readonly SketchSnapshotRecord[]
       features?: readonly OccAuthoringFeatureRecord[]
+      cursor?: OccAuthoringState['cursor']
     },
   ) {
     const baseState = createOccAuthoringState(runtimeState.authoringState.oc, {
@@ -618,11 +648,18 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
     })
 
     let current = baseState
-    for (const feature of input.features ?? runtimeState.authoringState.features) {
+    const features = input.features ?? runtimeState.authoringState.features
+    const cursor = input.cursor ?? runtimeState.authoringState.cursor
+
+    for (const feature of getAppliedFeatures(features, cursor)) {
       current = applyOccFeatureToAuthoringState(current, feature)
     }
 
-    return current
+    return {
+      ...current,
+      features,
+      cursor,
+    }
   }
 
   private requireLiveConstructionPlane(
@@ -818,9 +855,11 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
       revisionId: RevisionId
       sketches?: readonly SketchSnapshotRecord[]
       features?: readonly OccAuthoringFeatureRecord[]
+      cursor?: OccAuthoringState['cursor']
     },
   ): RebuildAttempt {
     const features = input.features ?? runtimeState.authoringState.features
+    const cursor = input.cursor ?? runtimeState.authoringState.cursor
     const baseState = createOccAuthoringState(runtimeState.authoringState.oc, {
       documentId: this.documentId,
       revisionId: input.revisionId,
@@ -830,11 +869,12 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
       constructions: runtimeState.authoringState.baseConstructions,
       constructionPlanes: runtimeState.authoringState.baseConstructionPlanes,
       previousReferenceState: runtimeState.authoringState.referenceState,
+      cursor: { kind: 'empty' },
     })
 
     let current = baseState
 
-    for (const feature of features) {
+    for (const feature of getAppliedFeatures(features, cursor)) {
       const invalidConsumedTargetDiagnostics = collectInvalidConsumedTargetDiagnostics(
         current,
         feature.definition,
@@ -889,7 +929,11 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
 
     return {
       ok: true,
-      state: current,
+      state: {
+        ...current,
+        features,
+        cursor,
+      },
     }
   }
 
@@ -1101,9 +1145,13 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
     const nextSequence = runtimeState.revisionSequence + 1
     const nextRevisionId = createRevisionId(nextSequence)
 
+    const nextFeatures = [...runtimeState.authoringState.features]
+    nextFeatures.splice(getCursorInsertionIndex(runtimeState.authoringState.cursor, nextFeatures), 0, feature)
+
     const nextAuthoringState = this.tryBuildNextAuthoringState(runtimeState, {
       revisionId: nextRevisionId,
-      features: [...runtimeState.authoringState.features, feature],
+      features: nextFeatures,
+      cursor: { kind: 'feature', featureId },
     })
     if (!nextAuthoringState.ok) {
       const rejected = this.buildRejectedResult(
@@ -1262,10 +1310,17 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
     const nextFeatures = runtimeState.authoringState.features.filter(
       (feature) => feature.featureId !== request.featureId,
     )
+    const nextCursor = isValidFeatureCursor(runtimeState.authoringState.cursor, nextFeatures)
+      ? runtimeState.authoringState.cursor
+      : (() => {
+          const tail = nextFeatures.at(-1)
+          return tail ? { kind: 'feature' as const, featureId: tail.featureId } : { kind: 'empty' as const }
+        })()
 
     const nextAuthoringState = this.tryBuildNextAuthoringState(runtimeState, {
       revisionId: nextRevisionId,
       features: nextFeatures,
+      cursor: nextCursor,
     })
     if (!nextAuthoringState.ok) {
       const rejected = this.buildRejectedResult(
@@ -1408,6 +1463,83 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
         ...accepted,
       }),
     }
+  }
+
+  async setFeatureCursor(request: SetFeatureCursorRequest): Promise<SetFeatureCursorResponse> {
+    assertSupportedModelingRequest(request, this.documentId)
+    const runtimeState = await this.getRuntimeState()
+    const currentRevisionId = this.getCurrentRevisionId(runtimeState)
+
+    if (request.baseRevisionId !== currentRevisionId) {
+      const conflict = this.buildConflictResult(request.baseRevisionId, currentRevisionId)
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: this.documentId,
+        cursor: runtimeState.authoringState.cursor,
+        changedTargets: [],
+        ...conflict,
+      }
+    }
+
+    if (!isValidFeatureCursor(request.cursor, runtimeState.authoringState.features)) {
+      const diagnostics = request.cursor.kind === 'feature'
+        ? [createMissingFeatureDiagnostic(request.cursor.featureId)]
+        : [createRebuildFailureDiagnostic(
+            'occ-invalid-document-cursor',
+            'The empty document cursor is only valid when the document has no features.',
+            [],
+            [],
+          )]
+      const rejected = this.buildRejectedResult(
+        request.baseRevisionId,
+        diagnostics,
+        'occ-invalid-document-cursor',
+      )
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: this.documentId,
+        cursor: runtimeState.authoringState.cursor,
+        changedTargets: [],
+        ...rejected,
+      }
+    }
+
+    const nextSequence = runtimeState.revisionSequence + 1
+    const nextRevisionId = createRevisionId(nextSequence)
+    const nextAuthoringState = this.tryBuildNextAuthoringState(runtimeState, {
+      revisionId: nextRevisionId,
+      cursor: request.cursor,
+    })
+
+    if (!nextAuthoringState.ok) {
+      const rejected = this.buildRejectedResult(
+        request.baseRevisionId,
+        nextAuthoringState.diagnostics,
+        nextAuthoringState.reasonCode,
+      )
+
+      return this.withOperationEnvelope({
+        cursor: runtimeState.authoringState.cursor,
+        changedTargets: [],
+        ...rejected,
+      })
+    }
+
+    this.replaceRuntimeState({
+      authoringState: nextAuthoringState.state,
+      revisionSequence: nextSequence,
+    })
+
+    const accepted = this.buildAcceptedResult(runtimeState.authoringState, nextAuthoringState.state, [])
+
+    return this.withOperationEnvelope({
+      cursor: request.cursor,
+      changedTargets: request.cursor.kind === 'feature'
+        ? [{ kind: 'feature' as const, featureId: request.cursor.featureId }]
+        : [],
+      ...accepted,
+    })
   }
 
   async evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse> {

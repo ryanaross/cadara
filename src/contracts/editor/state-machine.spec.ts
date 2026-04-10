@@ -104,6 +104,7 @@ function createSnapshot(): DocumentSnapshot {
     },
     sketches: [],
     features: [],
+    cursor: { kind: 'empty' },
     bodies: [],
     constructions: [
       {
@@ -155,6 +156,7 @@ function createSnapshot(): DocumentSnapshot {
       featureTree: [],
       objects: [],
       features: [],
+      cursor: { kind: 'empty' },
       sketches: [],
       bodies: [],
       constructions: [

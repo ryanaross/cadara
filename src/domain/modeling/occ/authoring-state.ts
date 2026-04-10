@@ -1,5 +1,5 @@
 import type { DurableRef } from '@/contracts/shared/references'
-import type { FeatureDefinition, SketchSnapshotRecord, SnapshotEntityRecord } from '@/contracts/modeling/schema'
+import type { DocumentFeatureCursor, FeatureDefinition, SketchSnapshotRecord, SnapshotEntityRecord } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { ConstructionId, FeatureId } from '@/contracts/shared/ids'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
@@ -34,9 +34,15 @@ export interface OccAuthoringState extends OccFeatureExecutionContext {
   baseConstructions: OccFeatureExecutionContext['constructions']
   baseConstructionPlanes: ReadonlyMap<ConstructionId, SketchPlaneDefinition>
   features: readonly OccAuthoringFeatureRecord[]
+  cursor: DocumentFeatureCursor
   entities: readonly SnapshotEntityRecord[]
   renderRecords: readonly RenderableEntityRecord[]
   referenceState: OccReferenceState
+}
+
+function createTailCursor(features: readonly { featureId: FeatureId }[]): DocumentFeatureCursor {
+  const tail = features.at(-1)
+  return tail ? { kind: 'feature', featureId: tail.featureId } : { kind: 'empty' }
 }
 
 function createStandardConstructionState(
@@ -98,6 +104,7 @@ export function createOccAuthoringState(
     sketches?: readonly SketchSnapshotRecord[]
     bodies?: readonly OccTrackedBody[]
     features?: readonly OccAuthoringFeatureRecord[]
+    cursor?: DocumentFeatureCursor
     constructions?: OccFeatureExecutionContext['constructions']
     constructionPlanes?: ReadonlyMap<ConstructionId, SketchPlaneDefinition>
     documentId?: OccFeatureExecutionContext['documentId']
@@ -124,6 +131,7 @@ export function createOccAuthoringState(
   const baseConstructions = [...constructionById.values()]
   const baseBodies = [...(input.bodies ?? [])]
   const features = [...(input.features ?? [])]
+  const cursor = input.cursor ?? createTailCursor(features)
   const sketches = input.sketches ?? []
   const referenceState = createOccReferenceState({
     documentId,
@@ -148,6 +156,7 @@ export function createOccAuthoringState(
     baseConstructions,
     baseConstructionPlanes: constructionPlanes,
     features,
+    cursor,
     entities: [],
     renderRecords: [],
     referenceState,
@@ -184,6 +193,7 @@ function applyFeatureResult(
     constructions: result.constructions,
     constructionPlanes: result.constructionPlanes,
     features,
+    cursor: { kind: 'feature', featureId: feature.featureId },
     entities: [...state.entities, ...result.entities],
     renderRecords: [...state.renderRecords, ...result.renderRecords],
     referenceState,
@@ -214,6 +224,7 @@ export function rebuildOccAuthoringState(
     constructions: state.baseConstructions,
     constructionPlanes: state.baseConstructionPlanes,
     features: [],
+    cursor: { kind: 'empty' },
     previousReferenceState: state.referenceState,
   })
 

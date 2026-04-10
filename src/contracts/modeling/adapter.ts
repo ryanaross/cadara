@@ -13,6 +13,8 @@ import type {
   ReorderFeatureResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
+  SetFeatureCursorRequest,
+  SetFeatureCursorResponse,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
 } from '@/contracts/modeling/schema'
@@ -36,6 +38,8 @@ export interface ModelingKernelAdapter {
   deleteFeature(request: DeleteFeatureRequest): Promise<DeleteFeatureResponse>
   /** Reorders an existing durable feature within the document feature list. */
   reorderFeature(request: ReorderFeatureRequest): Promise<ReorderFeatureResponse>
+  /** Moves the document feature cursor without deleting durable feature records. */
+  setFeatureCursor(request: SetFeatureCursorRequest): Promise<SetFeatureCursorResponse>
   /** Evaluates a transient preview for a typed feature definition. */
   evaluatePreview(request: EvaluatePreviewRequest): Promise<EvaluatePreviewResponse>
   /** Resolves one durable reference without silently remapping invalid targets. */

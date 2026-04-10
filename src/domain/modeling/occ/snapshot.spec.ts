@@ -308,6 +308,9 @@ function createSnapshotAdapter(snapshot: GetDocumentSnapshotResponse['snapshot']
     async reorderFeature() {
       throw new Error('Not implemented in phase 6 snapshot test adapter.')
     },
+    async setFeatureCursor() {
+      throw new Error('Not implemented in phase 6 snapshot test adapter.')
+    },
     async evaluatePreview() {
       throw new Error('Not implemented in phase 6 snapshot test adapter.')
     },

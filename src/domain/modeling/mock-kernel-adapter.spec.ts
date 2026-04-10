@@ -283,6 +283,62 @@ async function testAcceptedCreateMutatesCommittedSnapshot() {
   )
 }
 
+async function testRollbackCursorPreservesAndInsertsFeatureAfterCursor() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const rollback = await adapter.setFeatureCursor({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    cursor: { kind: 'feature', featureId: 'feature_extrude-1' },
+  })
+
+  assert(rollback.revisionState.kind === 'accepted', 'Rollback cursor changes must be accepted for valid features.')
+  assert(rollback.cursor.kind === 'feature' && rollback.cursor.featureId === 'feature_extrude-1', 'Rollback must target the requested feature.')
+  const seedExtrude = before.snapshot.features.find(
+    (feature) => feature.featureId === 'feature_extrude-1' && feature.definition.kind === 'extrude',
+  )
+
+  if (!seedExtrude || seedExtrude.definition.kind !== 'extrude') {
+    throw new Error('Seed extrude feature must exist for rollback insertion coverage.')
+  }
+
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: rollback.revisionId,
+    definition: {
+      kind: 'extrude',
+      featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        ...seedExtrude.definition.parameters,
+        startExtent: { kind: 'profilePlane' },
+        endExtent: { kind: 'blind', direction: 'positive', distance: 18 },
+      },
+    },
+  })
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const featureOrder = after.snapshot.features.map((feature) => feature.featureId)
+
+  assert(created.revisionState.kind === 'accepted', 'Feature creation after rollback must be accepted.')
+  assert(
+    featureOrder.join('>') === `feature_extrude-1>${created.featureId}>feature_fillet-1`,
+    'Feature creation after rollback must insert immediately after the cursor and preserve later features.',
+  )
+  assert(
+    after.snapshot.cursor.kind === 'feature' && after.snapshot.cursor.featureId === created.featureId,
+    'Feature creation after rollback must advance the cursor to the new feature.',
+  )
+}
+
 async function testAcceptedSketchCommitMutatesCommittedSnapshot() {
   const adapter = new MockKernelAdapter()
   const before = await adapter.getDocumentSnapshot({
@@ -688,6 +744,7 @@ await testProfileCollectionContractBoundaryRejectsInvalidPayloads()
 await testUnsupportedFeatureDefinitionsAreRejectedByMock()
 await testMutationResponsesReportRebuildResults()
 await testAcceptedCreateMutatesCommittedSnapshot()
+await testRollbackCursorPreservesAndInsertsFeatureAfterCursor()
 await testAcceptedSketchCommitMutatesCommittedSnapshot()
 await testMissingMutationTargetsAreRejected()
 await testPreviewStalenessReportsObservedRevision()

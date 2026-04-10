@@ -28,6 +28,7 @@ import type {
   DeleteFeatureRequest,
   DeleteFeatureResponse,
   DocumentSnapshot,
+  DocumentFeatureCursor,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
   FeatureDefinition,
@@ -37,6 +38,8 @@ import type {
   ReorderFeatureResponse,
   ResolveReferenceRequest,
   ResolveReferenceResponse,
+  SetFeatureCursorRequest,
+  SetFeatureCursorResponse,
   SnapshotEntityRecord,
   UpdateFeatureRequest,
   UpdateFeatureResponse,
@@ -61,6 +64,47 @@ const REVISION_ID = 'rev_0001' as const
 const DOCUMENT_ID = 'doc_workspace' as const
 const SKETCH_ID = 'sketch_primary' as const
 const CONSTRUCTION_PICK_PRIORITY = 5
+
+function createTailCursor(features: readonly { featureId: FeatureId }[]): DocumentFeatureCursor {
+  const tail = features.at(-1)
+  return tail ? { kind: 'feature', featureId: tail.featureId } : { kind: 'empty' }
+}
+
+function isValidDocumentCursor(cursor: DocumentFeatureCursor, features: readonly { featureId: FeatureId }[]) {
+  return cursor.kind === 'empty'
+    ? features.length === 0
+    : features.some((feature) => feature.featureId === cursor.featureId)
+}
+
+function getCursorInsertionIndex(cursor: DocumentFeatureCursor, features: readonly { featureId: FeatureId }[]) {
+  if (cursor.kind === 'empty') {
+    return 0
+  }
+
+  const index = features.findIndex((feature) => feature.featureId === cursor.featureId)
+  return index < 0 ? features.length : index + 1
+}
+
+function getAppliedFeatureIds(cursor: DocumentFeatureCursor, features: readonly { featureId: FeatureId }[]) {
+  if (cursor.kind === 'empty') {
+    return new Set<FeatureId>()
+  }
+
+  const cursorIndex = features.findIndex((feature) => feature.featureId === cursor.featureId)
+  const appliedFeatures = cursorIndex < 0 ? features : features.slice(0, cursorIndex + 1)
+  return new Set(appliedFeatures.map((feature) => feature.featureId))
+}
+
+function applyCursorToMockSnapshot(snapshot: DocumentSnapshot) {
+  const appliedFeatureIds = getAppliedFeatureIds(snapshot.document.cursor, snapshot.document.features)
+
+  snapshot.document.render.records = snapshot.document.render.records.filter(
+    (record) => record.ownerFeatureId === null || appliedFeatureIds.has(record.ownerFeatureId),
+  )
+  snapshot.render = snapshot.document.render
+
+  return snapshot
+}
 
 function createConstructionPlaneRenderRecords(): RenderableEntityRecord[] {
   const planeDefinitions = [
@@ -1143,6 +1187,63 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
     }),
   ]
 
+  const features: DocumentSnapshot['document']['features'] = [
+    {
+      ownerDocumentId: DOCUMENT_ID,
+      ownerRevisionId: REVISION_ID,
+      ownerFeatureId: 'feature_extrude-1',
+      ownerSketchId: null,
+      ownerBodyId: null,
+      featureId: 'feature_extrude-1',
+      label: 'Extrude 1',
+      definition: {
+        kind: 'extrude',
+        featureTypeVersion: 'feature-type/extrude/v1alpha1',
+        parameters: {
+          profiles: [primaryRegion.target],
+          startExtent: {
+            kind: 'profilePlane',
+          },
+          endExtent: {
+            kind: 'blind',
+            direction: 'positive',
+            distance: 12,
+          },
+          operation: 'newBody',
+          booleanScope: {
+            kind: 'standalone',
+          },
+        },
+      },
+      producedTargets: [
+        { kind: 'body', bodyId: 'body_part-1' },
+        { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+        { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
+      ],
+    },
+    {
+      ownerDocumentId: DOCUMENT_ID,
+      ownerRevisionId: REVISION_ID,
+      ownerFeatureId: 'feature_fillet-1',
+      ownerSketchId: null,
+      ownerBodyId: 'body_part-1',
+      featureId: 'feature_fillet-1',
+      label: 'Fillet 1',
+      definition: {
+        kind: 'fillet',
+        featureTypeVersion: 'feature-type/fillet/v1alpha1',
+        parameters: {
+          radius: 1.5,
+          edgeTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
+        },
+      },
+      producedTargets: [
+        { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
+        { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
+      ],
+    },
+  ]
+
   const document: DocumentSnapshot['document'] = {
     contractVersion: CONTRACT_VERSION,
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -1212,62 +1313,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         ownerFeatureId: null,
       },
     ],
-    features: [
-      {
-        ownerDocumentId: DOCUMENT_ID,
-        ownerRevisionId: REVISION_ID,
-        ownerFeatureId: 'feature_extrude-1',
-        ownerSketchId: null,
-        ownerBodyId: null,
-        featureId: 'feature_extrude-1',
-      label: 'Extrude 1',
-      definition: {
-        kind: 'extrude',
-        featureTypeVersion: 'feature-type/extrude/v1alpha1',
-        parameters: {
-          profiles: [primaryRegion.target],
-          startExtent: {
-            kind: 'profilePlane',
-          },
-          endExtent: {
-            kind: 'blind',
-            direction: 'positive',
-            distance: 12,
-          },
-          operation: 'newBody',
-          booleanScope: {
-            kind: 'standalone',
-          },
-        },
-      },
-        producedTargets: [
-          { kind: 'body', bodyId: 'body_part-1' },
-          { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
-          { kind: 'face', bodyId: 'body_part-1', faceId: 'face_bottom' },
-        ],
-      },
-      {
-        ownerDocumentId: DOCUMENT_ID,
-        ownerRevisionId: REVISION_ID,
-        ownerFeatureId: 'feature_fillet-1',
-        ownerSketchId: null,
-        ownerBodyId: 'body_part-1',
-        featureId: 'feature_fillet-1',
-        label: 'Fillet 1',
-        definition: {
-          kind: 'fillet',
-          featureTypeVersion: 'feature-type/fillet/v1alpha1',
-          parameters: {
-            radius: 1.5,
-            edgeTargets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-0' }],
-          },
-        },
-        producedTargets: [
-          { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-front' },
-          { kind: 'face', bodyId: 'body_part-1', faceId: 'face_side-right' },
-        ],
-      },
-    ],
+    features,
+    cursor: createTailCursor(features),
     sketches: [
       {
         ownerDocumentId: DOCUMENT_ID,
@@ -1431,6 +1478,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
     featureTree: presentation.featureTree,
     objects: presentation.objects,
     features: document.features,
+    cursor: document.cursor,
     sketches: document.sketches,
     bodies: document.bodies,
     constructions: document.constructions,
@@ -1641,7 +1689,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
 
     return {
       contractVersion: CONTRACT_VERSION,
-      snapshot: structuredClone(await this.getSnapshot()),
+      snapshot: applyCursorToMockSnapshot(structuredClone(await this.getSnapshot())),
     }
   }
 
@@ -1699,7 +1747,7 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       const featureIndex = mutableSnapshot.document.features.filter((feature) => feature.definition.kind === request.definition.kind).length + 1
       const changedTargets = getFeatureDefinitionChangedTargets(request.definition)
 
-      mutableSnapshot.document.features.push({
+      const nextFeature = {
         ownerDocumentId: DOCUMENT_ID,
         ownerRevisionId: nextRevisionId,
         ownerFeatureId: featureId,
@@ -1709,7 +1757,14 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
         label: `${request.definition.kind[0]!.toUpperCase()}${request.definition.kind.slice(1)} ${featureIndex}`,
         definition: request.definition,
         producedTargets: changedTargets,
-      })
+      }
+      mutableSnapshot.document.features.splice(
+        getCursorInsertionIndex(mutableSnapshot.document.cursor, mutableSnapshot.document.features),
+        0,
+        nextFeature,
+      )
+      mutableSnapshot.document.cursor = { kind: 'feature', featureId }
+      mutableSnapshot.cursor = mutableSnapshot.document.cursor
 
       mutableSnapshot.presentation.entities.push(entity({
         ownerFeatureId: featureId,
@@ -2160,6 +2215,10 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
 
     return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
       mutableSnapshot.document.features = mutableSnapshot.document.features.filter((feature) => feature.featureId !== request.featureId)
+      if (!isValidDocumentCursor(mutableSnapshot.document.cursor, mutableSnapshot.document.features)) {
+        mutableSnapshot.document.cursor = createTailCursor(mutableSnapshot.document.features)
+        mutableSnapshot.cursor = mutableSnapshot.document.cursor
+      }
       mutableSnapshot.presentation.entities = mutableSnapshot.presentation.entities.filter(
         (entry) => !(entry.target.kind === 'feature' && entry.target.featureId === request.featureId),
       )
@@ -2306,6 +2365,100 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
           diagnostics,
         }),
         changedTargets: [{ kind: 'feature', featureId: request.featureId }],
+        diagnostics,
+      }
+    })
+  }
+
+  async setFeatureCursor(request: SetFeatureCursorRequest): Promise<SetFeatureCursorResponse> {
+    assertSupportedModelingRequest(request)
+    const snapshot = await this.getSnapshot()
+
+    if (hasRevisionConflict(request.baseRevisionId, this.currentRevisionId)) {
+      const diagnostics = [createRevisionConflictDiagnostic(request.baseRevisionId, this.currentRevisionId)]
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
+        cursor: snapshot.document.cursor,
+        revisionState: {
+          kind: 'conflict',
+          expectedRevisionId: request.baseRevisionId,
+          actualRevisionId: this.currentRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'revisionConflict',
+          diagnostics,
+        }),
+        changedTargets: [],
+        diagnostics,
+      }
+    }
+
+    if (!isValidDocumentCursor(request.cursor, snapshot.document.features)) {
+      const featureId = request.cursor.kind === 'feature' ? request.cursor.featureId : null
+      const diagnostics = featureId
+        ? [createMissingFeatureDiagnostic(featureId)]
+        : [{
+            code: 'mock-invalid-document-cursor',
+            severity: 'error' as const,
+            message: 'The empty document cursor is only valid when the document has no features.',
+            target: null,
+            detail: null,
+          }]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: this.currentRevisionId,
+        cursor: snapshot.document.cursor,
+        revisionState: {
+          kind: 'rejected',
+          baseRevisionId: request.baseRevisionId,
+          reasonCode: 'mock-invalid-document-cursor',
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'skipped',
+          reasonCode: 'validationRejected',
+          diagnostics,
+        }),
+        changedTargets: [],
+        diagnostics,
+      }
+    }
+
+    return this.mutateSnapshot((mutableSnapshot, nextRevisionId) => {
+      mutableSnapshot.document.cursor = request.cursor
+      mutableSnapshot.cursor = mutableSnapshot.document.cursor
+      const changedTargets = request.cursor.kind === 'feature'
+        ? [{ kind: 'feature' as const, featureId: request.cursor.featureId }]
+        : []
+      const diagnostics: SetFeatureCursorResponse['diagnostics'] = [
+        {
+          code: 'mock-set-feature-cursor',
+          severity: 'info',
+          message: 'Mock kernel moved the document feature cursor.',
+          target: changedTargets[0] ?? null,
+          detail: null,
+        },
+      ]
+
+      return {
+        contractVersion: CONTRACT_VERSION,
+        documentId: request.documentId,
+        revisionId: nextRevisionId,
+        cursor: request.cursor,
+        revisionState: {
+          kind: 'accepted',
+          baseRevisionId: request.baseRevisionId,
+        },
+        rebuildResult: createRebuildResult({
+          kind: 'rebuilt',
+          revisionId: nextRevisionId,
+          diagnostics,
+        }),
+        changedTargets,
         diagnostics,
       }
     })

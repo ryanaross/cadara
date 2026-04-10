@@ -1,4 +1,4 @@
-import { Box, Component, Eye, EyeOff, Layers3, Workflow } from 'lucide-react'
+import { Box, Component, Eye, EyeOff } from 'lucide-react'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { PrimitiveRef } from '@/domain/editor/schema'
@@ -17,13 +17,6 @@ interface FeatureSidebarProps {
   onSelectTarget: (target: PrimitiveRef) => void
   visibleSelection: PrimitiveRef[]
 }
-
-const treeIconMap = {
-  sketch: Workflow,
-  feature: Layers3,
-  part: Box,
-  plane: Component,
-} as const
 
 function formatReferenceOwner(snapshot: DocumentSnapshot, featureId: string | null, sketchId: string | null) {
   if (featureId) {
@@ -81,77 +74,6 @@ export function FeatureSidebar({
 
   return (
     <aside className="flex w-[360px] min-w-[360px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
-      <section className="flex min-h-0 flex-1 flex-col border-b border-[var(--cad-border)]">
-        <header className="border-b border-[var(--cad-border)] px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-            Feature Tree
-          </p>
-        </header>
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="space-y-1 px-3 py-3">
-            {(snapshot?.presentation.featureTree ?? []).map((item) => {
-              const Icon = treeIconMap[item.kind]
-              const target = item.target
-              const targetKey = getPrimitiveRefKey(target)
-              const isHidden = hiddenTargetKeys[targetKey] === true
-              const isSelected =
-                visibleSelection.some((entry) => getPrimitiveRefKey(entry) === targetKey)
-              const isAllowed = selectionFilterAllowsTarget(selectionFilter, selection, target, selectionCatalog)
-
-              return (
-                <div
-                  key={item.id}
-                  className={`flex items-start gap-2 rounded-md px-2 py-1.5 transition ${
-                    isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
-                  } ${isHidden ? 'opacity-55' : ''}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isAllowed || isHidden) {
-                        return
-                      }
-                      onSelectTarget(target)
-                    }}
-                    className={`flex min-w-0 flex-1 items-start gap-2 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
-                      !isAllowed || isHidden ? 'cursor-not-allowed opacity-45' : ''
-                    }`}
-                    aria-disabled={!isAllowed || isHidden}
-                    title={!isAllowed ? 'Filtered out by the current command' : isHidden ? 'Hidden in the viewport' : undefined}
-                  >
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[var(--cad-accent)]">
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-medium leading-5 text-[var(--cad-foreground)]">
-                        {item.label}
-                      </span>
-                      <span className="block truncate text-[10px] uppercase tracking-[0.18em] text-[var(--cad-muted)]">
-                        Owner {formatReferenceOwner(snapshot!, item.ownerFeatureId, item.ownerSketchId)}
-                      </span>
-                      {isHidden ? (
-                        <span className="mt-1 block text-[10px] uppercase tracking-[0.18em] text-[var(--cad-muted-foreground)]">
-                          Hidden
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onToggleTargetVisibility(target)}
-                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-[var(--cad-muted-foreground)] transition hover:bg-[var(--cad-surface-elevated)] hover:text-[var(--cad-foreground)]"
-                    aria-label={isHidden ? `Show ${item.label}` : `Hide ${item.label}`}
-                    title={isHidden ? 'Show in viewport' : 'Hide from viewport'}
-                  >
-                    {isHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </ScrollArea>
-      </section>
-
       <section className="grid min-h-0 flex-[1.2] grid-rows-[minmax(0,1fr)_minmax(0,0.9fr)] border-b border-[var(--cad-border)]">
         <div className="flex min-h-0 flex-col border-b border-[var(--cad-border)]">
           <header className="border-b border-[var(--cad-border)] px-4 py-3">

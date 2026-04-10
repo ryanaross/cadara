@@ -137,6 +137,12 @@ async function testPersistedHistoryReplaysSketchAndFeatureMutations() {
   })
   assert(reordered.revisionState.kind === 'accepted', 'Feature reorder should be stored for replay.')
 
+  const cursor = await service.setFeatureCursor({
+    baseRevisionId: reordered.revisionId,
+    cursor: { kind: 'feature', featureId: 'feature_extrude-1' },
+  })
+  assert(cursor.revisionState.kind === 'accepted', 'Feature cursor rollback should be stored for replay.')
+
   const originalSnapshot = await service.getCurrentDocumentSnapshot()
   const finalHistory = store.savedPayloads.at(-1)
   assert(finalHistory, 'Committed mutations should save a final history payload.')
@@ -163,6 +169,13 @@ async function testPersistedHistoryReplaysSketchAndFeatureMutations() {
   assert(
     restoredSnapshot.features.find((feature) => feature.featureId === created.featureId)?.definition.kind === 'extrude',
     'Replay should rebuild persisted feature definitions.',
+  )
+  assert(
+    restoredSnapshot.cursor.kind === originalSnapshot.cursor.kind
+      && restoredSnapshot.cursor.kind === 'feature'
+      && originalSnapshot.cursor.kind === 'feature'
+      && restoredSnapshot.cursor.featureId === originalSnapshot.cursor.featureId,
+    'Replay should preserve persisted document cursor state.',
   )
 }
 
@@ -215,6 +228,30 @@ async function testUnsupportedHistoryVersionFailsRestore() {
   )
 }
 
+async function testInvalidCursorHistoryFailsRestore() {
+  const service = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+    operationHistoryStore: createMemoryOperationHistoryStore({
+      ...createEmptyOperationHistory('doc_workspace'),
+      entries: [
+        {
+          kind: 'setFeatureCursor',
+          payload: {
+            cursor: { kind: 'feature', featureId: 'feature_missing' },
+          },
+        },
+      ],
+    }),
+  })
+
+  const state = await service.getHistoryRestoreState()
+  assert(state.kind === 'failed', 'Invalid persisted cursor references should fail restore explicitly.')
+  assert(
+    state.diagnostics[0]?.reasonCode === 'mock-invalid-document-cursor',
+    'Invalid persisted cursor restore failures should expose cursor diagnostics.',
+  )
+}
+
 async function testStartupSnapshotWaitsForReplay() {
   const { service, store } = await createServiceWithStore()
   const snapshot = await service.getCurrentDocumentSnapshot()
@@ -244,4 +281,5 @@ await testOnlyCommittedMutationsAreStored()
 await testPersistedHistoryReplaysSketchAndFeatureMutations()
 await testDeleteFeatureReplayMatchesFinalState()
 await testUnsupportedHistoryVersionFailsRestore()
+await testInvalidCursorHistoryFailsRestore()
 await testStartupSnapshotWaitsForReplay()

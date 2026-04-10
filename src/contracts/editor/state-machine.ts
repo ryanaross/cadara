@@ -226,6 +226,11 @@ export interface CommandCommitRequestedEvent {
   commandSessionId: CommandSessionId
 }
 
+/** Requests a fresh document snapshot outside an active command flow. */
+export interface DocumentRefreshRequestedEvent {
+  type: 'document.refreshRequested'
+}
+
 /** Reports a viewport hover on a durable selectable target. */
 export interface ViewportHoveredEvent {
   type: 'viewport.hovered'
@@ -315,6 +320,7 @@ export type EditorEvent =
   | ToolActivatedEvent
   | CommandCancelledEvent
   | CommandCommitRequestedEvent
+  | DocumentRefreshRequestedEvent
   | ViewportHoveredEvent
   | ViewportHoverClearedEvent
   | ViewportSelectionRequestedEvent
@@ -1601,6 +1607,8 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         effects: [],
       }
     }
+    case 'document.refreshRequested':
+      return emitSnapshotFetch(state, null)
     case 'effect.snapshotLoaded':
       if (state.pendingSnapshotRequestId !== event.payload.requestId) {
         return {

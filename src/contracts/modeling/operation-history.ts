@@ -3,6 +3,7 @@ import type {
   CreateFeatureRequest,
   DeleteFeatureRequest,
   ReorderFeatureRequest,
+  SetFeatureCursorRequest,
   UpdateFeatureRequest,
 } from '@/contracts/modeling/schema'
 import type { DocumentId } from '@/contracts/shared/ids'
@@ -33,6 +34,10 @@ export type PersistedReorderFeaturePayload = Omit<
   ReorderFeatureRequest,
   'contractVersion' | 'documentId' | 'baseRevisionId'
 >
+export type PersistedSetFeatureCursorPayload = Omit<
+  SetFeatureCursorRequest,
+  'contractVersion' | 'documentId' | 'baseRevisionId'
+>
 
 export type ModelingOperationHistoryEntry =
   | { kind: 'commitSketch'; payload: PersistedCommitSketchPayload }
@@ -40,6 +45,7 @@ export type ModelingOperationHistoryEntry =
   | { kind: 'updateFeature'; payload: PersistedUpdateFeaturePayload }
   | { kind: 'deleteFeature'; payload: PersistedDeleteFeaturePayload }
   | { kind: 'reorderFeature'; payload: PersistedReorderFeaturePayload }
+  | { kind: 'setFeatureCursor'; payload: PersistedSetFeatureCursorPayload }
 
 export interface ModelingOperationHistoryPayload {
   contractVersion: ContractVersion
@@ -123,6 +129,17 @@ export function createReorderFeatureHistoryEntry(
     payload: {
       featureId: payload.featureId,
       beforeFeatureId: payload.beforeFeatureId,
+    },
+  }
+}
+
+export function createSetFeatureCursorHistoryEntry(
+  payload: SetFeatureCursorRequest,
+): ModelingOperationHistoryEntry {
+  return {
+    kind: 'setFeatureCursor',
+    payload: {
+      cursor: payload.cursor,
     },
   }
 }
@@ -267,6 +284,21 @@ function validateEntry(value: unknown, index: number): OperationHistoryEntryVali
           ok: false,
           reasonCode: 'invalid-reorder-feature-entry',
           message: `Operation history entry ${index} has an invalid reorderFeature payload.`,
+        }
+      }
+      return { ok: true }
+    case 'setFeatureCursor':
+      if (
+        !isRecord(value.payload.cursor)
+        || (
+          value.payload.cursor.kind !== 'empty'
+          && !(value.payload.cursor.kind === 'feature' && isString(value.payload.cursor.featureId))
+        )
+      ) {
+        return {
+          ok: false,
+          reasonCode: 'invalid-set-feature-cursor-entry',
+          message: `Operation history entry ${index} has an invalid setFeatureCursor payload.`,
         }
       }
       return { ok: true }

@@ -5,8 +5,10 @@ import { SketchToolOverlays } from '@/components/cad/sketch-tool-overlays'
 import { SketchToolPanel } from '@/components/cad/sketch-tool-panel'
 import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
+import { FeatureTimelineBar } from '@/components/layout/feature-timeline-bar'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
 import { WorkbenchStateDebugger, type WorkbenchStateDebuggerModel } from '@/components/layout/workbench-state-debugger'
+import type { DocumentFeatureCursor } from '@/contracts/modeling/schema'
 import { mergeSketchRenderables } from '@/domain/editor/sketch-session-controller'
 import { getSketchToolPresentation } from '@/domain/editor/sketch-session'
 import {
@@ -94,7 +96,6 @@ export function CadWorkbench() {
     }
 
     const validTargetKeys = new Set([
-      ...(snapshot?.presentation.featureTree ?? []).map((item) => getPrimitiveRefKey(item.target)),
       ...(snapshot?.presentation.objects ?? []).map((item) => getPrimitiveRefKey(item.target)),
     ])
 
@@ -203,6 +204,26 @@ export function CadWorkbench() {
     }
   }
 
+  const handleTimelineCursorRequested = (cursor: DocumentFeatureCursor) => {
+    if (!snapshot) {
+      return
+    }
+
+    void modelingService.setFeatureCursor({
+      baseRevisionId: snapshot.document.revisionId,
+      cursor,
+    }).then((result) => {
+      if (result.revisionState.kind !== 'accepted') {
+        setRestoreMessage(result.diagnostics[0]?.message ?? 'Feature cursor rollback failed.')
+        return
+      }
+
+      dispatch({ type: 'document.refreshRequested' })
+    }).catch((error: unknown) => {
+      setRestoreMessage(error instanceof Error ? error.message : 'Feature cursor rollback failed.')
+    })
+  }
+
   const handleSketchMove = (point: readonly [number, number]) => {
     dispatch({ type: 'sketch.pointerMoved', point })
   }
@@ -222,41 +243,49 @@ export function CadWorkbench() {
           onToggleTargetVisibility={handleTargetVisibilityToggle}
           visibleSelection={visibleSelection}
         />
-        <main className="relative min-h-0 flex-1 overflow-hidden border-l border-[var(--cad-border)] bg-[radial-gradient(circle_at_top,_rgba(79,104,140,0.12),_transparent_36%),linear-gradient(180deg,_rgba(14,18,24,0.96),_rgba(8,11,16,1))]">
-          <ThreeCadViewport
-            renderables={viewportRenderables.documentRenderables}
-            sketchDisplayRenderables={viewportRenderables.sketchDisplayRenderables}
-            hoverTarget={visibleHoverTarget}
-            onHover={handleViewportHover}
-            onSelect={handleViewportSelect}
-            onClearHover={handleViewportHoverClear}
-            onSketchMove={handleSketchMove}
-            onSketchRelease={handleSketchRelease}
-            selection={visibleSelection}
+        <div className="flex min-h-0 flex-1 flex-col">
+          <main className="relative min-h-0 flex-1 overflow-hidden border-l border-[var(--cad-border)] bg-[radial-gradient(circle_at_top,_rgba(79,104,140,0.12),_transparent_36%),linear-gradient(180deg,_rgba(14,18,24,0.96),_rgba(8,11,16,1))]">
+            <ThreeCadViewport
+              renderables={viewportRenderables.documentRenderables}
+              sketchDisplayRenderables={viewportRenderables.sketchDisplayRenderables}
+              hoverTarget={visibleHoverTarget}
+              onHover={handleViewportHover}
+              onSelect={handleViewportSelect}
+              onClearHover={handleViewportHoverClear}
+              onSketchMove={handleSketchMove}
+              onSketchRelease={handleSketchRelease}
+              selection={visibleSelection}
+            />
+            <SketchToolPanel
+              schema={sketchToolPresentation}
+              onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
+            />
+            <SketchToolOverlays schema={sketchToolPresentation} />
+            {restoreMessage ? (
+              <div className="absolute right-4 top-4 max-w-sm rounded-lg border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.95)] p-3 text-xs text-[var(--cad-foreground)] shadow-[var(--cad-panel-shadow)]">
+                <div className="font-medium">History restore failed</div>
+                <div className="mt-1 text-[var(--cad-muted-foreground)]">{restoreMessage}</div>
+                <button
+                  className="mt-3 rounded-md border border-[var(--cad-border-strong)] px-2 py-1 text-[var(--cad-foreground)]"
+                  type="button"
+                  onClick={() => {
+                    modelingService.resetOperationHistory()
+                    setRestoreMessage(null)
+                  }}
+                >
+                  Reset stored history
+                </button>
+              </div>
+            ) : null}
+            <WorkbenchStateDebugger state={debuggerState} />
+          </main>
+          <FeatureTimelineBar
+            snapshot={snapshot}
+            visibleSelection={visibleSelection}
+            onSelectTarget={handleViewportSelect}
+            onCursorRequested={handleTimelineCursorRequested}
           />
-          <SketchToolPanel
-            schema={sketchToolPresentation}
-            onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
-          />
-          <SketchToolOverlays schema={sketchToolPresentation} />
-          {restoreMessage ? (
-            <div className="absolute right-4 top-4 max-w-sm rounded-lg border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.95)] p-3 text-xs text-[var(--cad-foreground)] shadow-[var(--cad-panel-shadow)]">
-              <div className="font-medium">History restore failed</div>
-              <div className="mt-1 text-[var(--cad-muted-foreground)]">{restoreMessage}</div>
-              <button
-                className="mt-3 rounded-md border border-[var(--cad-border-strong)] px-2 py-1 text-[var(--cad-foreground)]"
-                type="button"
-                onClick={() => {
-                  modelingService.resetOperationHistory()
-                  setRestoreMessage(null)
-                }}
-              >
-                Reset stored history
-              </button>
-            </div>
-          ) : null}
-          <WorkbenchStateDebugger state={debuggerState} />
-        </main>
+        </div>
         <FeatureInspector
           featureSnapshot={editableFeatureSnapshot}
           onPatch={(patch) =>

@@ -30,6 +30,7 @@ import type {
   DeleteFeatureResponse,
   DeleteFeatureRequest,
   DocumentSnapshot,
+  DocumentFeatureCursor,
   EvaluatePreviewRequest,
   EvaluatePreviewResponse,
   ExtrudeFeatureParameters,
@@ -57,6 +58,8 @@ import type {
   ReorderFeatureRequest,
   ReorderFeatureResponse,
   SketchSnapshotRecord,
+  SetFeatureCursorRequest,
+  SetFeatureCursorResponse,
   SnapshotEntityRecord,
   UpdateFeatureResponse,
   UpdateFeatureRequest,
@@ -73,6 +76,7 @@ import {
   createDeleteFeatureHistoryEntry,
   createEmptyOperationHistory,
   createReorderFeatureHistoryEntry,
+  createSetFeatureCursorHistoryEntry,
   createUpdateFeatureHistoryEntry,
   type ModelingOperationHistoryEntry,
   type ModelingOperationHistoryPayload,
@@ -126,6 +130,7 @@ export interface ModelingService {
   updateFeature(input: ModelingUpdateFeatureInput): Promise<ModelingFeatureMutationResult>
   deleteFeature(input: ModelingDeleteFeatureInput): Promise<ModelingDeleteFeatureResult>
   reorderFeature(input: ModelingReorderFeatureInput): Promise<ModelingReorderFeatureResult>
+  setFeatureCursor(input: ModelingSetFeatureCursorInput): Promise<ModelingSetFeatureCursorResult>
   evaluatePreview(input: ModelingEvaluatePreviewInput): Promise<ModelingPreviewResult>
   resolveReference(target: PrimitiveRef): Promise<ModelingResolvedReferenceResult>
 }
@@ -195,6 +200,15 @@ export interface ModelingReorderFeatureResult {
   diagnostics: ModelingDiagnostic[]
 }
 
+export interface ModelingSetFeatureCursorResult {
+  revisionId: DocumentSnapshot['revisionId']
+  cursor: DocumentFeatureCursor
+  revisionState: MutationRevisionState
+  rebuildResult: RebuildResult
+  changedTargets: PrimitiveRef[]
+  diagnostics: ModelingDiagnostic[]
+}
+
 export interface ModelingCommitSketchResult {
   revisionId: DocumentSnapshot['revisionId']
   sketchId: SketchId
@@ -208,6 +222,7 @@ export type ModelingCreateFeatureInput = Omit<CreateFeatureRequest, 'contractVer
 export type ModelingUpdateFeatureInput = Omit<UpdateFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingDeleteFeatureInput = Omit<DeleteFeatureRequest, 'contractVersion' | 'documentId'>
 export type ModelingReorderFeatureInput = Omit<ReorderFeatureRequest, 'contractVersion' | 'documentId'>
+export type ModelingSetFeatureCursorInput = Omit<SetFeatureCursorRequest, 'contractVersion' | 'documentId'>
 export interface ModelingCommitSketchCorrelation {
   requestId: RequestId
   projectionRequestId: RequestId
@@ -2094,6 +2109,35 @@ function normalizeFeatures(value: unknown): FeatureSnapshotRecord[] {
   })
 }
 
+function normalizeDocumentFeatureCursor(
+  value: unknown,
+  features: readonly FeatureSnapshotRecord[],
+): DocumentFeatureCursor {
+  if (!isRecord(value) || !isString(value.kind)) {
+    throw new Error('Invalid document feature cursor payload.')
+  }
+
+  if (value.kind === 'empty') {
+    if (features.length > 0) {
+      throw new Error('Document feature cursor cannot be empty when features exist.')
+    }
+
+    return { kind: 'empty' }
+  }
+
+  if (value.kind === 'feature' && isString(value.featureId)) {
+    const featureId = assertFeatureId(value.featureId)
+
+    if (!features.some((feature) => feature.featureId === featureId)) {
+      throw new Error(`Document feature cursor references missing feature ${featureId}.`)
+    }
+
+    return { kind: 'feature', featureId }
+  }
+
+  throw new Error('Invalid document feature cursor payload.')
+}
+
 function normalizeBodies(value: unknown): BodySnapshotRecord[] {
   if (!Array.isArray(value)) {
     throw new Error('Invalid body snapshot payload.')
@@ -2223,6 +2267,9 @@ function normalizeKernelDocumentSnapshot(value: unknown): KernelDocumentSnapshot
     throw new Error('Invalid kernel document snapshot payload.')
   }
 
+  const features = normalizeFeatures(value.features)
+  const cursor = normalizeDocumentFeatureCursor(value.cursor, features)
+
   return {
     contractVersion:
       value.contractVersion === CONTRACT_VERSION
@@ -2238,7 +2285,8 @@ function normalizeKernelDocumentSnapshot(value: unknown): KernelDocumentSnapshot
     capabilities: normalizeModelingKernelCapabilities(value.capabilities),
     featureTree: normalizeFeatureTree(value.featureTree),
     objects: normalizeObjects(value.objects),
-    features: normalizeFeatures(value.features),
+    features,
+    cursor,
     sketches: normalizeSketches(value.sketches),
     bodies: normalizeBodies(value.bodies),
     constructions: normalizeConstructions(value.constructions),
@@ -2269,6 +2317,7 @@ function normalizeWorkspaceSnapshot(value: unknown): WorkspaceSnapshot {
     featureTree: presentation.featureTree,
     objects: presentation.objects,
     features: document.features,
+    cursor: document.cursor,
     sketches: document.sketches,
     bodies: document.bodies,
     constructions: document.constructions,
@@ -2424,6 +2473,22 @@ function mapReorderFeatureResponse(
   }
 }
 
+function mapSetFeatureCursorResponse(
+  response: SetFeatureCursorResponse,
+  expectedDocumentId: DocumentId,
+): ModelingSetFeatureCursorResult {
+  assertKernelContractVersion(response.contractVersion)
+  assertKernelDocumentIdMatches(response.documentId, expectedDocumentId, 'Set feature cursor')
+  return {
+    revisionId: response.revisionId,
+    cursor: response.cursor,
+    revisionState: response.revisionState,
+    rebuildResult: response.rebuildResult,
+    changedTargets: response.changedTargets,
+    diagnostics: response.diagnostics,
+  }
+}
+
 function mapResolvedReferenceResponse(
   response: ResolveReferenceResponse,
   expectedDocumentId: DocumentId,
@@ -2500,6 +2565,19 @@ function normalizeReorderFeatureInput(
   input: ModelingReorderFeatureInput,
   documentId: DocumentId,
 ): ReorderFeatureRequest {
+  assertMutationBase(input)
+
+  return {
+    ...input,
+    contractVersion: CONTRACT_VERSION,
+    documentId,
+  }
+}
+
+function normalizeSetFeatureCursorInput(
+  input: ModelingSetFeatureCursorInput,
+  documentId: DocumentId,
+): SetFeatureCursorRequest {
   assertMutationBase(input)
 
   return {
@@ -2624,6 +2702,13 @@ async function replayHistoryEntry(input: {
       })
     case 'reorderFeature':
       return input.adapter.reorderFeature({
+        ...input.entry.payload,
+        contractVersion: CONTRACT_VERSION,
+        documentId: input.documentId,
+        baseRevisionId,
+      })
+    case 'setFeatureCursor':
+      return input.adapter.setFeatureCursor({
         ...input.entry.payload,
         contractVersion: CONTRACT_VERSION,
         documentId: input.documentId,
@@ -2814,6 +2899,16 @@ export function createModelingService(
 
       return mapReorderFeatureResponse(response, currentDocumentId)
     },
+    async setFeatureCursor(input) {
+      await restorePromise
+      const request = normalizeSetFeatureCursorInput(input, currentDocumentId)
+      const response = await adapter.setFeatureCursor(request)
+      if (isAcceptedMutation(response)) {
+        appendOperationHistoryEntry(createSetFeatureCursorHistoryEntry(request))
+      }
+
+      return mapSetFeatureCursorResponse(response, currentDocumentId)
+    },
     async evaluatePreview(input) {
       await restorePromise
       const response = await adapter.evaluatePreview(normalizePreviewInput(input, currentDocumentId))
@@ -2854,6 +2949,7 @@ export const modelingRuntimeValidators = {
   renderExport: normalizeRenderExport,
   sketches: normalizeSketches,
   features: normalizeFeatures,
+  documentFeatureCursor: normalizeDocumentFeatureCursor,
   bodies: normalizeBodies,
   constructions: normalizeConstructions,
   entities: normalizeEntities,
