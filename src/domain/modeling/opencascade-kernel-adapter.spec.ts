@@ -28,6 +28,7 @@ import type {
   DocumentId,
   FaceId,
   ProjectedGeometryId,
+  RegionId,
   RevisionId,
   SketchId,
 } from '@/contracts/shared/ids'
@@ -510,6 +511,42 @@ function createSweepDefinition(
             bodyId: pathBodyId,
             edgeId: pathEdgeId,
           }],
+        },
+        ...(extraParticipants ?? []),
+      ],
+    },
+  }
+}
+
+function createLoftDefinition(
+  sketch: SketchSnapshotRecord,
+  secondaryProfile:
+    | { kind: 'face'; bodyId: BodyId; faceId: FaceId }
+    | { kind: 'region'; sketchId: SketchId; regionId: RegionId },
+  extraParticipants: readonly AdvancedParticipantValue[] = [],
+): FeatureDefinition {
+  const region = sketch.sketch.regions[0]
+
+  if (!region) {
+    throw new Error('Committed sketch must expose a region for loft testing.')
+  }
+
+  return {
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            {
+              kind: 'region',
+              sketchId: sketch.sketchId,
+              regionId: region.regionId,
+            },
+            secondaryProfile,
+          ],
         },
         ...(extraParticipants ?? []),
       ],
@@ -1070,6 +1107,135 @@ async function testSweepPreviewCreateAndUnsupportedCases() {
   assert(
     unsupportedBoolean.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
     'Unsupported sweep create rejection must surface structured diagnostics.',
+  )
+}
+
+async function testLoftPreviewCreateAndUnsupportedCases() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before loft coverage.')
+  }
+
+  const firstSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const loftSketch = requirePrimarySketch(firstSnapshot.snapshot)
+  const faceBody = await createExtrudeBody(adapter, firstSnapshot.snapshot.revisionId, loftSketch, 12)
+  const planarFaceId = await findPreviewablePlanarFace(adapter, faceBody.response.revisionId, faceBody.bodyId)
+  const facePlane = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: faceBody.response.revisionId,
+    definition: createPlaneDefinitionFromFace(faceBody.bodyId, planarFaceId),
+  })
+  assert(facePlane.revisionState.kind === 'accepted', 'Face-backed plane creation must succeed before loft coverage.')
+  const planeTarget = facePlane.changedTargets.find((target) => target.kind === 'construction')
+  assert(planeTarget?.kind === 'construction', 'Face-backed plane creation must produce a construction target.')
+  const planeSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const loftPlane = planeSnapshot.snapshot.constructions.find((entry) => entry.constructionId === planeTarget.constructionId)?.plane
+  assert(loftPlane, 'Face-backed loft plane must be present in the current snapshot.')
+  const upperSketchCommit = await commitOffsetSketch(adapter, planeSnapshot.snapshot.revisionId, {
+    sketchLabel: 'loft_upper',
+    offsetX: 0.15,
+    offsetY: 0.15,
+    plane: loftPlane,
+  })
+  assert(upperSketchCommit.revisionState.kind === 'accepted', 'Upper loft sketch must commit successfully.')
+  const secondSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const upperSketch = requireSketch(secondSnapshot.snapshot, upperSketchCommit.sketchId)
+  const upperRegion = upperSketch.sketch.regions[0]
+  assert(upperRegion, 'Upper loft sketch must expose a profile region.')
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: secondSnapshot.snapshot.revisionId,
+    previewId: 'preview_loft_region_profiles',
+    definition: createLoftDefinition(loftSketch, {
+      kind: 'region',
+      sketchId: upperSketch.sketchId,
+      regionId: upperRegion.regionId,
+    }),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh loft previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Loft preview must not emit error diagnostics')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: secondSnapshot.snapshot.revisionId,
+    definition: createLoftDefinition(loftSketch, {
+      kind: 'region',
+      sketchId: upperSketch.sketchId,
+      regionId: upperRegion.regionId,
+    }),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Loft create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Accepted loft create must rebuild.')
+  assert(
+    created.changedTargets.some((target) => target.kind === 'body'),
+    'Loft create must report a produced body target.',
+  )
+
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const currentBody = requireBody(snapshot.snapshot, faceBody.bodyId)
+  const guideEdgeId = currentBody.topology.edgeIds[0]
+  const region = loftSketch.sketch.regions[0]
+  assert(region, 'Committed sketch must expose a region for unsupported loft coverage.')
+  const unsupportedGuide = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    previewId: 'preview_loft_unsupported_guide',
+    definition: createLoftDefinition(loftSketch, {
+      kind: 'region',
+      sketchId: upperSketch.sketchId,
+      regionId: upperRegion.regionId,
+    }, [
+      { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: faceBody.bodyId, edgeId: guideEdgeId! }] },
+    ]),
+  })
+  const unsupportedBoolean = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: {
+      kind: 'loft',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'subtract',
+        participants: [
+          {
+            role: 'profile',
+            targets: [
+              { kind: 'region', sketchId: loftSketch.sketchId, regionId: region.regionId },
+              { kind: 'region', sketchId: upperSketch.sketchId, regionId: upperRegion.regionId },
+            ],
+          },
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: faceBody.bodyId }] },
+        ],
+      },
+    },
+  })
+
+  assert(hasErrorDiagnostics(unsupportedGuide.diagnostics), 'Guide-curve loft preview must emit explicit unsupported diagnostics.')
+  assert(unsupportedBoolean.revisionState.kind === 'rejected', 'Boolean loft create must reject unsupported composition explicitly.')
+  assert(
+    unsupportedBoolean.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
+    'Unsupported loft create rejection must surface structured diagnostics.',
   )
 }
 
@@ -2052,6 +2218,7 @@ await testPlaneFeatureCreateSupportsConstructionAndPlanarFaceReferences()
 await testExtrudePreviewCreateAndUpdateCommitGeometry()
 await testRevolvePreviewCreateAndConstructionAxisRejection()
 await testSweepPreviewCreateAndUnsupportedCases()
+await testLoftPreviewCreateAndUnsupportedCases()
 await testFilletCreateAndUpdateMutateBodyTopology()
 await testChamferPreviewCreateAndUnsupportedCases()
 await testShellPreviewCreateUpdateAndSnapshotRoundTrip()

@@ -639,6 +639,32 @@ function buildSweepProfileShape(
   throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep profiles must be region or planar face targets.')
 }
 
+function buildLoftSectionWire(
+  context: OccFeatureExecutionContext,
+  profile: DurableRef,
+) {
+  if (profile.kind === 'region') {
+    const sketch = requireSketchSnapshot(context, profile.sketchId)
+    const region = requireRegion(sketch, profile.regionId)
+
+    if (region.loops.some((loop) => loop.role === 'inner')) {
+      throw new Error('advanced-feature-unsupported-kernel-case: OCC loft does not support profiles with inner loops yet.')
+    }
+
+    const face = buildRegionProfileFace(context.oc, { plane: sketch.plane, sketch: sketch.sketch }, region).face
+    return context.oc.BRepTools.OuterWire(face)
+  }
+
+  if (profile.kind === 'face') {
+    const body = requireBody(context, profile.bodyId)
+    const face = requireFace(body, profile.faceId)
+    getExtrusionNormalForPlanarFace(context.oc, face, 'positive')
+    return context.oc.BRepTools.OuterWire(face)
+  }
+
+  throw new Error('advanced-feature-unsupported-kernel-case: OCC loft profiles must be region or planar face targets.')
+}
+
 function buildSweepPathWire(
   context: OccFeatureExecutionContext,
   path: DurableRef,
@@ -709,6 +735,73 @@ function getSweepBooleanPolicy(definition: AdvancedSolidFeatureDefinition & { ki
   }
 
   throw new Error('advanced-feature-unsupported-kernel-case: OCC sweep does not support boolean composition yet.')
+}
+
+function buildLoftFeatureShape(
+  context: OccFeatureExecutionContext,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'loft' },
+) {
+  const profileTargets = getAdvancedParticipant(definition, 'profile')?.targets ?? []
+  const guideCurveTargets = getAdvancedParticipant(definition, 'guideCurve')?.targets ?? []
+
+  if (profileTargets.length < 2) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC loft requires at least two ordered profile targets.')
+  }
+
+  if (guideCurveTargets.length > 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC loft does not support guide curves yet.')
+  }
+
+  const loftBuilder = new context.oc.BRepOffsetAPI_ThruSections(true, false, context.modelingTolerance)
+  loftBuilder.CheckCompatibility(true)
+
+  for (const profile of profileTargets) {
+    loftBuilder.AddWire(buildLoftSectionWire(context, profile))
+  }
+
+  loftBuilder.Build(new context.oc.Message_ProgressRange_1())
+
+  if (!loftBuilder.IsDone()) {
+    throw new Error('OCC loft build failed.')
+  }
+
+  return loftBuilder.Shape()
+}
+
+function getLoftBooleanPolicy(definition: AdvancedSolidFeatureDefinition & { kind: 'loft' }): {
+  operation: FeatureBooleanOperation
+  booleanScope: FeatureBooleanScope
+} {
+  const intent = definition.parameters.operationIntent ?? 'create'
+
+  if (intent === 'create') {
+    return {
+      operation: 'newBody',
+      booleanScope: { kind: 'standalone' },
+    }
+  }
+
+  throw new Error('advanced-feature-unsupported-kernel-case: OCC loft does not support boolean composition yet.')
+}
+
+function executeLoftFeature(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'loft' },
+): OccFeatureExecutionResult {
+  const featureShape = buildLoftFeatureShape(context, definition)
+  const policy = getLoftBooleanPolicy(definition)
+  const result = applyBooleanPolicy(context, ownerFeatureId, policy.operation, policy.booleanScope, featureShape)
+
+  return {
+    bodies: result.bodies,
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets: result.producedTargets,
+    entities: [],
+    renderRecords: [],
+    historyInvalidations: result.historyInvalidations,
+  }
 }
 
 function executeSweepFeature(
@@ -1094,6 +1187,8 @@ export function executeOccFeature(
       return executeShellFeature(context, ownerFeatureId, definition.parameters)
     case 'sweep':
       return executeSweepFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'sweep' })
+    case 'loft':
+      return executeLoftFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'loft' })
     case 'chamfer':
       return executeChamferFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'chamfer' })
     default:

@@ -877,6 +877,123 @@ async function testSweepRejectsUnsupportedGuideCurvesAndBooleanComposition() {
   assert(booleanError?.includes('advanced-feature-unsupported-kernel-case') === true, 'Boolean sweeps must reject with an explicit unsupported-case code.')
 }
 
+async function testLoftBuildsStandaloneBodyFromOrderedProfiles() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const plane = createStandardPlaneDefinition('xy')
+  const { sketch, region } = createRectangleSketch('sketch_phase4_loft' as SketchId, plane, {
+    origin: [-0.5, -0.5],
+    width: 1,
+    height: 1,
+  })
+  const faceBody = await makeBoxBody(
+    oc,
+    'body_phase4_loft_face' as BodyId,
+    0.7,
+    0.7,
+    1,
+    'feature_phase4_loft_face_seed' as FeatureId,
+    [0.15, 0.15, 4],
+  )
+  const topFaceId = findFaceIdByDirection(oc, faceBody, [0, 0, 1])
+  assert(topFaceId != null, 'Expected loft support body to expose an upward planar face.')
+  const context = await createContext({ sketches: [sketch], bodies: [faceBody] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_loft' as FeatureId, {
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+            { kind: 'face', bodyId: faceBody.bodyId, faceId: topFaceId },
+          ],
+        },
+      ],
+    },
+  })
+  const bodyTarget = result.producedTargets[0]
+  assert(bodyTarget?.kind === 'body', 'Standalone loft must produce a new body target.')
+  const producedBody = result.bodies.find((body) => body.bodyId === bodyTarget.bodyId)
+  assert(producedBody != null, 'Standalone loft must append the produced body.')
+  assert(await bodyVolume(context.oc, producedBody.shape) > 0, 'Standalone loft should produce non-empty solid geometry.')
+}
+
+async function testLoftRejectsUnsupportedGuideCurvesAndBooleanComposition() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const plane = createStandardPlaneDefinition('xy')
+  const { sketch, region } = createRectangleSketch('sketch_phase4_loft_reject' as SketchId, plane, {
+    origin: [-0.5, -0.5],
+    width: 1,
+    height: 1,
+  })
+  const faceBody = await makeBoxBody(
+    oc,
+    'body_phase4_loft_reject_face' as BodyId,
+    0.7,
+    0.7,
+    1,
+    'feature_phase4_loft_reject_seed' as FeatureId,
+    [0.15, 0.15, 4],
+  )
+  const topFaceId = findFaceIdByDirection(oc, faceBody, [0, 0, 1])
+  const guideEdgeId = findEdgeIdByDirection(oc, faceBody, [1, 0, 0]) ?? faceBody.topology.edgeIds[0]
+  assert(topFaceId != null, 'Expected loft support body to expose an upward planar face.')
+  assert(guideEdgeId != null, 'Expected loft support body to expose a durable guide edge.')
+  const context = await createContext({ sketches: [sketch], bodies: [faceBody] })()
+
+  let guideError: string | null = null
+  try {
+    executeOccFeature(context, 'feature_phase4_loft_guide_reject' as FeatureId, {
+      kind: 'loft',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'create',
+        participants: [
+          {
+            role: 'profile',
+            targets: [
+              { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+              { kind: 'face', bodyId: faceBody.bodyId, faceId: topFaceId },
+            ],
+          },
+          { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: faceBody.bodyId, edgeId: guideEdgeId }] },
+        ],
+      },
+    })
+  } catch (error) {
+    guideError = error instanceof Error ? error.message : String(error)
+  }
+
+  let booleanError: string | null = null
+  try {
+    executeOccFeature(context, 'feature_phase4_loft_boolean_reject' as FeatureId, {
+      kind: 'loft',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'subtract',
+        participants: [
+          {
+            role: 'profile',
+            targets: [
+              { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+              { kind: 'face', bodyId: faceBody.bodyId, faceId: topFaceId },
+            ],
+          },
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: faceBody.bodyId }] },
+        ],
+      },
+    })
+  } catch (error) {
+    booleanError = error instanceof Error ? error.message : String(error)
+  }
+
+  assert(guideError?.includes('advanced-feature-unsupported-kernel-case') === true, 'Guide-curve lofts must reject with an explicit unsupported-case code.')
+  assert(booleanError?.includes('advanced-feature-unsupported-kernel-case') === true, 'Boolean lofts must reject with an explicit unsupported-case code.')
+}
+
 async function testFilletReplacesAffectedBody() {
   const oc = await getDefaultOpenCascadeInstance()
   const boxBody = await makeBoxBody(oc, 'body_phase4_fillet' as BodyId, 2, 2, 2, 'feature_phase4_box' as FeatureId)
@@ -1046,6 +1163,8 @@ await testRevolveRejectsConstructionAxisAndBuildsEdgeBackedSolid()
 await testRevolveRejectsNonPlanarFaceProfilesExplicitly()
 await testSweepBuildsStandaloneBodyFromRegionAndDurableEdgePath()
 await testSweepRejectsUnsupportedGuideCurvesAndBooleanComposition()
+await testLoftBuildsStandaloneBodyFromOrderedProfiles()
+await testLoftRejectsUnsupportedGuideCurvesAndBooleanComposition()
 await testFilletReplacesAffectedBody()
 await testFilletRejectsEmptyEdgeTargetList()
 await testShellBuildsPreviewableSolidFromExplicitBodyAndFaces()

@@ -51,6 +51,41 @@ const sweepDescriptor = {
   },
 } satisfies AdvancedSolidFeatureAuthoringDescriptor
 
+const loftDescriptor = {
+  featureKind: 'loft',
+  participants: [
+    {
+      role: 'profile',
+      label: 'Profile',
+      required: true,
+      cardinality: { min: 2, max: null },
+      acceptedKinds: ['region', 'face'],
+    },
+    {
+      role: 'guideCurve',
+      label: 'Guide curve',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['edge', 'sketchEntity'],
+    },
+    {
+      role: 'targetBody',
+      label: 'Target body',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['body'],
+    },
+  ],
+  operationIntent: {
+    supportedIntents: ['create', 'add', 'subtract', 'intersect'],
+    requiredParticipantsByIntent: {
+      add: ['targetBody'],
+      subtract: ['targetBody'],
+      intersect: ['targetBody'],
+    },
+  },
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
 const chamferDescriptor = {
   featureKind: 'chamfer',
   participants: [
@@ -185,6 +220,69 @@ function testSweepPathCardinalityAndBooleanTargetValidation() {
   assert(validBoolean.length === 0, 'Boolean sweep validation should accept an explicit targetBody participant.')
 }
 
+function testLoftValidationPreservesOrderedProfilesAndGuideCurves() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            { kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' },
+            { kind: 'face', bodyId: 'body_b', faceId: 'face_b' },
+          ],
+        },
+        { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_guide', edgeId: 'edge_guide' }] },
+      ],
+    },
+  }, loftDescriptor)
+
+  assert(valid.length === 0, 'Loft validation should accept two or more ordered profiles and optional guide curves.')
+}
+
+function testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets() {
+  const missingProfiles = validateAdvancedSolidFeatureDefinition({
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'profile', targets: [{ kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' }] },
+      ],
+    },
+  }, loftDescriptor)
+
+  const invalidBoolean = validateAdvancedSolidFeatureDefinition({
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'add',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            { kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' },
+            { kind: 'region', sketchId: 'sketch_b', regionId: 'region_b' },
+          ],
+        },
+        { role: 'targetBody', targets: [{ kind: 'face', bodyId: 'body_wrong', faceId: 'face_wrong' }] },
+      ],
+    },
+  }, loftDescriptor)
+
+  assert(
+    missingProfiles.some((diagnostic) => diagnostic.code === 'advanced-feature-missing-participant' && diagnostic.role === 'profile')
+      && missingProfiles.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-cardinality' && diagnostic.role === 'profile'),
+    'Loft validation should require at least two profile targets.',
+  )
+  assert(
+    invalidBoolean.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'targetBody'),
+    'Loft boolean validation should require explicit body targets.',
+  )
+}
+
 function testChamferEdgeParticipantsAndDistanceValidation() {
   const valid = validateAdvancedSolidFeatureDefinition({
     kind: 'chamfer',
@@ -232,4 +330,6 @@ testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
 testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
 testAdvancedOperationIntentValidationRejectsUnsupportedModes()
 testSweepPathCardinalityAndBooleanTargetValidation()
+testLoftValidationPreservesOrderedProfilesAndGuideCurves()
+testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets()
 testChamferEdgeParticipantsAndDistanceValidation()

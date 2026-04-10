@@ -73,6 +73,14 @@ export interface SweepFeatureParameterDraft {
   options: Record<string, unknown>
 }
 
+export interface LoftFeatureParameterDraft {
+  profileTargets: readonly Extract<PrimitiveRef, { kind: 'region' | 'face' }>[]
+  guideCurveTargets: readonly Extract<PrimitiveRef, { kind: 'edge' | 'sketchEntity' }>[]
+  operationIntent: AdvancedSolidOperationIntent
+  targetBodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
+  options: Record<string, unknown>
+}
+
 export interface ChamferFeatureParameterDraft {
   edgeTargets: readonly Extract<PrimitiveRef, { kind: 'edge' }>[]
   distance: number
@@ -85,6 +93,7 @@ export interface FeatureDraftByKind {
   plane: PlaneFeatureParameterDraft
   shell: ShellFeatureParameterDraft
   sweep: SweepFeatureParameterDraft
+  loft: LoftFeatureParameterDraft
   chamfer: ChamferFeatureParameterDraft
 }
 
@@ -95,6 +104,7 @@ export interface FeatureParametersByKind {
   plane: PlaneFeatureParameters
   shell: ShellFeatureParameters
   sweep: AdvancedSolidFeatureParameters
+  loft: AdvancedSolidFeatureParameters
   chamfer: AdvancedSolidFeatureParameters
 }
 
@@ -105,11 +115,12 @@ export interface FeatureVersionByKind {
   plane: PlaneFeatureSchemaVersion
   shell: ShellFeatureSchemaVersion
   sweep: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  loft: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
   chamfer: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
 }
 
 export type FeatureDefinitionByKind<TKind extends AuthoredFeatureKind> =
-  TKind extends 'sweep' | 'chamfer'
+  TKind extends 'sweep' | 'loft' | 'chamfer'
     ? AdvancedSolidFeatureDefinition & { kind: TKind }
     : Extract<FeatureDefinition, { kind: TKind }>
 
@@ -135,6 +146,7 @@ export type FilletFeatureEditSessionState = FeatureEditSessionStateForKind<'fill
 export type PlaneFeatureEditSessionState = FeatureEditSessionStateForKind<'plane'>
 export type ShellFeatureEditSessionState = FeatureEditSessionStateForKind<'shell'>
 export type SweepFeatureEditSessionState = FeatureEditSessionStateForKind<'sweep'>
+export type LoftFeatureEditSessionState = FeatureEditSessionStateForKind<'loft'>
 export type ChamferFeatureEditSessionState = FeatureEditSessionStateForKind<'chamfer'>
 
 export type FeatureEditSessionState =
@@ -144,6 +156,7 @@ export type FeatureEditSessionState =
   | PlaneFeatureEditSessionState
   | ShellFeatureEditSessionState
   | SweepFeatureEditSessionState
+  | LoftFeatureEditSessionState
   | ChamferFeatureEditSessionState
 
 export type FeatureDraftPatch = Record<string, unknown>

@@ -260,6 +260,24 @@ export const sweepAdvancedFeatureExample = {
   },
 } satisfies AdvancedSolidFeatureDefinition
 
+export const loftAdvancedFeatureExample = {
+  kind: 'loft',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    operationIntent: 'create',
+    participants: [
+      {
+        role: 'profile',
+        targets: [
+          { kind: 'region', sketchId: 'sketch_loft_a', regionId: 'region_loft_a' },
+          { kind: 'face', bodyId: 'body_loft_b', faceId: 'face_loft_b' },
+        ],
+      },
+      { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_guide', edgeId: 'edge_guide' }] },
+    ],
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
 export const chamferAdvancedFeatureExample = {
   kind: 'chamfer',
   featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,

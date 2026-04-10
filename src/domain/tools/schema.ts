@@ -17,6 +17,7 @@ export type ToolIconId =
   | 'extrude'
   | 'revolve'
   | 'sweep'
+  | 'loft'
   | 'fillet'
   | 'chamfer'
   | 'shell'

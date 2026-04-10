@@ -684,6 +684,66 @@ function validateFeatureDefinitionAgainstSnapshot(
 
       return { accepted: true as const, diagnostics: [] }
     }
+    case 'loft': {
+      const profileTargets = getAdvancedParticipant(definition, 'profile')?.targets ?? []
+      const guideCurveTargets = getAdvancedParticipant(definition, 'guideCurve')?.targets ?? []
+      const targetBodyTargets = getAdvancedParticipant(definition, 'targetBody')?.targets ?? []
+
+      if (profileTargets.length < 2) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-loft',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Loft requires at least two ordered profile participants.')],
+        }
+      }
+
+      if (profileTargets.some((target) => target.kind !== 'region' && target.kind !== 'face')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-loft',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Loft profile participants must be region or face targets.')],
+        }
+      }
+
+      if (
+        profileTargets.some((target) =>
+          (target.kind === 'region' && !hasRegionTarget(snapshot, target)) ||
+          (target.kind === 'face' && !hasFaceTarget(snapshot, target.bodyId, target.faceId)),
+        )
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-loft',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Loft profile participants must resolve to live durable targets.')],
+        }
+      }
+
+      if (guideCurveTargets.length > 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock loft does not implement guide-curve participants yet.')],
+        }
+      }
+
+      if (definition.parameters.operationIntent !== undefined && definition.parameters.operationIntent !== 'create') {
+        if (targetBodyTargets.length === 0 || targetBodyTargets.some((target) => target.kind !== 'body')) {
+          return {
+            accepted: false as const,
+            reasonCode: 'mock-invalid-loft',
+            diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Loft boolean operation intents require explicit targetBody participants.')],
+          }
+        }
+
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock loft does not implement boolean composition yet.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     case 'chamfer': {
       const edgeTargets = getAdvancedParticipant(definition, 'edge')?.targets ?? []
       const distance = definition.parameters.options?.distance
@@ -733,6 +793,11 @@ function validateFeatureDefinitionAgainstSnapshot(
 
 function buildPreviewRenderables(definition: FeatureDefinition, snapshot: DocumentSnapshot) {
   if (definition.kind === 'sweep') {
+    const profile = getAdvancedParticipant(definition, 'profile')?.targets[0]
+    return profile ? createPreviewRenderableSet(getPrimitiveRefKey(profile)) : []
+  }
+
+  if (definition.kind === 'loft') {
     const profile = getAdvancedParticipant(definition, 'profile')?.targets[0]
     return profile ? createPreviewRenderableSet(getPrimitiveRefKey(profile)) : []
   }
@@ -1404,8 +1469,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       angularToleranceRadians: 0.0001,
     },
     capabilities: {
-      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'chamfer'],
-      previewableFeatureKinds: ['extrude', 'sweep', 'chamfer'],
+      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'loft', 'chamfer'],
+      previewableFeatureKinds: ['extrude', 'sweep', 'loft', 'chamfer'],
       supportedProfileKinds: ['region', 'face'],
       supportsFaceBackedSketchPlanes: true,
       supportsDurableTopologyNaming: false,

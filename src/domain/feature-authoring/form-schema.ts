@@ -83,6 +83,10 @@ export interface FeatureReferenceCollectionField extends FeatureFormFieldBase {
   emptyLabel: string
   picker: FeatureReferencePickerBehavior
   patch: FeatureEditorPatchBinding
+  ordering?: {
+    moveUpPatchKey: string
+    moveDownPatchKey: string
+  }
 }
 
 export interface FeatureReferencePickerBehavior {

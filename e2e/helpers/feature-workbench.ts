@@ -8,7 +8,7 @@ export const FEATURE_FIXTURE = {
   body: 'body_feature_extrude-1',
 } as const
 
-type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'fillet' | 'chamfer' | 'shell' | 'plane'
+type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell' | 'plane'
 
 export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   constructor(page: Page) {
@@ -57,6 +57,7 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
       extrude: 'Create an extruded solid or surface.',
       revolve: 'Create a revolved solid or surface.',
       sweep: 'Create a swept solid or surface.',
+      loft: 'Create a lofted solid from ordered profiles.',
       fillet: 'Round selected edges.',
       chamfer: 'Bevel selected edges.',
       shell: 'Hollow a solid body.',
@@ -80,6 +81,31 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
 
     await this.page.getByRole('button', { name: ariaLabel }).click()
     return ariaLabel
+  }
+
+  async selectSupportedLoftFaceProfile(profileTarget: string) {
+    const faceLabels = await this.getReferenceLabelsMatching(/^Select .* body_feature_extrude-1\.face_/)
+
+    for (const faceLabel of faceLabels) {
+      await this.selectReference(profileTarget)
+      await this.activateFeature('loft')
+      await this.page.getByRole('button', { name: faceLabel }).click()
+      await this.page.waitForTimeout(300)
+
+      try {
+        if (await this.hasVisibleFeatureErrorDiagnostics()) {
+          throw new Error('Loft candidate emitted error diagnostics.')
+        }
+        await expect.poll(() => this.featureSessionLabel(), { timeout: 10_000 }).toContain('create:loft:previewReady')
+        await expect.poll(() => this.hasVisibleFeatureErrorDiagnostics(), { timeout: 2_000 }).toBe(false)
+        return faceLabel
+      } catch {
+        await this.page.getByRole('button', { name: 'Cancel' }).click()
+        await expect.poll(() => this.machineLabel(), { timeout: 10_000 }).toContain('idle')
+      }
+    }
+
+    throw new Error('No loft face reference produced a preview-ready loft session.')
   }
 
   async selectFirstViewportTargetMatching(pattern: RegExp) {
@@ -121,13 +147,17 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   }
 
   private async getFirstReferenceLabelMatching(pattern: RegExp) {
+    const matches = await this.getReferenceLabelsMatching(pattern)
+    return matches[0] ?? null
+  }
+
+  private async getReferenceLabelsMatching(pattern: RegExp) {
     return this.page.getByRole('button').evaluateAll((buttons, source) => {
       const regex = new RegExp(source)
-      const match = buttons.find((button) => {
+      return buttons.flatMap((button) => {
         const label = button.getAttribute('aria-label')
-        return label ? regex.test(label) : false
+        return label && regex.test(label) ? [label] : []
       })
-      return match?.getAttribute('aria-label') ?? null
     }, pattern.source)
   }
 
@@ -183,6 +213,10 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   private async currentPreviewDiagnosticsText() {
     const bodyText = await this.page.locator('body').textContent()
     return bodyText?.match(/Diagnostics(.*?)CancelCommit/s)?.[1] ?? ''
+  }
+
+  private async hasVisibleFeatureErrorDiagnostics() {
+    return this.page.locator('aside').getByText(/^error$/i).isVisible().catch(() => false)
   }
 }
 

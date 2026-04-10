@@ -68,6 +68,7 @@ export type SelectionFilterKind =
   | 'extrudeProfile'
   | 'revolveReferences'
   | 'sweepReferences'
+  | 'loftReferences'
   | 'filletEdges'
   | 'chamferEdges'
   | 'shellReferences'
@@ -359,6 +360,56 @@ export const sweepSelectionFilter: SelectionFilter = {
       slots: [
         {
           id: 'sweep-boolean-target',
+          label: 'Boolean target',
+          description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
+export const loftSelectionFilter: SelectionFilter = {
+  kind: 'loftReferences',
+  allowedKinds: ['region', 'face', 'edge', 'sketchEntity', 'body'],
+  label: 'Loft references',
+  requirements: [
+    {
+      id: 'loft-profile',
+      label: 'Profile target',
+      description: 'Loft accepts two or more explicit region or planar face profiles in user-defined order.',
+      slots: [
+        {
+          id: 'loft-profile',
+          label: 'Loft profile',
+          description: 'Select one or more derived sketch regions or planar faces.',
+          acceptedKinds: ['region', 'face'],
+          acceptedSemantics: ['regionProfile', 'planarFace'],
+        },
+      ],
+    },
+    {
+      id: 'loft-guide-curve',
+      label: 'Guide curve',
+      description: 'Guide curves are contract-visible but reported as unsupported until the kernel path supports them.',
+      slots: [
+        {
+          id: 'loft-guide-curve',
+          label: 'Guide curve',
+          description: 'Select a durable edge or sketch entity guide curve.',
+          acceptedKinds: ['edge', 'sketchEntity'],
+          acceptedSemantics: ['edge', 'sketchEntity'],
+        },
+      ],
+    },
+    {
+      id: 'loft-boolean-target',
+      label: 'Boolean target',
+      description: 'Add, subtract, and intersect require one explicit target body.',
+      slots: [
+        {
+          id: 'loft-boolean-target',
           label: 'Boolean target',
           description: 'Select one body target.',
           acceptedKinds: ['body'],

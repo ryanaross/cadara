@@ -22,6 +22,8 @@ export type {
   ChamferFeatureParameterDraft,
   FilletFeatureEditSessionState,
   FilletFeatureParameterDraft,
+  LoftFeatureEditSessionState,
+  LoftFeatureParameterDraft,
   PlaneFeatureEditSessionState,
   PlaneFeatureParameterDraft,
   RevolveFeatureEditSessionState,
@@ -95,6 +97,7 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'revolve'
     && feature.definition.kind !== 'shell'
     && feature.definition.kind !== 'sweep'
+    && feature.definition.kind !== 'loft'
     && feature.definition.kind !== 'chamfer'
   ) {
     return null

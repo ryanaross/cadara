@@ -6,6 +6,7 @@ import {
   buildFeatureDefinition,
   createFeatureEditSession,
   getFeatureEditorFormSchema,
+  hydrateFeatureEditSession,
   patchFeatureEditSession,
 } from '@/domain/editor/feature-editing'
 import {
@@ -29,7 +30,7 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'plane', 'revolve', 'shell', 'sweep']),
+    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'sweep']),
     'The feature authoring registry should contain every current authored feature kind.',
   )
 }
@@ -154,6 +155,95 @@ function testChamferDraftSelectionDistanceAndDefinitionBuilder() {
   assert(buildFeatureDefinition(invalidDistanceSession) === null, 'Chamfer drafts with non-positive distance should not build a definition.')
 }
 
+function testLoftDraftSelectionReorderingAndDefinitionBuilder() {
+  const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
+  const profileB = { kind: 'face' as const, bodyId: 'body_b' as const, faceId: 'face_b' as const }
+  const profileC = { kind: 'region' as const, sketchId: 'sketch_c' as const, regionId: 'region_c' as const }
+  const guideCurve = { kind: 'edge' as const, bodyId: 'body_path' as const, edgeId: 'edge_guide' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'loft',
+    selectedTarget: profileA,
+  })
+
+  assert(initialSession.featureType === 'loft', 'Loft activation should create a loft authoring session.')
+  assert(buildFeatureDefinition(initialSession) === null, 'Loft drafts with fewer than two profiles should not build a modeling definition.')
+
+  const twoProfileSession = patchFeatureEditSession(
+    initialSession,
+    { profileTargets: [profileA, profileB, profileC] },
+  )
+  const profilesField = getFeatureEditorFormSchema(twoProfileSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'loft-profiles')
+
+  assert(profilesField?.kind === 'referenceCollection', 'Loft form schema should expose ordered profiles as a reference collection.')
+  assert(profilesField.ordering?.moveUpPatchKey === 'moveProfileTargetEarlier', 'Loft profiles should expose explicit reordering controls.')
+
+  const reorderedSession = patchFeatureEditSession(twoProfileSession, {
+    moveProfileTargetEarlier: profileC,
+  })
+  const guideField = getFeatureEditorFormSchema(reorderedSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'loft-guide-curves')
+  assert(guideField?.kind === 'referenceCollection', 'Loft form schema should expose guide curves as a reference collection.')
+
+  const guideSession = patchFeatureEditSession(
+    reorderedSession,
+    createFeatureEditorReferenceSelectionPatch(guideField, guideCurve),
+  )
+  const definition = buildFeatureDefinition(guideSession)
+
+  assert(definition?.kind === 'loft', 'Completed loft drafts should build a loft modeling definition.')
+  assert(
+    definition.parameters.participants.find((participant) => participant.role === 'profile')?.targets[1] === profileC,
+    'Loft definitions should preserve the explicit reordered profile sequence.',
+  )
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'guideCurve' && participant.targets[0] === guideCurve),
+    'Loft definitions should preserve optional guide-curve participants.',
+  )
+}
+
+function testLoftHydrationPreservesOrderedProfilesForEditing() {
+  const hydrated = hydrateFeatureEditSession({
+    ownerDocumentId: 'doc_workspace',
+    ownerRevisionId: 'rev_1',
+    ownerFeatureId: 'feature_loft-1',
+    ownerSketchId: null,
+    ownerBodyId: null,
+    featureId: 'feature_loft-1',
+    label: 'feature_loft-1',
+    definition: {
+      kind: 'loft',
+      featureTypeVersion: 'advanced-solid-feature/v0',
+      parameters: {
+        operationIntent: 'create',
+        participants: [
+          {
+            role: 'profile',
+            targets: [
+              { kind: 'face', bodyId: 'body_b', faceId: 'face_b' },
+              { kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' },
+            ],
+          },
+          { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_g', edgeId: 'edge_g' }] },
+        ],
+      },
+    },
+    producedTargets: [{ kind: 'body', bodyId: 'body_loft-1' }],
+  })
+
+  assert(hydrated?.featureType === 'loft', 'Loft snapshots should hydrate into loft edit sessions.')
+  assert(
+    hydrated?.draft.profileTargets[0]?.kind === 'face' && hydrated.draft.profileTargets[1]?.kind === 'region',
+    'Loft hydration should preserve ordered profile targets for edit sessions.',
+  )
+  assert(
+    hydrated?.draft.guideCurveTargets[0]?.kind === 'edge',
+    'Loft hydration should preserve guide-curve participants for edit sessions.',
+  )
+}
+
 function testProfileBasedAuthoringUsesReferenceCollections() {
   const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
   const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
@@ -231,12 +321,14 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const fillet = definitions.find((definition) => definition.metadata.kind === 'fillet')
   const shell = definitions.find((definition) => definition.metadata.kind === 'shell')
   const sweep = definitions.find((definition) => definition.metadata.kind === 'sweep')
+  const loft = definitions.find((definition) => definition.metadata.kind === 'loft')
   const chamfer = definitions.find((definition) => definition.metadata.kind === 'chamfer')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
   assert(shell?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Shell should declare body participants for body-operation substrate coverage.')
   assert(sweep?.advancedParticipants?.some((participant) => participant.role === 'path'), 'Sweep should declare path participants for profile/path substrate coverage.')
+  assert(loft?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Loft should declare ordered profile participants for profile-family coverage.')
   assert(chamfer?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Chamfer should declare edge participants for topology modifier substrate coverage.')
 
   const shellSession = createFeatureEditSession({
@@ -264,6 +356,7 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/form-schema.ts',
     'src/domain/feature-authoring/form-events.ts',
     'src/domain/feature-authoring/features/sweep.ts',
+    'src/domain/feature-authoring/features/loft.ts',
     'src/domain/feature-authoring/features/chamfer.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
@@ -406,6 +499,8 @@ testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
 testSweepDraftSelectionAndDefinitionBuilder()
 testChamferDraftSelectionDistanceAndDefinitionBuilder()
+testLoftDraftSelectionReorderingAndDefinitionBuilder()
+testLoftHydrationPreservesOrderedProfilesForEditing()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

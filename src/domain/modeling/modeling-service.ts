@@ -1766,6 +1766,68 @@ function normalizeConstraintDefinition(value: unknown): ConstraintDefinition {
     }
   }
 
+  if (value.kind === 'fixPoint') {
+    if (
+      !isString(value.pointId)
+      || !Array.isArray(value.position)
+      || value.position.length !== 2
+      || typeof value.position[0] !== 'number'
+      || typeof value.position[1] !== 'number'
+    ) {
+      throw new Error('Invalid fix point constraint payload.')
+    }
+
+    return {
+      constraintId: assertConstraintId(value.constraintId),
+      kind: 'fixPoint',
+      label: value.label,
+      pointId: assertSketchPointId(value.pointId),
+      position: [value.position[0], value.position[1]],
+    }
+  }
+
+  if (value.kind === 'angle') {
+    if (
+      !Array.isArray(value.pointIds)
+      || value.pointIds.length !== 3
+      || typeof value.valueRadians !== 'number'
+    ) {
+      throw new Error('Invalid angle constraint payload.')
+    }
+
+    return {
+      constraintId: assertConstraintId(value.constraintId),
+      kind: 'angle',
+      label: value.label,
+      pointIds: [
+        assertSketchPointId(value.pointIds[0]),
+        assertSketchPointId(value.pointIds[1]),
+        assertSketchPointId(value.pointIds[2]),
+      ],
+      valueRadians: value.valueRadians,
+    }
+  }
+
+  if (
+    value.kind === 'parallel'
+    || value.kind === 'perpendicular'
+    || value.kind === 'equalLength'
+  ) {
+    if (!Array.isArray(value.entityIds) || value.entityIds.length !== 2) {
+      throw new Error('Invalid two-line constraint payload.')
+    }
+
+    return {
+      constraintId: assertConstraintId(value.constraintId),
+      kind: value.kind,
+      label: value.label,
+      entityIds: [
+        assertSketchEntityId(value.entityIds[0]),
+        assertSketchEntityId(value.entityIds[1]),
+      ],
+    }
+  }
+
   throw new Error('Invalid constraint definition kind.')
 }
 
@@ -1808,6 +1870,41 @@ function normalizeDimensionDefinition(value: unknown): DimensionDefinition {
       label: value.label,
       entityId: assertSketchEntityId(value.entityId),
       value: value.value,
+    }
+  }
+
+  if (value.kind === 'horizontalDistance' || value.kind === 'verticalDistance') {
+    if (
+      !Array.isArray(value.pointIds)
+      || value.pointIds.length !== 2
+      || typeof value.value !== 'number'
+    ) {
+      throw new Error('Invalid directional distance dimension payload.')
+    }
+
+    return {
+      dimensionId: assertDimensionId(value.dimensionId),
+      kind: value.kind,
+      label: value.label,
+      pointIds: [
+        assertSketchPointId(value.pointIds[0]),
+        assertSketchPointId(value.pointIds[1]),
+      ],
+      value: value.value,
+    }
+  }
+
+  if (value.kind === 'arcStartPointCoincident' || value.kind === 'arcEndPointCoincident') {
+    if (!isString(value.entityId) || !isString(value.pointId)) {
+      throw new Error('Invalid arc endpoint coincidence dimension payload.')
+    }
+
+    return {
+      dimensionId: assertDimensionId(value.dimensionId),
+      kind: value.kind,
+      label: value.label,
+      entityId: assertSketchEntityId(value.entityId),
+      pointId: assertSketchPointId(value.pointId),
     }
   }
 

@@ -9,7 +9,7 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import { chamferAdvancedFeatureExample, sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import { chamferAdvancedFeatureExample, loftAdvancedFeatureExample, sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -311,6 +311,53 @@ function testPreservesChamferParticipantsAndDistanceOptions() {
   )
 }
 
+function testPreservesLoftParticipantOrderAndGuideCurves() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: loftAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_loft-1',
+          definition: {
+            ...loftAdvancedFeatureExample,
+            parameters: {
+              ...loftAdvancedFeatureExample.parameters,
+              participants: [
+                {
+                  role: 'profile',
+                  targets: [
+                    { kind: 'face', bodyId: 'body_loft_b', faceId: 'face_loft_b' },
+                    { kind: 'region', sketchId: 'sketch_loft_a', regionId: 'region_loft_a' },
+                  ],
+                },
+                { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_guide', edgeId: 'edge_guide' }] },
+              ],
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Loft advanced solid feature history payloads should validate.')
+  assert(
+    result.ok &&
+      result.payload.entries[1]?.kind === 'updateFeature' &&
+      result.payload.entries[1].payload.definition.kind === 'loft' &&
+      result.payload.entries[1].payload.definition.parameters.participants[0]?.role === 'profile' &&
+      result.payload.entries[1].payload.definition.parameters.participants[0]?.targets[0]?.kind === 'face' &&
+      result.payload.entries[1].payload.definition.parameters.participants.some((participant) => participant.role === 'guideCurve'),
+    'Loft operation history must preserve ordered profile participants and guide curves across updates.',
+  )
+}
+
 function testRejectsInvalidAdvancedParticipants() {
   const result = validateOperationHistoryPayload({
     ...createEmptyOperationHistory('doc_workspace'),
@@ -338,4 +385,5 @@ testValidatesProfileCollectionFeaturePayloads()
 testRejectsLegacyAndInvalidProfileCollections()
 testPreservesAdvancedParticipantsAndOperationIntent()
 testPreservesChamferParticipantsAndDistanceOptions()
+testPreservesLoftParticipantOrderAndGuideCurves()
 testRejectsInvalidAdvancedParticipants()

@@ -659,6 +659,126 @@ async function testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutati
   assert(after.snapshot.revisionId === before.snapshot.revisionId, 'Rejected sweep create requests must not mutate committed document state.')
 }
 
+async function testLoftPreviewAndCommitUseOrderedAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const loftDefinition = {
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' },
+            { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+          ],
+        },
+      ],
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_loft_valid',
+    definition: loftDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: loftDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedLoft = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock loft previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock loft previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock loft create requests should be accepted.')
+  assert(committedLoft?.definition.kind === 'loft', 'Committed mock loft should be present in the next snapshot.')
+  assert(
+    committedLoft.definition.parameters.participants.find((participant) => participant.role === 'profile')?.targets[1]?.kind === 'face',
+    'Committed mock loft should preserve ordered profile participants.',
+  )
+}
+
+async function testLoftUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const guideCurveDefinition = {
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        {
+          role: 'profile',
+          targets: [
+            { kind: 'region', sketchId: 'sketch_primary', regionId: 'region_primary-outer' },
+            { kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' },
+          ],
+        },
+        { role: 'guideCurve', targets: [{ kind: 'edge', bodyId: 'body_part-1', edgeId: 'edge_outer-1' }] },
+      ],
+    },
+  } as const
+  const booleanDefinition = {
+    kind: 'loft',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'subtract' as const,
+      participants: [
+        {
+          role: 'profile' as const,
+          targets: [
+            { kind: 'region' as const, sketchId: 'sketch_primary' as const, regionId: 'region_primary-outer' as const },
+            { kind: 'face' as const, bodyId: 'body_part-1' as const, faceId: 'face_top' as const },
+          ],
+        },
+        { role: 'targetBody' as const, targets: [{ kind: 'body' as const, bodyId: 'body_part-1' as const }] },
+      ],
+    },
+  } as const
+
+  const guidePreview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_loft_guide_unsupported',
+    definition: guideCurveDefinition,
+  })
+  const booleanCreate = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: booleanDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  assert(guidePreview.render.records.length === 0, 'Unsupported loft previews must not return transient renderables.')
+  assert(
+    guidePreview.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'advancedFeatureValidation'),
+    'Unsupported loft previews must return structured advanced-feature diagnostics.',
+  )
+  assert(booleanCreate.revisionState.kind === 'rejected', 'Unsupported loft boolean create requests should be rejected.')
+  assert(after.snapshot.revisionId === before.snapshot.revisionId, 'Rejected loft create requests must not mutate committed document state.')
+}
+
 async function testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants() {
   const adapter = new MockKernelAdapter()
   const before = await adapter.getDocumentSnapshot({
@@ -956,6 +1076,8 @@ await testMockKernelRejectsUnsupportedContractEnvelope()
 await testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation()
 await testSweepPreviewAndCommitUseAdvancedParticipants()
 await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
+await testLoftPreviewAndCommitUseOrderedAdvancedParticipants()
+await testLoftUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
 await testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
 await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()

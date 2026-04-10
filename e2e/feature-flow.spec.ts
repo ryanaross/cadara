@@ -43,6 +43,17 @@ test('sweep previews and commits with a region profile and durable edge path', a
   await workbench.commitFeature('feature_sweep-1')
 })
 
+test('loft previews and commits with ordered profile selection', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createBaseExtrudeFixture()
+  await workbench.selectSupportedLoftFaceProfile(fixture.profileTarget)
+
+  await workbench.expectFeaturePreviewReady('loft')
+  await workbench.commitFeature('feature_loft-1')
+})
+
 test('fillet previews and commits from a durable body edge', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

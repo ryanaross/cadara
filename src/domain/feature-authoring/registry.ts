@@ -3,6 +3,7 @@ import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/defi
 import { chamferAuthoringDefinition } from '@/domain/feature-authoring/features/chamfer'
 import { extrudeAuthoringDefinition } from '@/domain/feature-authoring/features/extrude'
 import { filletAuthoringDefinition } from '@/domain/feature-authoring/features/fillet'
+import { loftAuthoringDefinition } from '@/domain/feature-authoring/features/loft'
 import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/plane'
 import { revolveAuthoringDefinition } from '@/domain/feature-authoring/features/revolve'
 import { shellAuthoringDefinition } from '@/domain/feature-authoring/features/shell'
@@ -15,6 +16,7 @@ export const featureAuthoringDefinitions = [
   planeAuthoringDefinition,
   shellAuthoringDefinition,
   sweepAuthoringDefinition,
+  loftAuthoringDefinition,
   chamferAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
