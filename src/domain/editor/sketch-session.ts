@@ -1,6 +1,4 @@
 import type {
-  ConstraintDefinition,
-  DimensionDefinition,
   RegionRecord,
   SketchDefinition,
   SketchEntityDefinition,
@@ -29,28 +27,15 @@ import {
   createStandardPlaneDefinition,
   deriveStandardPlaneKeyFromConstructionId,
 } from '@/domain/modeling/opencascade-kernel-seed'
+import type { SketchToolPresentationSchema } from '@/domain/sketch-tools/editor-schema'
+import type {
+  SketchDraftEntity,
+  SketchToolCommitContribution,
+  SketchToolId,
+} from '@/domain/sketch-tools/definition'
+import { getSketchToolDefinition } from '@/domain/sketch-tools/registry'
 
-export type SketchToolId = 'line' | 'rectangle' | 'circle'
-
-export type SketchDraftEntity =
-  | {
-      id: string
-      kind: 'line'
-      start: SketchPoint
-      end: SketchPoint
-      entityId: SketchEntityId | null
-      status: 'preview' | 'accepted'
-      label: string
-    }
-  | {
-      id: string
-      kind: 'circle'
-      center: SketchPoint
-      radius: number
-      entityId: SketchEntityId | null
-      status: 'preview' | 'accepted'
-      label: string
-    }
+export type { SketchDraftEntity, SketchToolId } from '@/domain/sketch-tools/definition'
 
 export interface SketchSessionState {
   sketchId: SketchId | null
@@ -64,6 +49,7 @@ export interface SketchSessionState {
   status: 'idle' | 'drawing'
   pointerDownPoint: SketchPoint | null
   livePoint: SketchPoint | null
+  toolPresentation: SketchToolPresentationSchema | null
   sequence: number
   solvedRegions: RegionRecord[]
   commitRequest: Omit<CommitSketchRequest, 'contractVersion' | 'documentId' | 'baseRevisionId'> | null
@@ -188,6 +174,7 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
     status: 'idle',
     pointerDownPoint: null,
     livePoint: null,
+    toolPresentation: null,
     sequence: getNextDefinitionSequence(sketch.sketch.definition),
     solvedRegions: [...sketch.sketch.regions],
     commitRequest: buildCommitRequest({
@@ -217,6 +204,7 @@ export function createNewSketchSession(plane: SketchPlaneDefinition): SketchSess
     status: 'idle',
     pointerDownPoint: null,
     livePoint: null,
+    toolPresentation: null,
     sequence: 0,
     solvedRegions: [],
     commitRequest: null,
@@ -394,75 +382,7 @@ function createCircleEntityDefinition(
   }
 }
 
-function createConstraintDefinitionsForRectangle(
-  sequence: number,
-  bottomEntityId: SketchEntityId,
-  rightEntityId: SketchEntityId,
-  topEntityId: SketchEntityId,
-  leftEntityId: SketchEntityId,
-): ConstraintDefinition[] {
-  return [
-    {
-      constraintId: createConstraintId(sequence, 'bottom-horizontal'),
-      kind: 'horizontal',
-      label: `Rectangle ${sequence} bottom horizontal`,
-      entityId: bottomEntityId,
-    },
-    {
-      constraintId: createConstraintId(sequence, 'top-horizontal'),
-      kind: 'horizontal',
-      label: `Rectangle ${sequence} top horizontal`,
-      entityId: topEntityId,
-    },
-    {
-      constraintId: createConstraintId(sequence, 'right-vertical'),
-      kind: 'vertical',
-      label: `Rectangle ${sequence} right vertical`,
-      entityId: rightEntityId,
-    },
-    {
-      constraintId: createConstraintId(sequence, 'left-vertical'),
-      kind: 'vertical',
-      label: `Rectangle ${sequence} left vertical`,
-      entityId: leftEntityId,
-    },
-  ]
-}
-
-function createDimensionDefinitionsForRectangle(
-  sequence: number,
-  cornerPointIds: readonly [SketchPointId, SketchPointId, SketchPointId, SketchPointId],
-  width: number,
-  height: number,
-): DimensionDefinition[] {
-  const [bottomLeftId, bottomRightId, , topLeftId] = cornerPointIds
-
-  return [
-    {
-      dimensionId: createDimensionId(sequence, 'width'),
-      kind: 'distance',
-      label: `Rectangle ${sequence} width`,
-      axis: 'horizontal',
-      pointIds: [bottomLeftId, bottomRightId],
-      value: width,
-    },
-    {
-      dimensionId: createDimensionId(sequence, 'height'),
-      kind: 'distance',
-      label: `Rectangle ${sequence} height`,
-      axis: 'vertical',
-      pointIds: [bottomLeftId, topLeftId],
-      value: height,
-    },
-  ]
-}
-
-function appendDefinition(definition: SketchDefinition, patch: {
-  points: SketchPointDefinition[]
-  entities: SketchEntityDefinition[]
-  constraints?: ConstraintDefinition[]
-  dimensions?: DimensionDefinition[]
-}): SketchDefinition {
+function appendDefinition(definition: SketchDefinition, patch: SketchToolCommitContribution): SketchDefinition {
   return {
     schemaVersion: definition.schemaVersion,
     referenceIds: [...definition.referenceIds],
@@ -478,202 +398,8 @@ function appendDefinition(definition: SketchDefinition, patch: {
   }
 }
 
-function buildAcceptedDefinitionPatch(
-  sketchId: SketchId,
-  toolId: SketchToolId,
-  sequence: number,
-  start: SketchPoint,
-  end: SketchPoint,
-): {
-  points: SketchPointDefinition[]
-  entities: SketchEntityDefinition[]
-  constraints?: ConstraintDefinition[]
-  dimensions?: DimensionDefinition[]
-} {
-  if (toolId === 'line') {
-    const startPointId = createPointId(sequence, 'line-start')
-    const endPointId = createPointId(sequence, 'line-end')
-    const entityId = createEntityId(sequence, 'line')
-
-    return {
-      points: [
-        createPointDefinition(sketchId, startPointId, `Line ${sequence} start`, start),
-        createPointDefinition(sketchId, endPointId, `Line ${sequence} end`, end),
-      ],
-      entities: [
-        createLineEntityDefinition(
-          sketchId,
-          entityId,
-          `Line ${sequence}`,
-          startPointId,
-          endPointId,
-        ),
-      ],
-    }
-  }
-
-  if (toolId === 'circle') {
-    const centerPointId = createPointId(sequence, 'circle-center')
-    const radius = Math.hypot(end[0] - start[0], end[1] - start[1])
-    const entityId = createEntityId(sequence, 'circle')
-
-    return {
-      points: [
-        createPointDefinition(sketchId, centerPointId, `Circle ${sequence} center`, start),
-      ],
-      entities: [
-        createCircleEntityDefinition(
-          sketchId,
-          entityId,
-          `Circle ${sequence}`,
-          centerPointId,
-          radius,
-        ),
-      ],
-      dimensions: [
-        {
-          dimensionId: createDimensionId(sequence, 'radius'),
-          kind: 'circleRadius',
-          label: `Circle ${sequence} radius`,
-          entityId,
-          value: radius,
-        },
-      ],
-    }
-  }
-
-  const [x0, y0] = start
-  const [x1, y1] = end
-  const bottomLeft: SketchPoint = [Math.min(x0, x1), Math.min(y0, y1)]
-  const topRight: SketchPoint = [Math.max(x0, x1), Math.max(y0, y1)]
-  const topLeft: SketchPoint = [bottomLeft[0], topRight[1]]
-  const bottomRight: SketchPoint = [topRight[0], bottomLeft[1]]
-
-  const cornerIds = [
-    createPointId(sequence, 'rect-bottom-left'),
-    createPointId(sequence, 'rect-bottom-right'),
-    createPointId(sequence, 'rect-top-right'),
-    createPointId(sequence, 'rect-top-left'),
-  ] as const
-
-  const entityIds = [
-    createEntityId(sequence, 'rect-bottom'),
-    createEntityId(sequence, 'rect-right'),
-    createEntityId(sequence, 'rect-top'),
-    createEntityId(sequence, 'rect-left'),
-  ] as const
-
-  return {
-    points: [
-      createPointDefinition(sketchId, cornerIds[0], `Rectangle ${sequence} bottom left`, bottomLeft),
-      createPointDefinition(sketchId, cornerIds[1], `Rectangle ${sequence} bottom right`, bottomRight),
-      createPointDefinition(sketchId, cornerIds[2], `Rectangle ${sequence} top right`, topRight),
-      createPointDefinition(sketchId, cornerIds[3], `Rectangle ${sequence} top left`, topLeft),
-    ],
-    entities: [
-      createLineEntityDefinition(sketchId, entityIds[0], `Rectangle ${sequence} bottom`, cornerIds[0], cornerIds[1]),
-      createLineEntityDefinition(sketchId, entityIds[1], `Rectangle ${sequence} right`, cornerIds[1], cornerIds[2]),
-      createLineEntityDefinition(sketchId, entityIds[2], `Rectangle ${sequence} top`, cornerIds[2], cornerIds[3]),
-      createLineEntityDefinition(sketchId, entityIds[3], `Rectangle ${sequence} left`, cornerIds[3], cornerIds[0]),
-    ],
-    constraints: createConstraintDefinitionsForRectangle(
-      sequence,
-      entityIds[0],
-      entityIds[1],
-      entityIds[2],
-      entityIds[3],
-    ),
-    dimensions: createDimensionDefinitionsForRectangle(
-      sequence,
-      cornerIds,
-      Math.abs(topRight[0] - bottomLeft[0]),
-      Math.abs(topRight[1] - bottomLeft[1]),
-    ),
-  }
-}
-
-function buildPreviewEntities(
-  toolId: SketchToolId,
-  start: SketchPoint,
-  end: SketchPoint,
-): SketchDraftEntity[] {
-  if (toolId === 'line') {
-    return [
-      {
-        id: 'preview-line',
-        kind: 'line',
-        start,
-        end,
-        entityId: null,
-        status: 'preview',
-        label: 'Line preview',
-      },
-    ]
-  }
-
-  if (toolId === 'circle') {
-    return [
-      {
-        id: 'preview-circle',
-        kind: 'circle',
-        center: start,
-        radius: Math.hypot(end[0] - start[0], end[1] - start[1]),
-        entityId: null,
-        status: 'preview',
-        label: 'Circle preview',
-      },
-    ]
-  }
-
-  const [x0, y0] = start
-  const [x1, y1] = end
-  const bottomLeft: SketchPoint = [Math.min(x0, x1), Math.min(y0, y1)]
-  const topRight: SketchPoint = [Math.max(x0, x1), Math.max(y0, y1)]
-  const topLeft: SketchPoint = [bottomLeft[0], topRight[1]]
-  const bottomRight: SketchPoint = [topRight[0], bottomLeft[1]]
-
-  return [
-    {
-      id: 'preview-rectangle-bottom',
-      kind: 'line',
-      start: bottomLeft,
-      end: bottomRight,
-      entityId: null,
-      status: 'preview',
-      label: 'Rectangle preview bottom',
-    },
-    {
-      id: 'preview-rectangle-right',
-      kind: 'line',
-      start: bottomRight,
-      end: topRight,
-      entityId: null,
-      status: 'preview',
-      label: 'Rectangle preview right',
-    },
-    {
-      id: 'preview-rectangle-top',
-      kind: 'line',
-      start: topRight,
-      end: topLeft,
-      entityId: null,
-      status: 'preview',
-      label: 'Rectangle preview top',
-    },
-    {
-      id: 'preview-rectangle-left',
-      kind: 'line',
-      start: topLeft,
-      end: bottomLeft,
-      entityId: null,
-      status: 'preview',
-      label: 'Rectangle preview left',
-    },
-  ]
-}
-
 function buildAcceptedEntities(
-  definitionPatch: ReturnType<typeof buildAcceptedDefinitionPatch>,
+  definitionPatch: SketchToolCommitContribution,
 ): SketchDraftEntity[] {
   const pointById = new Map(definitionPatch.points.map((point) => [point.pointId, point.position]))
   const acceptedEntities: SketchDraftEntity[] = []
@@ -759,14 +485,18 @@ function buildAcceptedEntities(
 }
 
 export function beginSketchTool(session: SketchSessionState, toolId: SketchToolId): SketchSessionState {
+  const toolDefinition = getSketchToolDefinition(toolId)
+  const activation = toolDefinition.activate()
+
   return {
     ...session,
     activeTool: toolId,
-    status: 'idle',
-    pointerDownPoint: null,
-    livePoint: null,
+    status: activation.state.status,
+    pointerDownPoint: activation.state.pointerDownPoint,
+    livePoint: activation.state.livePoint,
     entities: session.entities.filter((entity) => entity.status === 'accepted'),
-    validationMessage: null,
+    validationMessage: activation.state.validationMessage,
+    toolPresentation: activation.presentation,
   }
 }
 
@@ -778,22 +508,23 @@ export function updateSketchPointer(
     return session
   }
 
-  if (session.status !== 'drawing' || session.pointerDownPoint === null || point === null) {
-    return {
-      ...session,
-      livePoint: point,
-      validationMessage: session.validationMessage,
-    }
-  }
+  const toolDefinition = getSketchToolDefinition(session.activeTool)
+  const result = toolDefinition.pointerMove({
+    state: getToolRuntimeState(session),
+    point,
+  })
 
   return {
     ...session,
-    livePoint: point,
+    status: result.state.status,
+    pointerDownPoint: result.state.pointerDownPoint,
+    livePoint: result.state.livePoint,
     entities: [
       ...session.entities.filter((entity) => entity.status === 'accepted'),
-      ...buildPreviewEntities(session.activeTool, session.pointerDownPoint, point),
+      ...result.stagedEntities,
     ],
-    validationMessage: getSketchValidationMessage(session.activeTool, session.pointerDownPoint, point),
+    validationMessage: result.state.validationMessage,
+    toolPresentation: result.presentation,
   }
 }
 
@@ -801,17 +532,28 @@ export function startSketchDraw(session: SketchSessionState, point: SketchPoint)
   if (session.activeTool === null) {
     return session
   }
+  const toolDefinition = getSketchToolDefinition(session.activeTool)
+  const result = toolDefinition.pointerRelease({
+    state: {
+      status: 'idle',
+      pointerDownPoint: null,
+      livePoint: null,
+      validationMessage: null,
+    },
+    point,
+  })
 
   return {
     ...session,
-    status: 'drawing',
-    pointerDownPoint: point,
-    livePoint: point,
+    status: result.state.status,
+    pointerDownPoint: result.state.pointerDownPoint,
+    livePoint: result.state.livePoint,
     entities: [
       ...session.entities.filter((entity) => entity.status === 'accepted'),
-      ...buildPreviewEntities(session.activeTool, point, point),
+      ...result.stagedEntities,
     ],
-    validationMessage: getSketchValidationMessage(session.activeTool, point, point),
+    validationMessage: result.state.validationMessage,
+    toolPresentation: result.presentation,
   }
 }
 
@@ -820,32 +562,43 @@ export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint
     return session
   }
 
-  const validationMessage = getSketchValidationMessage(
-    session.activeTool,
-    session.pointerDownPoint,
+  const toolDefinition = getSketchToolDefinition(session.activeTool)
+  const result = toolDefinition.pointerRelease({
+    state: getToolRuntimeState(session),
     point,
-  )
+  })
 
-  if (validationMessage) {
+  if (result.state.validationMessage) {
     return {
       ...session,
       entities: session.entities.filter((entity) => entity.status === 'accepted'),
-      status: 'idle',
-      pointerDownPoint: null,
-      livePoint: point,
-      validationMessage,
+      status: result.state.status,
+      pointerDownPoint: result.state.pointerDownPoint,
+      livePoint: result.state.livePoint,
+      validationMessage: result.state.validationMessage,
+      toolPresentation: result.presentation,
     }
   }
 
   const nextSequence = session.sequence + 1
   const sketchId = session.sketchId ?? ('sketch_draft' as SketchId)
-  const definitionPatch = buildAcceptedDefinitionPatch(
-    sketchId,
-    session.activeTool,
-    nextSequence,
-    session.pointerDownPoint,
-    point,
-  )
+  const definitionPatch = toolDefinition.createCommitContribution({
+    sequence: nextSequence,
+    start: session.pointerDownPoint,
+    end: point,
+    factories: {
+      createPointId: (suffix) => createPointId(nextSequence, suffix),
+      createEntityId: (suffix) => createEntityId(nextSequence, suffix),
+      createConstraintId: (suffix) => createConstraintId(nextSequence, suffix),
+      createDimensionId: (suffix) => createDimensionId(nextSequence, suffix),
+      createPoint: (label, pointId, position) =>
+        createPointDefinition(sketchId, pointId, label, position),
+      createLineEntity: (label, entityId, startPointId, endPointId) =>
+        createLineEntityDefinition(sketchId, entityId, label, startPointId, endPointId),
+      createCircleEntity: (label, entityId, centerPointId, radius) =>
+        createCircleEntityDefinition(sketchId, entityId, label, centerPointId, radius),
+    },
+  })
   const definition = appendDefinition(session.definition, definitionPatch)
   const acceptedEntities = [...session.entities.filter((entity) => entity.status === 'accepted'), ...buildAcceptedEntities(definitionPatch)]
 
@@ -853,9 +606,9 @@ export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint
     ...session,
     entities: acceptedEntities,
     definition,
-    status: 'idle',
-    pointerDownPoint: null,
-    livePoint: point,
+    status: result.state.status,
+    pointerDownPoint: result.state.pointerDownPoint,
+    livePoint: result.state.livePoint,
     sequence: nextSequence,
     commitRequest: buildCommitRequest({
       sketchId: session.sketchId,
@@ -866,33 +619,25 @@ export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint
       definition,
     }),
     validationMessage: null,
+    toolPresentation: result.presentation,
   }
 }
 
-function getSketchValidationMessage(toolId: SketchToolId, start: SketchPoint, end: SketchPoint) {
-  const deltaX = end[0] - start[0]
-  const deltaY = end[1] - start[1]
-  const distance = Math.hypot(deltaX, deltaY)
-  const epsilon = 0.0001
-
-  if (toolId === 'line' && distance <= epsilon) {
-    return 'Line requires two distinct points.'
+function getToolRuntimeState(session: SketchSessionState) {
+  return {
+    status: session.status,
+    pointerDownPoint: session.pointerDownPoint,
+    livePoint: session.livePoint,
+    validationMessage: session.validationMessage,
   }
-
-  if (toolId === 'circle' && distance <= epsilon) {
-    return 'Circle radius must be greater than zero.'
-  }
-
-  if (toolId === 'rectangle' && (Math.abs(deltaX) <= epsilon || Math.abs(deltaY) <= epsilon)) {
-    return 'Rectangle requires non-zero width and height.'
-  }
-
-  return null
 }
 
 export function getSketchSessionPreviewLabel(session: SketchSessionState): string {
-  if (session.validationMessage) {
-    return session.validationMessage
+  const primaryPrompt = session.toolPresentation?.validation?.[0]?.message
+    ?? session.toolPresentation?.prompts[0]?.text
+
+  if (primaryPrompt) {
+    return primaryPrompt
   }
 
   if (session.activeTool === null) {
@@ -906,6 +651,15 @@ export function getSketchSessionPreviewLabel(session: SketchSessionState): strin
   }
 
   return `Ready to place ${session.activeTool}, click to set first point`
+}
+
+export function getSketchToolPresentation(session: SketchSessionState): SketchToolPresentationSchema | null {
+  if (session.activeTool === null) {
+    return null
+  }
+
+  return session.toolPresentation
+    ?? getSketchToolDefinition(session.activeTool).getPresentation(getToolRuntimeState(session))
 }
 
 export function getSketchSessionDisplayRenderables(session: SketchSessionState): SketchSessionDisplayRenderable[] {

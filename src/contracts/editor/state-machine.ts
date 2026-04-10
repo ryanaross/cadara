@@ -1,5 +1,6 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
+import { isRegisteredSketchToolId } from '@/domain/sketch-tools/registry'
 import {
   applySelectionToFeatureEditSession,
   buildFeatureDefinition,
@@ -21,7 +22,6 @@ import {
   startSketchDraw,
   updateSketchPointer,
   type SketchSessionState,
-  type SketchToolId,
 } from '@/domain/editor/sketch-session'
 import { openSketchSessionFromSelection } from '@/domain/editor/sketch-session-controller'
 import {
@@ -255,6 +255,13 @@ export interface SketchPointerReleasedEvent {
   point: readonly [number, number]
 }
 
+/** Applies a generic active sketch-tool draft patch emitted by declarative controls. */
+export interface SketchToolPatchedEvent {
+  type: 'sketch.toolPatched'
+  /** Patch payload declared by the active sketch tool schema control. */
+  patch: Record<string, unknown>
+}
+
 /** Applies a partial edit to the active feature draft parameters. */
 export interface FormFeaturePatchedEvent {
   type: 'form.featurePatched'
@@ -297,6 +304,7 @@ export type EditorEvent =
   | ViewportSelectionRequestedEvent
   | SketchPointerMovedEvent
   | SketchPointerReleasedEvent
+  | SketchToolPatchedEvent
   | FormFeaturePatchedEvent
   | SnapshotLoadedEvent
   | SnapshotFailedEvent
@@ -1128,9 +1136,9 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
 
       if (
         state.kind === 'editingSketch' &&
-        (event.toolId === 'line' || event.toolId === 'rectangle' || event.toolId === 'circle')
+        isRegisteredSketchToolId(event.toolId)
       ) {
-        const session = beginSketchTool(state.session, event.toolId as SketchToolId)
+        const session = beginSketchTool(state.session, event.toolId)
 
         return {
           state: {
@@ -1459,6 +1467,25 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           },
           effects: [],
         }
+      }
+    case 'sketch.toolPatched':
+      if (state.kind !== 'editingSketch') {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      return {
+        state: {
+          ...state,
+          preview: {
+            kind: 'sketch',
+            label: getSketchSessionPreviewLabel(state.session),
+            target: state.session.planeTarget,
+          },
+        },
+        effects: [],
       }
     case 'form.featurePatched': {
       if (state.kind !== 'editingFeature') {

@@ -4,6 +4,7 @@ import { ToolActionContext } from '@/hooks/tool-action-context'
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolTriggerMetadata } from '@/domain/tools/schema'
 import { useEditorState } from '@/hooks/use-editor-state'
+import { isRegisteredSketchToolId } from '@/domain/sketch-tools/registry'
 
 export function useToolActionBus() {
   const context = useContext(ToolActionContext)
@@ -31,7 +32,7 @@ export function useToolActions() {
       const nextMode =
         toolId === 'sketch'
           ? 'part'
-          : toolId === 'line' || toolId === 'rectangle' || toolId === 'circle' || toolId === 'finishSketch'
+          : isRegisteredSketchToolId(toolId) || toolId === 'finishSketch'
             ? 'sketch'
             : machineState.mode
 

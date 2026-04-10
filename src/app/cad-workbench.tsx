@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { ThreeCadViewport } from '@/components/cad/three-cad-viewport'
+import { SketchToolOverlays } from '@/components/cad/sketch-tool-overlays'
+import { SketchToolPanel } from '@/components/cad/sketch-tool-panel'
 import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
 import { mergeSketchRenderables } from '@/domain/editor/sketch-session-controller'
+import { getSketchToolPresentation } from '@/domain/editor/sketch-session'
 import {
   getPrimitiveRefLabel,
   getPrimitiveRefKey,
@@ -81,6 +84,7 @@ export function CadWorkbench() {
     },
     [hiddenTargetKeys, previewRenderables, sketchSession, snapshot],
   )
+  const sketchToolPresentation = sketchSession ? getSketchToolPresentation(sketchSession) : null
 
   const handleViewportHover = (target: PrimitiveRef) => {
     dispatch({ type: 'viewport.hovered', target })
@@ -139,6 +143,11 @@ export function CadWorkbench() {
             onSketchRelease={handleSketchRelease}
             selection={visibleSelection}
           />
+          <SketchToolPanel
+            schema={sketchToolPresentation}
+            onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
+          />
+          <SketchToolOverlays schema={sketchToolPresentation} />
           <div className="pointer-events-none absolute bottom-4 left-4 grid gap-3 rounded-xl border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.9)] px-3 py-2 text-xs text-[var(--cad-muted-foreground)] shadow-[var(--cad-panel-shadow)]">
             <div>
               Machine: <span className="text-[var(--cad-foreground)]">{machineState.kind}</span>

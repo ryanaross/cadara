@@ -4,6 +4,7 @@ import type {
   ToolbarSection,
 } from '@/domain/tools/schema'
 import { getRegisteredFeatureAuthoringDefinitions } from '@/domain/feature-authoring/registry'
+import { getRegisteredSketchToolDefinitions } from '@/domain/sketch-tools/registry'
 
 export const toolGroups = {
   history: {
@@ -79,6 +80,15 @@ const featureToolDefinitions = getRegisteredFeatureAuthoringDefinitions().map(({
   modes: metadata.modes,
 })) satisfies readonly ToolDefinition[]
 
+const sketchToolDefinitions = getRegisteredSketchToolDefinitions().map(({ metadata }) => ({
+  id: metadata.id,
+  group: metadata.group,
+  name: metadata.name,
+  tooltip: metadata.tooltip,
+  icon: metadata.icon,
+  modes: metadata.modes,
+})) satisfies readonly ToolDefinition[]
+
 export const toolDefinitions = [
   {
     id: 'undo',
@@ -112,30 +122,7 @@ export const toolDefinitions = [
     icon: 'finishSketch',
     modes: ['sketch'],
   },
-  {
-    id: 'line',
-    group: 'drawing',
-    name: 'Line',
-    tooltip: 'Create line geometry.',
-    icon: 'line',
-    modes: ['sketch'],
-  },
-  {
-    id: 'rectangle',
-    group: 'drawing',
-    name: 'Rectangle',
-    tooltip: 'Create rectangle geometry.',
-    icon: 'rectangle',
-    modes: ['sketch'],
-  },
-  {
-    id: 'circle',
-    group: 'drawing',
-    name: 'Circle',
-    tooltip: 'Create circular geometry.',
-    icon: 'circle',
-    modes: ['sketch'],
-  },
+  ...sketchToolDefinitions,
   {
     id: 'spline',
     group: 'drawing',
