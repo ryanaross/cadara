@@ -3,6 +3,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
 import {
+  type PrimitiveRef,
+  primitiveRefEquals,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
@@ -38,13 +40,15 @@ const FACE_INDEX_TO_DIRECTION = {
 } as const
 
 interface ThreeCadViewportProps {
+  hoverTarget: PrimitiveRef | null
   renderables: RenderableEntityRecord[]
   sketchDisplayRenderables: SketchSessionDisplayRenderable[]
-  onHover: (target: RenderableEntityRecord['binding']['target']) => void
-  onSelect: (target: RenderableEntityRecord['binding']['target']) => void
+  onHover: (target: PrimitiveRef) => void
+  onSelect: (target: PrimitiveRef) => void
   onClearHover: () => void
   onSketchMove: (point: readonly [number, number]) => void
   onSketchRelease: (point: readonly [number, number]) => void
+  selection: PrimitiveRef[]
 }
 
 interface ViewportRuntime {
@@ -65,6 +69,7 @@ interface ViewportRuntime {
 }
 
 export function ThreeCadViewport({
+  hoverTarget,
   renderables,
   sketchDisplayRenderables,
   onHover,
@@ -72,6 +77,7 @@ export function ThreeCadViewport({
   onClearHover,
   onSketchMove,
   onSketchRelease,
+  selection,
 }: ThreeCadViewportProps) {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const gizmoRef = useRef<HTMLDivElement | null>(null)
@@ -79,13 +85,14 @@ export function ThreeCadViewport({
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
   const sketchDisplayGroupRef = useRef<THREE.Group | null>(null)
   const hoverRef = useRef(onHover)
-  const lastPickedTargetRef = useRef<RenderableEntityRecord['binding']['target'] | null>(null)
+  const hoverTargetRef = useRef(hoverTarget)
+  const lastPickedTargetRef = useRef<PrimitiveRef | null>(null)
   const selectRef = useRef(onSelect)
   const clearHoverRef = useRef(onClearHover)
   const sketchMoveRef = useRef(onSketchMove)
   const sketchReleaseRef = useRef(onSketchRelease)
   const {
-    state: { hoverTarget, selection, selectionFilter, selectionCatalog, sketchSession },
+    state: { selectionFilter, selectionCatalog, sketchSession },
   } = useEditorState()
   const selectionRef = useRef(selection)
   const selectionFilterRef = useRef(selectionFilter)
@@ -97,10 +104,12 @@ export function ThreeCadViewport({
     clearHoverRef.current = onClearHover
     sketchMoveRef.current = onSketchMove
     sketchReleaseRef.current = onSketchRelease
+    hoverTargetRef.current = hoverTarget
     selectionRef.current = selection
     selectionFilterRef.current = selectionFilter
     selectionCatalogRef.current = selectionCatalog
   }, [
+    hoverTarget,
     onClearHover,
     onHover,
     onSelect,
@@ -324,8 +333,9 @@ export function ThreeCadViewport({
   useEffect(() => {
     const runtime = runtimeRef.current
     const renderScene = renderSceneRef.current
+    const viewportElement = viewportRef.current
 
-    if (!runtime || !renderScene) {
+    if (!runtime || !renderScene || !viewportElement) {
       return
     }
 
@@ -384,10 +394,16 @@ export function ThreeCadViewport({
         )
       ) {
         lastPickedTargetRef.current = target.target
-        hoverRef.current(target.target)
+        if (hoverTargetRef.current === null || !primitiveRefEquals(hoverTargetRef.current, target.target)) {
+          hoverTargetRef.current = target.target
+          hoverRef.current(target.target)
+        }
       } else {
         lastPickedTargetRef.current = null
-        clearHoverRef.current()
+        if (hoverTargetRef.current !== null) {
+          hoverTargetRef.current = null
+          clearHoverRef.current()
+        }
       }
 
       if (!sketchSession) {
@@ -410,6 +426,12 @@ export function ThreeCadViewport({
         x: event.clientX,
         y: event.clientY,
       }
+
+      const isSketchDrawingClick = sketchSession?.activeTool != null
+
+      if (isSketchDrawingClick) {
+        return
+      }
     }
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -421,34 +443,17 @@ export function ThreeCadViewport({
       const pointerDown = runtime.primaryPointerDown
       runtime.primaryPointerDown = null
 
-      if (pointerDown) {
-        const dragDistance = Math.hypot(
-          event.clientX - pointerDown.x,
-          event.clientY - pointerDown.y,
-        )
-
-        if (dragDistance > 6) {
-          return
-        }
+      if (!pointerDown) {
+        return
       }
 
-      const isSketchDrawingClick = sketchSession?.activeTool !== null
-      const lastPickedTarget = lastPickedTargetRef.current
-      const resolvedTarget = lastPickedTarget
-        ? { target: lastPickedTarget }
-        : getPickTargetFromClientPoint(event.clientX, event.clientY)
+      const dragDistance = Math.hypot(
+        event.clientX - pointerDown.x,
+        event.clientY - pointerDown.y,
+      )
 
-      if (
-        !isSketchDrawingClick &&
-        resolvedTarget &&
-        selectionFilterAllowsTarget(
-          selectionFilterRef.current,
-          selectionRef.current,
-          resolvedTarget.target,
-          selectionCatalogRef.current,
-        )
-      ) {
-        selectRef.current(resolvedTarget.target)
+      if (dragDistance > 6) {
+        return
       }
 
       if (!sketchSession) {
@@ -465,19 +470,64 @@ export function ThreeCadViewport({
     const handlePointerLeave = () => {
       runtime.primaryPointerDown = null
       lastPickedTargetRef.current = null
-      clearHoverRef.current()
+      if (hoverTargetRef.current !== null) {
+        hoverTargetRef.current = null
+        clearHoverRef.current()
+      }
     }
 
-    canvas.addEventListener('pointerdown', handlePointerDown, true)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerup', handlePointerUp, true)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
+    const handleClick = (event: MouseEvent) => {
+      if (event.button !== 0) {
+        return
+      }
+
+      const eventTarget = event.target instanceof Node ? event.target : null
+      const rect = viewportElement.getBoundingClientRect()
+      const withinViewport =
+        (eventTarget !== null && viewportElement.contains(eventTarget))
+        || (
+          event.clientX >= rect.left
+          && event.clientX <= rect.right
+          && event.clientY >= rect.top
+          && event.clientY <= rect.bottom
+        )
+
+      if (!withinViewport) {
+        return
+      }
+
+      const isSketchDrawingClick = sketchSession?.activeTool != null
+
+      if (isSketchDrawingClick) {
+        return
+      }
+
+      const resolvedTarget = lastPickedTargetRef.current
+        ? { target: lastPickedTargetRef.current }
+        : hoverTargetRef.current
+          ? { target: hoverTargetRef.current }
+          : getPickTargetFromClientPoint(event.clientX, event.clientY)
+
+      if (!resolvedTarget) {
+        return
+      }
+
+      lastPickedTargetRef.current = resolvedTarget.target
+      selectRef.current(resolvedTarget.target)
+    }
+
+    viewportElement.addEventListener('pointerdown', handlePointerDown, true)
+    viewportElement.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp, true)
+    window.addEventListener('click', handleClick, true)
+    viewportElement.addEventListener('pointerleave', handlePointerLeave)
 
     return () => {
-      canvas.removeEventListener('pointerdown', handlePointerDown, true)
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerup', handlePointerUp, true)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      viewportElement.removeEventListener('pointerdown', handlePointerDown, true)
+      viewportElement.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp, true)
+      window.removeEventListener('click', handleClick, true)
+      viewportElement.removeEventListener('pointerleave', handlePointerLeave)
     }
   }, [renderables, selection, sketchSession])
 

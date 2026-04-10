@@ -15,6 +15,13 @@ export interface WorkspaceRenderScene {
   pickIdToRenderable: Map<string, RenderableEntityRecord>
 }
 
+const MARKER_SPHERE_GEOMETRY = new THREE.SphereGeometry(1, 12, 12)
+const SEEDED_DATUM_CONSTRUCTION_IDS = new Set([
+  'construction_plane-xy',
+  'construction_plane-yz',
+  'construction_plane-xz',
+])
+
 const SURFACE_COLORS = {
   bodyFace: 0x6f89aa,
   planarFace: 0x6f89aa,
@@ -112,21 +119,36 @@ function createMeshObject(renderable: RenderableEntityRecord) {
   }
 
   geometry.setIndex(geometryData.triangleIndices.flat())
-  const material = new THREE.MeshStandardMaterial({
-    color: getRenderableBaseColor(renderable.binding.semanticClass),
-    transparent: true,
-    opacity: 0.86,
-    side: THREE.DoubleSide,
-    metalness: 0.12,
-    roughness: 0.72,
-    emissive: 0x07111d,
-    emissiveIntensity: 0.18,
-    polygonOffset: true,
-    polygonOffsetFactor: -1,
-    polygonOffsetUnits: -2,
-  })
+  const material = isSeededDatumPlaneRenderable(renderable)
+    ? new THREE.MeshStandardMaterial({
+        color: 0x9ea8b5,
+        transparent: true,
+        opacity: 0.12,
+        side: THREE.DoubleSide,
+        metalness: 0.02,
+        roughness: 0.96,
+        emissive: 0x000000,
+        emissiveIntensity: 0,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+      })
+    : new THREE.MeshStandardMaterial({
+        color: getRenderableBaseColor(renderable.binding.semanticClass),
+        transparent: true,
+        opacity: 0.86,
+        side: THREE.DoubleSide,
+        metalness: 0.12,
+        roughness: 0.72,
+        emissive: 0x07111d,
+        emissiveIntensity: 0.18,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -2,
+      })
   const mesh = new THREE.Mesh(geometry, material)
-  mesh.renderOrder = 2
+  mesh.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 1 : 2
   return mesh
 }
 
@@ -140,13 +162,19 @@ function createPolylineObject(renderable: RenderableEntityRecord) {
   const points = geometryData.points.map((point) => new THREE.Vector3(point[0], point[1], point[2]))
   const displayPoints = geometryData.isClosed && points.length > 0 ? [...points, points[0].clone()] : points
   const geometry = new THREE.BufferGeometry().setFromPoints(displayPoints)
-  const material = new THREE.LineBasicMaterial({
-    color: getRenderableBaseColor(renderable.binding.semanticClass),
-    transparent: true,
-    opacity: 0.95,
-  })
+  const material = isSeededDatumPlaneRenderable(renderable)
+    ? new THREE.LineBasicMaterial({
+        color: 0x7f8a98,
+        transparent: true,
+        opacity: 0.4,
+      })
+    : new THREE.LineBasicMaterial({
+        color: getRenderableBaseColor(renderable.binding.semanticClass),
+        transparent: true,
+        opacity: 0.95,
+      })
   const line = new THREE.Line(geometry, material)
-  line.renderOrder = 3
+  line.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 2 : 3
   return line
 }
 
@@ -157,19 +185,18 @@ function createMarkerObject(renderable: RenderableEntityRecord) {
     throw new Error(`Renderable ${renderable.id} is missing marker geometry.`)
   }
 
-  const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(geometryData.position[0], geometryData.position[1], geometryData.position[2]),
-  ])
-  const material = new THREE.PointsMaterial({
+  const material = new THREE.MeshStandardMaterial({
     color: getRenderableBaseColor(renderable.binding.semanticClass),
-    size: Math.max(geometryData.displayRadius * 22, 4),
-    sizeAttenuation: true,
-    transparent: true,
-    opacity: 0.98,
+    metalness: 0.08,
+    roughness: 0.34,
+    emissive: 0x2559a8,
+    emissiveIntensity: 0.18,
   })
-  const points = new THREE.Points(geometry, material)
-  points.renderOrder = 4
-  return points
+  const mesh = new THREE.Mesh(MARKER_SPHERE_GEOMETRY, material)
+  mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
+  mesh.scale.setScalar(Math.max(geometryData.displayRadius, Number.EPSILON))
+  mesh.renderOrder = 4
+  return mesh
 }
 
 function createDisplayFaceObject(renderable: SketchSessionDisplayRenderable) {
@@ -229,7 +256,6 @@ function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
     throw new Error(`Display renderable ${renderable.id} is missing marker geometry.`)
   }
 
-  const geometry = new THREE.SphereGeometry(geometryData.displayRadius, 16, 16)
   const material = new THREE.MeshStandardMaterial({
     color: SURFACE_COLORS.sketchPoint,
     metalness: 0.08,
@@ -237,8 +263,9 @@ function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
     emissive: 0x2559a8,
     emissiveIntensity: 0.28,
   })
-  const mesh = new THREE.Mesh(geometry, material)
+  const mesh = new THREE.Mesh(MARKER_SPHERE_GEOMETRY, material)
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
+  mesh.scale.setScalar(Math.max(geometryData.displayRadius, Number.EPSILON))
   return mesh
 }
 
@@ -317,7 +344,7 @@ export function updateWorkspaceHighlight(
 }
 
 function applyRenderableState(
-  material: THREE.Material | THREE.Material[] | THREE.LineBasicMaterial | THREE.PointsMaterial,
+  material: THREE.Material | THREE.Material[] | THREE.LineBasicMaterial,
   semanticClass: RenderableEntityRecord['binding']['semanticClass'],
   isActive: boolean,
   isSelected: boolean,
@@ -328,7 +355,6 @@ function applyRenderableState(
     if (
       !(entry instanceof THREE.MeshStandardMaterial)
       && !(entry instanceof THREE.LineBasicMaterial)
-      && !(entry instanceof THREE.PointsMaterial)
     ) {
       continue
     }
@@ -340,9 +366,15 @@ function applyRenderableState(
     if (entry instanceof THREE.MeshStandardMaterial) {
       entry.emissive.setHex(isSelected ? 0x3c8dff : isActive ? 0x1e4f87 : 0x07111d)
       entry.emissiveIntensity = isSelected ? 0.48 : isActive ? 0.3 : 0.18
-      entry.opacity = isFaceSemanticClass(semanticClass) ? (isActive ? 0.98 : 0.86) : 1
+      entry.opacity = semanticClass === 'construction'
+        ? (isSelected ? 0.28 : isActive ? 0.2 : 0.12)
+        : isFaceSemanticClass(semanticClass)
+          ? (isActive ? 0.98 : 0.86)
+          : 1
     } else {
-      entry.opacity = isSelected ? 1 : isActive ? 0.98 : 0.9
+      entry.opacity = semanticClass === 'construction'
+        ? (isSelected ? 0.85 : isActive ? 0.62 : 0.4)
+        : isSelected ? 1 : isActive ? 0.98 : 0.9
     }
   }
 }
@@ -400,12 +432,17 @@ function getHighlightColor(
   return getRenderableBaseColor(semanticClass)
 }
 
+function isSeededDatumPlaneRenderable(renderable: RenderableEntityRecord) {
+  return renderable.binding.target.kind === 'construction'
+    && SEEDED_DATUM_CONSTRUCTION_IDS.has(renderable.binding.target.constructionId)
+}
+
 function isFaceSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
   return semanticClass === 'bodyFace' || semanticClass === 'planarFace' || semanticClass === 'region'
 }
 
 function getObjectMaterial(object: THREE.Object3D) {
-  if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
+  if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
     return object.material
   }
 

@@ -17,6 +17,10 @@ export class SketchWorkbenchHarness {
     return this.page.locator('main canvas').first()
   }
 
+  viewportSurface(): Locator {
+    return this.page.getByTestId('cad-viewport')
+  }
+
   async activateTool(name: string) {
     await this.toolbarButton(name).click()
   }
@@ -63,9 +67,41 @@ export class SketchWorkbenchHarness {
     await this.page.mouse.move(box.x + point.x, box.y + point.y)
   }
 
+  async hoverViewportAtReal(point: { x: number; y: number }) {
+    const box = await this.viewportSurface().boundingBox()
+
+    if (!box) {
+      throw new Error('Viewport surface is not visible.')
+    }
+
+    await this.page.mouse.move(box.x + point.x, box.y + point.y)
+  }
+
+  async clickViewportAtReal(point: { x: number; y: number }) {
+    const box = await this.viewportSurface().boundingBox()
+
+    if (!box) {
+      throw new Error('Viewport surface is not visible.')
+    }
+
+    await this.page.mouse.click(box.x + point.x, box.y + point.y)
+  }
+
   async currentHoverTarget() {
     const diagnostics = await this.page.locator('text=Target:').first().textContent()
     return diagnostics?.replace(/^Target:\s*/, '').trim() ?? 'none'
+  }
+
+  async currentEditorSelection() {
+    const bodyText = await this.page.locator('body').textContent()
+    const match = bodyText?.match(/Edit status:\s*[^\n]*Selection:\s*(.*?)Target rule:/s)
+    return match?.[1]?.trim() ?? ''
+  }
+
+  async currentMachineSelectionCount() {
+    const bodyText = await this.page.locator('body').textContent()
+    const match = bodyText?.match(/Machine:\s*[^\n]*Command:\s*[^\n]*Phase:\s*[^\n]*Selection:\s*(\d+)/s)
+    return match ? Number(match[1]) : NaN
   }
 
   async clickViewportTarget(targetId: string) {
@@ -90,6 +126,37 @@ export class SketchWorkbenchHarness {
 
         if ((await this.currentHoverTarget()) === targetId) {
           await this.clickViewportAt(point)
+          return
+        }
+      }
+    }
+
+    throw new Error(`Viewport target ${targetId} was not found in the current camera framing.`)
+  }
+
+  async clickViewportTargetReal(targetId: string) {
+    const viewport = this.viewportSurface()
+    const box = await viewport.boundingBox()
+
+    if (!box) {
+      throw new Error('Viewport surface is not visible.')
+    }
+
+    const xSteps = 9
+    const ySteps = 7
+
+    for (let row = 1; row <= ySteps; row += 1) {
+      for (let column = 1; column <= xSteps; column += 1) {
+        const point = {
+          x: Math.round((box.width * column) / (xSteps + 1)),
+          y: Math.round((box.height * row) / (ySteps + 1)),
+        }
+
+        await this.hoverViewportAtReal(point)
+        await this.page.waitForTimeout(100)
+
+        if ((await this.currentHoverTarget()) === targetId) {
+          await this.clickViewportAtReal(point)
           return
         }
       }

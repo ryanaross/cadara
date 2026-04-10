@@ -1,46 +1,5 @@
 import * as THREE from 'three'
 
-function createReferencePlane(
-  size: number,
-  rotation: THREE.Euler,
-  color: number,
-  position = new THREE.Vector3(),
-) {
-  const geometry = new THREE.PlaneGeometry(size, size)
-  geometry.translate(size / 2, size / 2, 0)
-  const material = new THREE.MeshBasicMaterial({
-    color,
-    transparent: true,
-    opacity: 0.14,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  })
-
-  const plane = new THREE.Mesh(geometry, material)
-  plane.rotation.copy(rotation)
-  plane.position.copy(position)
-
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-    }),
-  )
-  edges.rotation.copy(rotation)
-  edges.position.copy(position)
-
-  const group = new THREE.Group()
-  group.add(plane)
-  group.add(edges)
-  plane.renderOrder = -2
-  edges.renderOrder = -1
-
-  return group
-}
-
 export function createWorkspaceScene() {
   const scene = new THREE.Scene()
   scene.background = null
@@ -58,13 +17,7 @@ export function createWorkspaceScene() {
   grid.rotation.x = Math.PI / 2
   scene.add(grid)
 
-  const originPlaneSize = 5;
-  scene.add(
-    createReferencePlane(originPlaneSize, new THREE.Euler(0, 0, 0), 0x4f9cff),
-    createReferencePlane(originPlaneSize, new THREE.Euler(0, Math.PI / -2, 0), 0x35c7a5),
-    createReferencePlane(originPlaneSize, new THREE.Euler(Math.PI / 2, 0, 0), 0xff9b4a),
-  )
-
+  const originPlaneSize = 5
   const axes = new THREE.AxesHelper(originPlaneSize)
   scene.add(axes)
 
