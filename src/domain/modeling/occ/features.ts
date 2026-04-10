@@ -510,18 +510,23 @@ function buildExtrudeFeatureShape(
     throw new Error('Extrude endExtent.distance must be positive.')
   }
 
+  if (parameters.profiles.length > 1) {
+    throw new Error('unsupported-profile-group: OCC extrude does not support multi-profile groups yet.')
+  }
+
+  const profile = parameters.profiles[0]
   let profileShape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>
   let extrusionNormal: Vec3
 
-  if (parameters.profile.kind === 'region') {
-    const sketch = requireSketchSnapshot(context, parameters.profile.sketchId)
-    const region = requireRegion(sketch, parameters.profile.regionId)
-    const profile = buildRegionProfileFace(context.oc, { plane: sketch.plane, sketch: sketch.sketch }, region)
-    profileShape = profile.face
-    extrusionNormal = getExtrusionNormalForSketchProfile(profile.plane, parameters.endExtent.direction)
+  if (profile.kind === 'region') {
+    const sketch = requireSketchSnapshot(context, profile.sketchId)
+    const region = requireRegion(sketch, profile.regionId)
+    const profileFace = buildRegionProfileFace(context.oc, { plane: sketch.plane, sketch: sketch.sketch }, region)
+    profileShape = profileFace.face
+    extrusionNormal = getExtrusionNormalForSketchProfile(profileFace.plane, parameters.endExtent.direction)
   } else {
-    const body = requireBody(context, parameters.profile.bodyId)
-    const face = requireFace(body, parameters.profile.faceId)
+    const body = requireBody(context, profile.bodyId)
+    const face = requireFace(body, profile.faceId)
     profileShape = face
     extrusionNormal = getExtrusionNormalForPlanarFace(context.oc, face, parameters.endExtent.direction)
   }
@@ -558,15 +563,20 @@ function buildRevolveFeatureShape(
     throw new Error('Revolve extent.radians must be positive.')
   }
 
+  if (parameters.profiles.length > 1) {
+    throw new Error('unsupported-profile-group: OCC revolve does not support multi-profile groups yet.')
+  }
+
+  const profile = parameters.profiles[0]
   let profileShape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>
 
-  if (parameters.profile.kind === 'region') {
-    const sketch = requireSketchSnapshot(context, parameters.profile.sketchId)
-    const region = requireRegion(sketch, parameters.profile.regionId)
+  if (profile.kind === 'region') {
+    const sketch = requireSketchSnapshot(context, profile.sketchId)
+    const region = requireRegion(sketch, profile.regionId)
     profileShape = buildRegionProfileFace(context.oc, { plane: sketch.plane, sketch: sketch.sketch }, region).face
   } else {
-    const body = requireBody(context, parameters.profile.bodyId)
-    const face = requireFace(body, parameters.profile.faceId)
+    const body = requireBody(context, profile.bodyId)
+    const face = requireFace(body, profile.faceId)
     getExtrusionNormalForPlanarFace(context.oc, face, 'positive')
     profileShape = face
   }

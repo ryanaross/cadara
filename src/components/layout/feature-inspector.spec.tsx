@@ -60,7 +60,7 @@ const incompleteRevolveMarkup = renderInspector({
 })
 
 assert(
-  incompleteRevolveMarkup.includes('Select a profile target.'),
+  incompleteRevolveMarkup.includes('Select at least one profile target.'),
   'Feature inspector should render field-level required-reference errors.',
 )
 assert(
@@ -68,7 +68,7 @@ assert(
   'Feature inspector should render red invalid field styling and red error text.',
 )
 assert(
-  incompleteRevolveMarkup.includes('Clear Profile target'),
+  incompleteRevolveMarkup.includes('Clear Profile targets'),
   'Feature inspector should render a clear control for single-reference fields.',
 )
 

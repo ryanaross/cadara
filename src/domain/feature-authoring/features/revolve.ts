@@ -2,7 +2,7 @@ import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/defi
 import { isBooleanOperation, toBooleanScope } from '@/domain/feature-authoring/definition'
 import { createSelectionFilterForRequirement, revolveSelectionFilter } from '@/domain/editor/schema'
 import { REVOLVE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
-import { asBodyRef, asExtrudeProfileRef, asRevolveAxisRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
+import { appendUniqueTarget, asBodyRef, asExtrudeProfileRef, asRevolveAxisRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
 export const revolveAuthoringDefinition = {
   metadata: {
@@ -17,8 +17,9 @@ export const revolveAuthoringDefinition = {
   featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
   selectionFilter: revolveSelectionFilter,
   createDraft(input) {
+    const profileTarget = asExtrudeProfileRef(input.selectedTarget)
     return {
-      profileTarget: asExtrudeProfileRef(input.selectedTarget),
+      profileTargets: profileTarget ? [profileTarget] : [],
       axisTarget: asRevolveAxisRef(input.selectedTarget),
       startAngle: 0,
       angle: Math.PI * 2,
@@ -28,7 +29,7 @@ export const revolveAuthoringDefinition = {
   },
   hydrateDraft(feature) {
     return {
-      profileTarget: feature.parameters.profile,
+      profileTargets: [...feature.parameters.profiles],
       axisTarget: feature.parameters.axis,
       startAngle: feature.parameters.startAngle,
       angle: feature.parameters.extent.radians,
@@ -39,8 +40,14 @@ export const revolveAuthoringDefinition = {
   applyPatch(draft, patch) {
     return {
       ...draft,
-      profileTarget:
-        patch.profileTarget === undefined ? draft.profileTarget : asExtrudeProfileRef(patch.profileTarget as Parameters<typeof asExtrudeProfileRef>[0]),
+      profileTargets:
+        patch.profileTargets === undefined && patch.profileTarget === undefined
+          ? draft.profileTargets
+          : Array.isArray(patch.profileTargets)
+            ? patch.profileTargets.filter((entry): entry is typeof draft.profileTargets[number] => asExtrudeProfileRef(entry as Parameters<typeof asExtrudeProfileRef>[0]) !== null)
+            : asExtrudeProfileRef(patch.profileTarget as Parameters<typeof asExtrudeProfileRef>[0])
+              ? [patch.profileTarget as typeof draft.profileTargets[number]]
+              : draft.profileTargets,
       axisTarget:
         patch.axisTarget === undefined ? draft.axisTarget : asRevolveAxisRef(patch.axisTarget as Parameters<typeof asRevolveAxisRef>[0]),
       startAngle: typeof patch.startAngle === 'number' ? patch.startAngle : draft.startAngle,
@@ -51,7 +58,10 @@ export const revolveAuthoringDefinition = {
   },
   applySelection(draft, target) {
     if (target.kind === 'region' || target.kind === 'face') {
-      return this.applyPatch(draft, { profileTarget: target })
+      return {
+        ...draft,
+        profileTargets: appendUniqueTarget(draft.profileTargets, target),
+      }
     }
     if (target.kind === 'edge' || target.kind === 'construction') {
       return this.applyPatch(draft, { axisTarget: target })
@@ -63,11 +73,11 @@ export const revolveAuthoringDefinition = {
       : draft
   },
   getPrimarySelectionTarget(draft) {
-    return draft.axisTarget ?? draft.profileTarget
+    return draft.axisTarget ?? draft.profileTargets[0] ?? null
   },
   getPreviewLabel(draft, prefix) {
-    if (!draft.profileTarget) {
-      return 'Select a sketch region or planar face for revolve'
+    if (draft.profileTargets.length === 0) {
+      return 'Select one or more sketch regions or planar faces for revolve'
     }
     if (!draft.axisTarget) {
       return 'Select an edge or construction axis for revolve'
@@ -83,12 +93,12 @@ export const revolveAuthoringDefinition = {
     })]
   },
   buildDefinition(draft) {
-    return draft.profileTarget && draft.axisTarget
+    return draft.profileTargets.length > 0 && draft.axisTarget
       ? {
           kind: 'revolve',
           featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
           parameters: {
-            profile: draft.profileTarget,
+            profiles: draft.profileTargets as readonly [typeof draft.profileTargets[number], ...typeof draft.profileTargets[number][]],
             axis: draft.axisTarget,
             startAngle: draft.startAngle,
             extent: {
@@ -111,19 +121,20 @@ export const revolveAuthoringDefinition = {
           title: 'References',
           fields: [
             {
-              kind: 'referencePicker',
+              kind: 'referenceCollection',
               id: 'revolve-profile',
-              label: 'Profile target',
-              value: session.draft.profileTarget,
+              label: 'Profile targets',
+              value: session.draft.profileTargets,
               emptyLabel: 'None selected',
-              helper: 'Accepted targets: one derived sketch region or one planar face.',
-              error: session.draft.profileTarget ? null : { message: 'Select a profile target.' },
+              helper: 'Accepted targets: derived sketch regions or planar faces.',
+              error: session.draft.profileTargets.length > 0 ? null : { message: 'Select at least one profile target.' },
               picker: {
-                mode: 'replace',
-                allowsMultiple: false,
+                mode: 'appendUnique',
+                allowsMultiple: true,
                 selectionFilter: createSelectionFilterForRequirement(revolveSelectionFilter, 'revolve-profile', 'Revolve profile'),
+                itemLabel: 'Profile',
               },
-              patch: { patchKey: 'profileTarget' },
+              patch: { patchKey: 'profileTargets' },
             },
             {
               kind: 'referencePicker',

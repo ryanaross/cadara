@@ -280,11 +280,11 @@ const createExtrudeRequest: CreateFeatureRequest = {
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: {
+      profiles: [{
         kind: 'region',
         sketchId: 'sketch_profile',
         regionId: 'region_outer',
-      },
+      }],
       startExtent: {
         kind: 'profilePlane',
       },
@@ -293,8 +293,6 @@ const createExtrudeRequest: CreateFeatureRequest = {
         direction: 'positive',
         distance: 12,
       },
-      depth: 12,
-      direction: 'oneSided',
       operation: 'newBody',
       booleanScope: {
         kind: 'standalone',
@@ -450,11 +448,11 @@ const topologyChangingRebuildRequest: UpdateFeatureRequest = {
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: {
+      profiles: [{
         kind: 'region',
         sketchId: 'sketch_profile',
         regionId: 'region_outer',
-      },
+      }],
       startExtent: {
         kind: 'profilePlane',
       },
@@ -463,8 +461,6 @@ const topologyChangingRebuildRequest: UpdateFeatureRequest = {
         direction: 'positive',
         distance: 18,
       },
-      depth: 18,
-      direction: 'oneSided',
       operation: 'newBody',
       booleanScope: {
         kind: 'standalone',
@@ -555,7 +551,7 @@ function testSolveSketchExampleIsFullyTyped() {
 
 function testCreateExtrudeExampleUsesTypedProfileRef() {
   assert(createExtrudeRequest.definition.kind === 'extrude', 'Create-extrude example must use the extrude feature family.')
-  assert(createExtrudeRequest.definition.parameters.profile.kind === 'region', 'Create-extrude example must use an explicit derived region reference.')
+  assert(createExtrudeRequest.definition.parameters.profiles[0]?.kind === 'region', 'Create-extrude example must use an explicit derived region reference.')
   assert(createExtrudeRequest.definition.parameters.endExtent.distance > 0, 'Create-extrude example must use a positive blind end extent distance.')
   assert(createExtrudeResponse.revisionState.kind === 'accepted', 'Create-extrude response must report explicit revision acceptance.')
   assert(createExtrudeResponse.rebuildResult.kind === 'rebuilt', 'Create-extrude response must report explicit rebuild success.')

@@ -191,7 +191,7 @@ function collectFeatureConsumedTargets(definition: OccAuthoringState['features']
 
   switch (definition.kind) {
     case 'extrude':
-      targets.push(definition.parameters.profile)
+      targets.push(...definition.parameters.profiles)
       booleanScope = definition.parameters.booleanScope
       break
     case 'fillet':
@@ -201,7 +201,7 @@ function collectFeatureConsumedTargets(definition: OccAuthoringState['features']
       targets.push(definition.parameters.reference.target)
       break
     case 'revolve':
-      targets.push(definition.parameters.profile, definition.parameters.axis)
+      targets.push(...definition.parameters.profiles, definition.parameters.axis)
       booleanScope = definition.parameters.booleanScope
       break
     case 'shell':
@@ -263,16 +263,9 @@ function createSnapshotFeatureDefinition(
         kind: 'extrude',
         featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: definition.parameters.profile,
+          profiles: definition.parameters.profiles,
           startExtent: { kind: 'profilePlane' },
           endExtent: definition.parameters.endExtent,
-          extent: {
-            kind: 'blind',
-            direction: definition.parameters.endExtent.direction,
-            distance: definition.parameters.endExtent.distance,
-          },
-          depth: definition.parameters.endExtent.distance,
-          direction: 'oneSided',
           operation: definition.parameters.operation,
           booleanScope: definition.parameters.booleanScope,
         },
@@ -300,7 +293,7 @@ function createSnapshotFeatureDefinition(
         kind: 'revolve',
         featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: definition.parameters.profile,
+          profiles: definition.parameters.profiles,
           axis: definition.parameters.axis,
           startAngle: definition.parameters.startAngle,
           extent: definition.parameters.extent,

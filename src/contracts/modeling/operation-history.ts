@@ -145,6 +145,62 @@ function hasForbiddenTransportFields(value: Record<string, unknown>) {
   )
 }
 
+function validateProfileBasedFeatureDefinition(
+  definition: Record<string, unknown>,
+  index: number,
+): OperationHistoryEntryValidationResult {
+  if (definition.kind !== 'extrude' && definition.kind !== 'revolve') {
+    return { ok: true }
+  }
+
+  if (!isRecord(definition.parameters)) {
+    return {
+      ok: false,
+      reasonCode: 'invalid-profile-feature-parameters',
+      message: `Operation history entry ${index} has invalid ${definition.kind} parameters.`,
+    }
+  }
+
+  if ('profile' in definition.parameters) {
+    return {
+      ok: false,
+      reasonCode: 'legacy-profile-parameter',
+      message: `Operation history entry ${index} uses legacy ${definition.kind} parameters.profile instead of profiles.`,
+    }
+  }
+
+  if (!Array.isArray(definition.parameters.profiles) || definition.parameters.profiles.length === 0) {
+    return {
+      ok: false,
+      reasonCode: 'invalid-profile-collection',
+      message: `Operation history entry ${index} must include a non-empty ${definition.kind} profiles collection.`,
+    }
+  }
+
+  const profileKeys = new Set<string>()
+  for (const profile of definition.parameters.profiles) {
+    if (!isRecord(profile)) {
+      return {
+        ok: false,
+        reasonCode: 'invalid-profile-reference',
+        message: `Operation history entry ${index} contains an invalid ${definition.kind} profile reference.`,
+      }
+    }
+
+    const key = JSON.stringify(profile)
+    if (profileKeys.has(key)) {
+      return {
+        ok: false,
+        reasonCode: 'duplicate-profile-reference',
+        message: `Operation history entry ${index} contains duplicate ${definition.kind} profile references.`,
+      }
+    }
+    profileKeys.add(key)
+  }
+
+  return { ok: true }
+}
+
 function validateEntry(value: unknown, index: number): OperationHistoryEntryValidationResult {
   if (!isRecord(value) || !isString(value.kind) || !isRecord(value.payload)) {
     return {
@@ -186,7 +242,7 @@ function validateEntry(value: unknown, index: number): OperationHistoryEntryVali
           message: `Operation history entry ${index} has an invalid createFeature payload.`,
         }
       }
-      return { ok: true }
+      return validateProfileBasedFeatureDefinition(value.payload.definition, index)
     case 'updateFeature':
       if (!isString(value.payload.featureId) || !isRecord(value.payload.definition)) {
         return {
@@ -195,7 +251,7 @@ function validateEntry(value: unknown, index: number): OperationHistoryEntryVali
           message: `Operation history entry ${index} has an invalid updateFeature payload.`,
         }
       }
-      return { ok: true }
+      return validateProfileBasedFeatureDefinition(value.payload.definition, index)
     case 'deleteFeature':
       if (!isString(value.payload.featureId)) {
         return {

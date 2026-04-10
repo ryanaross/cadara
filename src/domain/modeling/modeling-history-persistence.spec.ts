@@ -33,7 +33,6 @@ async function getSeedExtrudeDefinition(service: ModelingService): Promise<Extru
       ...seedExtrude.definition.parameters,
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance: 9 },
-      depth: 9,
     },
   }
 }
@@ -126,7 +125,6 @@ async function testPersistedHistoryReplaysSketchAndFeatureMutations() {
       parameters: {
         ...definition.parameters,
         endExtent: { kind: 'blind', direction: 'positive', distance: 12 },
-        depth: 12,
       },
     },
   })

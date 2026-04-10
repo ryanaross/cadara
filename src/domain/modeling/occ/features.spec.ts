@@ -475,7 +475,7 @@ async function testExtrudeFeatureCreatesStandaloneBodyFromRegion() {
   const context = await makeContext()
   const featureId = 'feature_phase4_extrude_new_body' as FeatureId
   const parameters: ExtrudeFeatureParameters = {
-    profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+    profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
     startExtent: { kind: 'profilePlane' },
     endExtent: { kind: 'blind', direction: 'positive', distance: 5 },
     operation: 'newBody',
@@ -506,7 +506,7 @@ async function testExtrudeJoinAcrossOrderedTargetBodiesFollowsSequentialPolicy()
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+      profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
       operation: 'join',
@@ -533,7 +533,7 @@ async function testExtrudeJoinRejectsMultiSolidResultShapes() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
         operation: 'join',
@@ -561,7 +561,7 @@ async function testExtrudeRejectsInvalidExtentAndBooleanScope() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 0 },
         operation: 'newBody',
@@ -578,7 +578,7 @@ async function testExtrudeRejectsInvalidExtentAndBooleanScope() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
         operation: 'join',
@@ -595,7 +595,7 @@ async function testExtrudeRejectsInvalidExtentAndBooleanScope() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
         operation: 'newBody',
@@ -627,7 +627,7 @@ async function testCutAndIntersectApplyPerTargetPolicy() {
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+      profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
       operation: 'cut',
@@ -643,7 +643,7 @@ async function testCutAndIntersectApplyPerTargetPolicy() {
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+      profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
       operation: 'intersect',
@@ -687,7 +687,7 @@ async function testRevolveRejectsConstructionAxisAndBuildsEdgeBackedSolid() {
       kind: 'revolve',
       featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
         axis: { kind: 'construction', constructionId: axisConstruction.constructionId },
         startAngle: 0,
         extent: { kind: 'angle', direction: 'counterClockwise', radians: Math.PI },
@@ -703,7 +703,7 @@ async function testRevolveRejectsConstructionAxisAndBuildsEdgeBackedSolid() {
     kind: 'revolve',
     featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+      profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
       axis: { kind: 'edge', bodyId: axisBody.bodyId, edgeId: axisEdgeId as EdgeId },
       startAngle: Math.PI / 4,
       extent: { kind: 'angle', direction: 'counterClockwise', radians: Math.PI },
@@ -755,7 +755,7 @@ async function testRevolveRejectsNonPlanarFaceProfilesExplicitly() {
       kind: 'revolve',
       featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: { kind: 'face', bodyId: body.bodyId, faceId: nonPlanarFaceId },
+        profiles: [{ kind: 'face', bodyId: body.bodyId, faceId: nonPlanarFaceId }],
         axis: { kind: 'edge', bodyId: axisBody.bodyId, edgeId: axisEdgeId as EdgeId },
         startAngle: 0,
         extent: { kind: 'angle', direction: 'counterClockwise', radians: Math.PI / 2 },
@@ -866,7 +866,7 @@ async function testOccAuthoringStateRebuildUsesFeatureExecutionFlow() {
         kind: 'extrude',
         featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+          profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
           startExtent: { kind: 'profilePlane' },
           endExtent: { kind: 'blind', direction: 'positive', distance: 2 },
           operation: 'newBody',
@@ -911,7 +911,7 @@ async function testOccAuthoringStateRebuildIsDeterministicAcrossRepeatedRuns() {
         kind: 'extrude',
         featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: { kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId },
+          profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: region.regionId }],
           startExtent: { kind: 'profilePlane' },
           endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
           operation: 'newBody',

@@ -236,13 +236,13 @@ function getFeatureDefinitionLabel(definition: FeatureDefinition) {
 function getFeatureDefinitionChangedTargets(definition: FeatureDefinition) {
   switch (definition.kind) {
     case 'extrude':
-      return [definition.parameters.profile]
+      return [...definition.parameters.profiles]
     case 'fillet':
       return [...definition.parameters.edgeTargets]
     case 'plane':
       return [definition.parameters.reference.target]
     case 'revolve':
-      return [definition.parameters.profile, definition.parameters.axis]
+      return [...definition.parameters.profiles, definition.parameters.axis]
     case 'shell':
       return [definition.parameters.bodyTarget, ...definition.parameters.faceTargets]
   }
@@ -326,7 +326,7 @@ function isSupportedPlanarFace(faceId: FaceId) {
   return faceId === 'face_top'
 }
 
-function hasRegionTarget(snapshot: DocumentSnapshot, target: Extract<FeatureDefinition, { kind: 'extrude' }>['parameters']['profile']) {
+function hasRegionTarget(snapshot: DocumentSnapshot, target: Extract<FeatureDefinition, { kind: 'extrude' }>['parameters']['profiles'][number]) {
   return target.kind === 'region'
     && snapshot.sketches.some((sketch) =>
       sketch.sketchId === target.sketchId && sketch.sketch.regions.some((region) => region.regionId === target.regionId),
@@ -407,20 +407,35 @@ function validateFeatureDefinitionAgainstSnapshot(
   switch (definition.kind) {
     case 'extrude': {
       const distance = definition.parameters.endExtent.distance
+      const firstProfile = definition.parameters.profiles[0]
 
       if (distance <= 0) {
         return {
           accepted: false as const,
           reasonCode: 'mock-invalid-extrude',
           diagnostics: [
-            createInvalidFeatureDiagnostic(definition, definition.parameters.profile, 'Extrude depth must be positive.'),
+            createInvalidFeatureDiagnostic(definition, firstProfile, 'Extrude depth must be positive.'),
+          ],
+        }
+      }
+
+      if (definition.parameters.profiles.length > 1) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-unsupported-profile-group',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              firstProfile,
+              'Mock kernel does not support multi-profile extrude groups yet.',
+            ),
           ],
         }
       }
 
       if (
-        (definition.parameters.profile.kind === 'region' && !hasRegionTarget(snapshot, definition.parameters.profile)) ||
-        (definition.parameters.profile.kind === 'face' && !hasFaceTarget(snapshot, definition.parameters.profile.bodyId, definition.parameters.profile.faceId))
+        (firstProfile.kind === 'region' && !hasRegionTarget(snapshot, firstProfile)) ||
+        (firstProfile.kind === 'face' && !hasFaceTarget(snapshot, firstProfile.bodyId, firstProfile.faceId))
       ) {
         return {
           accepted: false as const,
@@ -428,21 +443,21 @@ function validateFeatureDefinitionAgainstSnapshot(
           diagnostics: [
             createInvalidFeatureDiagnostic(
               definition,
-              definition.parameters.profile,
+              firstProfile,
               'Extrude profile targets must resolve to a live durable region or face in the current snapshot.',
             ),
           ],
         }
       }
 
-      if (definition.parameters.profile.kind === 'face' && !isSupportedPlanarFace(definition.parameters.profile.faceId)) {
+      if (firstProfile.kind === 'face' && !isSupportedPlanarFace(firstProfile.faceId)) {
         return {
           accepted: false as const,
           reasonCode: 'mock-invalid-extrude',
           diagnostics: [
             createInvalidFeatureDiagnostic(
               definition,
-              definition.parameters.profile,
+              firstProfile,
               'Mock kernel only accepts planar top faces as extrude profile seeds.',
             ),
           ],
@@ -504,12 +519,26 @@ function validateFeatureDefinitionAgainstSnapshot(
         reasonCode: 'mock-unsupported-plane',
         diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement plane creation yet.')],
       }
-    case 'revolve':
+    case 'revolve': {
+      if (definition.parameters.profiles.length > 1) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-unsupported-profile-group',
+          diagnostics: [
+            createInvalidFeatureDiagnostic(
+              definition,
+              definition.parameters.profiles[0],
+              'Mock kernel does not support multi-profile revolve groups yet.',
+            ),
+          ],
+        }
+      }
       return {
         accepted: false as const,
         reasonCode: 'mock-unsupported-revolve',
         diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock kernel does not implement revolve creation yet.')],
       }
+    }
     case 'shell':
       return {
         accepted: false as const,
@@ -524,7 +553,7 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
     return []
   }
 
-  const profile = definition.parameters.profile
+  const profile = definition.parameters.profiles[0]
 
   if (profile.kind === 'face') {
     return hasFaceTarget(snapshot, profile.bodyId, profile.faceId)
@@ -1196,7 +1225,7 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
         kind: 'extrude',
         featureTypeVersion: 'feature-type/extrude/v1alpha1',
         parameters: {
-          profile: primaryRegion.target,
+          profiles: [primaryRegion.target],
           startExtent: {
             kind: 'profilePlane',
           },
@@ -1205,8 +1234,6 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
             direction: 'positive',
             distance: 12,
           },
-          depth: 12,
-          direction: 'oneSided',
           operation: 'newBody',
           booleanScope: {
             kind: 'standalone',
@@ -2042,7 +2069,6 @@ export class MockKernelAdapter implements ModelingKernelAdapter {
       mutableFeature.definition = request.definition
       mutableFeature.ownerRevisionId = nextRevisionId
       mutableFeature.producedTargets = getFeatureDefinitionChangedTargets(request.definition)
-      mutableFeature.label = mutableFeature.label
 
       const featureEntity = mutableSnapshot.presentation.entities.find(
         (entry) => entry.target.kind === 'feature' && entry.target.featureId === request.featureId,

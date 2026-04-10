@@ -174,12 +174,12 @@ export const extrudeSelectionFilter: SelectionFilter = {
     {
       id: 'extrude-profile',
       label: 'Extrude seed',
-      description: 'Extrude accepts one explicit derived sketch region or one planar face.',
+      description: 'Extrude accepts one or more explicit derived sketch regions or planar faces.',
       slots: [
         {
           id: 'extrude-seed',
           label: 'Extrude seed',
-          description: 'Select one derived sketch region or one planar face.',
+          description: 'Select one or more derived sketch regions or planar faces.',
           acceptedKinds: ['region', 'face'],
           acceptedSemantics: ['regionProfile', 'planarFace'],
         },
@@ -193,7 +193,7 @@ export const extrudeSelectionFilter: SelectionFilter = {
         {
           id: 'extrude-profile-for-boolean',
           label: 'Extrude seed',
-          description: 'Select one derived sketch region or one planar face.',
+          description: 'Select one or more derived sketch regions or planar faces.',
           acceptedKinds: ['region', 'face'],
           acceptedSemantics: ['regionProfile', 'planarFace'],
         },
@@ -239,12 +239,12 @@ export const revolveSelectionFilter: SelectionFilter = {
     {
       id: 'revolve-profile',
       label: 'Profile target',
-      description: 'Revolve accepts one explicit region or planar face profile.',
+      description: 'Revolve accepts one or more explicit region or planar face profiles.',
       slots: [
         {
           id: 'revolve-profile',
           label: 'Revolve profile',
-          description: 'Select one derived sketch region or planar face.',
+          description: 'Select one or more derived sketch regions or planar faces.',
           acceptedKinds: ['region', 'face'],
           acceptedSemantics: ['regionProfile', 'planarFace'],
         },

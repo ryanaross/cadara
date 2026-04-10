@@ -88,7 +88,10 @@ const OCC_MISSING_FEATURE_CODE = 'occ-missing-feature'
 const OCC_MISSING_REORDER_ANCHOR_CODE = 'occ-missing-reorder-anchor'
 const OCC_REBUILD_FAILURE_CODE = 'occ-rebuild-failure'
 const OCC_STALE_PREVIEW_CODE = 'occ-stale-preview'
-const OCC_REBUILD_DIAGNOSTIC_CODES = new Set<string>(Object.values(OCC_CONTRACT_GAP_CODES))
+const OCC_REBUILD_DIAGNOSTIC_CODES = new Set<string>([
+  ...Object.values(OCC_CONTRACT_GAP_CODES),
+  'unsupported-profile-group',
+])
 
 function assertSupportedModelingRequest(
   request: {
@@ -457,7 +460,7 @@ function deriveRebuildFailureCode(error: unknown) {
 function getFeatureConsumedTargets(definition: FeatureDefinition) {
   switch (definition.kind) {
     case 'extrude': {
-      const targets: NonNullable<ModelingDiagnostic['target']>[] = [definition.parameters.profile]
+      const targets: NonNullable<ModelingDiagnostic['target']>[] = [...definition.parameters.profiles]
       const scope = definition.parameters.booleanScope
       if (scope.kind === 'targetBody') {
         targets.push({ kind: 'body', bodyId: scope.bodyId })
@@ -473,7 +476,7 @@ function getFeatureConsumedTargets(definition: FeatureDefinition) {
       return [definition.parameters.reference.target]
     case 'revolve': {
       const targets: NonNullable<ModelingDiagnostic['target']>[] = [
-        definition.parameters.profile,
+        ...definition.parameters.profiles,
         definition.parameters.axis,
       ]
       const scope = definition.parameters.booleanScope

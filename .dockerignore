@@ -5,7 +5,10 @@ node_modules
 dist
 build
 .DS_Store
+Dockerfile*
+.dockerignore
 npm-debug.log*
 bun-debug.log*
+*.log*
 coverage
 .env*

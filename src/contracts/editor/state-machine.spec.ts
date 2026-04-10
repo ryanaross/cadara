@@ -567,7 +567,7 @@ function testRevolveActivationSupportsFaceThenEdgeSelection() {
   assert(activation.state.kind === 'editingFeature', 'Face-selected revolve activation should enter feature editing.')
   assert(activation.state.session.featureType === 'revolve', 'Face-selected revolve activation should create a revolve session.')
   assert(
-    activation.state.session.draft.profileTarget?.kind === 'face',
+    activation.state.session.draft.profileTargets[0]?.kind === 'face',
     'Face-selected revolve activation should keep the selected face as the revolve profile.',
   )
   assert(activation.effects.length === 0, 'Face-selected revolve activation should wait for an axis before previewing.')

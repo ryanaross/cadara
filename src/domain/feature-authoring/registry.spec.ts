@@ -50,6 +50,59 @@ function testRevolveDraftSelectionAndDefinitionBuilder() {
   assert(definition.parameters.axis.kind === 'edge', 'The selected edge should become the revolve axis.')
 }
 
+function testProfileBasedAuthoringUsesReferenceCollections() {
+  const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
+  const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
+  const extrudeSession = createFeatureEditSession({
+    featureType: 'extrude',
+    selectedTarget: profileA,
+  })
+  const extrudeProfileField = getFeatureEditorFormSchema(extrudeSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'extrude-profile')
+
+  assert(extrudeProfileField?.kind === 'referenceCollection', 'Extrude schema should expose profiles as a reference collection.')
+  assert(extrudeProfileField.picker.allowsMultiple, 'Extrude profile picker should allow multiple profile references.')
+
+  const extrudeMulti = patchFeatureEditSession(
+    extrudeSession,
+    createFeatureEditorReferenceSelectionPatch(extrudeProfileField, profileB),
+  )
+  const extrudeDefinition = buildFeatureDefinition(extrudeMulti)
+
+  assert(
+    extrudeMulti.featureType === 'extrude' && extrudeDefinition?.kind === 'extrude' && extrudeDefinition.parameters.profiles.length === 2,
+    'Extrude authoring should build multi-profile contract payloads from collection fields.',
+  )
+
+  const revolveSession = createFeatureEditSession({
+    featureType: 'revolve',
+    selectedTarget: profileA,
+  })
+  const revolveProfileField = getFeatureEditorFormSchema(revolveSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'revolve-profile')
+
+  assert(revolveProfileField?.kind === 'referenceCollection', 'Revolve schema should expose profiles as a reference collection.')
+  assert(revolveProfileField.picker.allowsMultiple, 'Revolve profile picker should allow multiple profile references.')
+
+  const revolveMulti = patchFeatureEditSession(
+    revolveSession,
+    createFeatureEditorReferenceSelectionPatch(revolveProfileField, profileB),
+  )
+  const revolveComplete = applySelectionToFeatureEditSession(revolveMulti, {
+    kind: 'edge',
+    bodyId: 'body_a',
+    edgeId: 'edge_axis',
+  })
+  const revolveDefinition = buildFeatureDefinition(revolveComplete)
+
+  assert(
+    revolveComplete.featureType === 'revolve' && revolveDefinition?.kind === 'revolve' && revolveDefinition.parameters.profiles.length === 2,
+    'Revolve authoring should build multi-profile contract payloads while keeping the axis separate.',
+  )
+}
+
 function testShellOwnsFaceSelectionDefaultsAndFormSchema() {
   const session = createFeatureEditSession({
     featureType: 'shell',
@@ -198,6 +251,7 @@ function testGenericReferenceFormEventsPatchSingleAndMultiReferences() {
 
 testRegistryContainsCurrentFeatureSet()
 testRevolveDraftSelectionAndDefinitionBuilder()
+testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testGenericFormEventsPatchRevolveAndShellDrafts()
 testGenericReferenceFormEventsPatchSingleAndMultiReferences()

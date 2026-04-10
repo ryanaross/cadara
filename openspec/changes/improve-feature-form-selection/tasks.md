@@ -25,7 +25,7 @@
 
 - [x] 4.1 Update feature authoring definitions to emit field-level required-reference errors for incomplete reference inputs
 - [x] 4.2 Update numeric feature fields that can be invalid to emit field-level error metadata where draft validation can determine the issue
-- [ ] 4.3 Update feature authoring definitions to mark multi-instance fields where feature semantics allow them, including extrude profile regions, fillet edges, and shell removable faces
+- [x] 4.3 Update feature authoring definitions to mark multi-instance fields where feature semantics allow them, including extrude profile regions, fillet edges, and shell removable faces
 - [x] 4.4 Confirm revolve fields can independently distinguish profile and axis picker active/error states while remaining single-instance fields
 
 ## 5. Verification
@@ -33,4 +33,4 @@
 - [x] 5.1 Add or update unit tests for generic clear-field patch helpers for single-reference values, all multi-instance values, and individual multi-instance reference items
 - [x] 5.2 Add or update editor state tests for active picker switching, single-instance and multi-instance selection application, `Escape` cancellation, and session cleanup
 - [x] 5.3 Add or update feature inspector tests for red invalid styling, primary active picker styling, selected-instance list rendering, clear button behavior, and per-instance remove button behavior
-- [ ] 5.4 Run the project test suite and typecheck with the repo's Bun scripts
+- [x] 5.4 Run the project test suite and typecheck with the repo's Bun scripts

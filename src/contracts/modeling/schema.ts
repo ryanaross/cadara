@@ -54,6 +54,9 @@ export type SketchPoint = SketchPoint2D
  */
 export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'
 
+/** Ordered collection that must contain at least one entry. */
+export type NonEmptyReadonlyArray<T> = readonly [T, ...T[]]
+
 /**
  * Explicit kernel capability matrix for the current contract revision.
  * Implementers must advertise support here instead of relying on rejection
@@ -117,23 +120,17 @@ export type FeatureBooleanScope =
 
 /**
  * Fully typed extrude parameters.
- * `profile` is the single authoritative seed reference; callers must not repeat
- * the same meaning in side-band generic arrays.
- * `extent.distance` is expressed in document modeling units and must be strictly positive.
+ * `profiles` is the single authoritative ordered profile seed collection;
+ * callers must not repeat the same meaning in side-band generic arrays.
+ * `endExtent.distance` is expressed in document modeling units and must be strictly positive.
  */
 export interface ExtrudeFeatureParameters {
-  /** Single authoritative profile seed for the extrude operation. */
-  profile: ExtrudeProfileRef
-  /** Deprecated alias for the end extent retained for transitional consumers. */
-  extent?: { kind: 'blind'; direction: 'positive' | 'negative'; distance: number }
+  /** Non-empty ordered profile seeds for the extrude operation. */
+  profiles: NonEmptyReadonlyArray<ExtrudeProfileRef>
   /** Explicit start condition for the extrusion path. */
   startExtent: { kind: 'profilePlane' }
   /** Explicit end condition with signed side selection and positive distance. */
   endExtent: { kind: 'blind'; direction: 'positive' | 'negative'; distance: number }
-  /** Deprecated alias for `extent.distance`. */
-  depth?: number
-  /** Deprecated alias for `extent.kind === "blind"` plus positive direction. */
-  direction?: 'oneSided'
   /** Boolean behavior applied to the extrude result. */
   operation: FeatureBooleanOperation
   /** Explicit participant scope for non-standalone boolean operations. */
@@ -205,8 +202,8 @@ export type RevolveAxisRef =
  * already specific enough for an implementer to build against without guessing.
  */
 export interface RevolveFeatureParameters {
-  /** Explicit closed profile seed to revolve. */
-  profile: RevolveProfileRef
+  /** Non-empty ordered closed profile seeds to revolve. */
+  profiles: NonEmptyReadonlyArray<RevolveProfileRef>
   /** Explicit axis reference used by the revolve. */
   axis: RevolveAxisRef
   /** Explicit start angle in radians from the profile's zero-angle pose. */
@@ -863,7 +860,7 @@ export interface CreateFeatureResponse extends ModelingOperationResult {
 /**
  * Feature creation request.
  */
-export interface CreateFeatureRequest extends FeatureMutationRequest {}
+export type CreateFeatureRequest = FeatureMutationRequest
 
 /**
  * Feature update request.

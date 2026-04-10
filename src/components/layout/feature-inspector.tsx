@@ -163,22 +163,50 @@ function ReferenceCard(props: {
   onClear?: () => void
   clearDisabled?: boolean
 }) {
-  const content = (
+  const className = `w-full rounded-md border bg-[rgba(12,16,22,0.8)] px-3 py-3 text-left transition ${fieldBorderClass({ error: props.error }, props.isActive)}`
+  const labelContent = (
     <>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-xs text-[var(--cad-muted-foreground)]">{props.title}</p>
-          <p className={`mt-1 text-sm ${props.error ? 'text-red-100' : props.isActive ? 'text-[var(--cad-accent)]' : 'text-[var(--cad-foreground)]'}`}>
-            {props.value}
-          </p>
+      <p className="text-xs text-[var(--cad-muted-foreground)]">{props.title}</p>
+      <p className={`mt-1 text-sm ${props.error ? 'text-red-100' : props.isActive ? 'text-[var(--cad-accent)]' : 'text-[var(--cad-foreground)]'}`}>
+        {props.value}
+      </p>
+    </>
+  )
+
+  if (props.onActivate) {
+    return (
+      <div className={className}>
+        <div className="flex items-start justify-between gap-2">
+          <button type="button" onClick={props.onActivate} className="min-w-0 flex-1 text-left" aria-pressed={props.isActive}>
+            {labelContent}
+          </button>
+          {props.onClear ? (
+            <button
+              type="button"
+              onClick={props.onClear}
+              disabled={props.clearDisabled}
+              aria-label={`Clear ${props.title}`}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
+        <div className="mt-2">
+          <FieldMessage helper={props.helper} error={props.error} />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={className}>
+      <div className="flex items-start justify-between gap-2">
+        <div>{labelContent}</div>
         {props.onClear ? (
           <button
             type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              props.onClear?.()
-            }}
+            onClick={props.onClear}
             disabled={props.clearDisabled}
             aria-label={`Clear ${props.title}`}
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--cad-border)] text-[var(--cad-muted-foreground)] transition hover:border-red-400 hover:text-red-200 disabled:pointer-events-none disabled:opacity-40"
@@ -190,22 +218,6 @@ function ReferenceCard(props: {
       <div className="mt-2">
         <FieldMessage helper={props.helper} error={props.error} />
       </div>
-    </>
-  )
-
-  const className = `w-full rounded-md border bg-[rgba(12,16,22,0.8)] px-3 py-3 text-left transition ${fieldBorderClass({ error: props.error }, props.isActive)}`
-
-  if (props.onActivate) {
-    return (
-      <button type="button" onClick={props.onActivate} className={className} aria-pressed={props.isActive}>
-        {content}
-      </button>
-    )
-  }
-
-  return (
-    <div className={className}>
-      {content}
     </div>
   )
 }

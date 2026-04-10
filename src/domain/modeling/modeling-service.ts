@@ -16,7 +16,10 @@ import type {
   SnapshotEntityId,
   VertexId,
 } from '@/domain/editor/schema'
-import { getPrimitiveRefLabel as formatPrimitiveRefLabel } from '@/domain/editor/schema'
+import {
+  getPrimitiveRefKey,
+  getPrimitiveRefLabel as formatPrimitiveRefLabel,
+} from '@/domain/editor/schema'
 import type {
   BodySnapshotRecord,
   CommitSketchResponse,
@@ -482,6 +485,30 @@ function assertExtrudeProfileRef(value: unknown): ExtrudeProfileRef {
   }
 }
 
+function assertExtrudeProfileRefs(value: unknown, featureLabel: string): readonly [ExtrudeProfileRef, ...ExtrudeProfileRef[]] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${featureLabel} parameters must include profiles.`)
+  }
+
+  if (value.length === 0) {
+    throw new Error(`${featureLabel} profiles must include at least one explicit region or planar face reference.`)
+  }
+
+  const [first, ...rest] = value.map((entry) => assertExtrudeProfileRef(entry))
+  const profiles = [first!, ...rest] as const
+  const seen = new Set<string>()
+
+  for (const profile of profiles) {
+    const key = getPrimitiveRefKey(profile)
+    if (seen.has(key)) {
+      throw new Error(`${featureLabel} profiles must not contain duplicate profile references.`)
+    }
+    seen.add(key)
+  }
+
+  return profiles as readonly [ExtrudeProfileRef, ...ExtrudeProfileRef[]]
+}
+
 function assertFilletEdgeRef(value: unknown): FilletEdgeRef {
   const target = assertPrimitiveRef(value)
 
@@ -517,23 +544,23 @@ function normalizeExtrudeFeatureParameters(value: unknown): ExtrudeFeatureParame
     throw new Error('Invalid extrude feature parameters payload.')
   }
 
-  const distance =
-    isRecord(value.extent) && value.extent.kind === 'blind' && typeof value.extent.distance === 'number'
-      ? value.extent.distance
-      : typeof value.depth === 'number'
-        ? value.depth
-        : null
+  if ('profile' in value || 'depth' in value || 'direction' in value) {
+    throw new Error('Legacy extrude profile, depth, and direction aliases are not supported; use profiles and endExtent.')
+  }
 
-  if (distance === null) {
+  if (!isRecord(value.endExtent) || value.endExtent.kind !== 'blind' || typeof value.endExtent.distance !== 'number') {
     throw new Error('Invalid extrude feature parameters payload.')
+  }
+
+  const distance =
+    value.endExtent.distance
+
+  if (value.endExtent.direction !== 'positive' && value.endExtent.direction !== 'negative') {
+    throw new Error('Invalid extrude end extent direction payload.')
   }
 
   if (distance <= 0) {
     throw new Error('Extrude depth must be positive.')
-  }
-
-  if (value.direction !== undefined && value.direction !== 'oneSided') {
-    throw new Error('Invalid extrude direction payload.')
   }
 
   if (value.operation !== 'newBody' && value.operation !== 'join' && value.operation !== 'cut' && value.operation !== 'intersect') {
@@ -541,20 +568,13 @@ function normalizeExtrudeFeatureParameters(value: unknown): ExtrudeFeatureParame
   }
 
   return {
-    profile: assertExtrudeProfileRef(value.profile),
+    profiles: assertExtrudeProfileRefs(value.profiles, 'Extrude'),
     startExtent: { kind: 'profilePlane' },
     endExtent: {
       kind: 'blind',
-      direction:
-        isRecord(value.endExtent) && (value.endExtent.direction === 'positive' || value.endExtent.direction === 'negative')
-          ? value.endExtent.direction
-          : isRecord(value.extent) && (value.extent.direction === 'positive' || value.extent.direction === 'negative')
-            ? value.extent.direction
-            : 'positive',
+      direction: value.endExtent.direction,
       distance,
     },
-    depth: distance,
-    direction: 'oneSided',
     operation: value.operation,
     booleanScope:
       isRecord(value.booleanScope) && value.booleanScope.kind === 'targetBody' && isString(value.booleanScope.bodyId)
@@ -608,6 +628,10 @@ function normalizeRevolveFeatureParameters(value: unknown): RevolveFeatureParame
     throw new Error('Invalid revolve feature parameters payload.')
   }
 
+  if ('profile' in value) {
+    throw new Error('Legacy revolve profile alias is not supported; use profiles.')
+  }
+
   const radians =
     isRecord(value.extent) && value.extent.kind === 'angle' && typeof value.extent.radians === 'number'
       ? value.extent.radians
@@ -624,7 +648,7 @@ function normalizeRevolveFeatureParameters(value: unknown): RevolveFeatureParame
   }
 
   return {
-    profile: assertExtrudeProfileRef(value.profile),
+    profiles: assertExtrudeProfileRefs(value.profiles, 'Revolve'),
     axis: assertRevolveAxisRef(value.axis),
     startAngle: typeof value.startAngle === 'number' ? value.startAngle : 0,
     extent: {
@@ -2426,6 +2450,7 @@ function normalizeCreateFeatureInput(
 
   return {
     ...input,
+    definition: normalizeFeatureDefinition(input.definition),
     contractVersion: CONTRACT_VERSION,
     documentId,
   }
@@ -2452,6 +2477,7 @@ function normalizeUpdateFeatureInput(
 
   return {
     ...input,
+    definition: normalizeFeatureDefinition(input.definition),
     contractVersion: CONTRACT_VERSION,
     documentId,
   }
@@ -2491,6 +2517,7 @@ function normalizePreviewInput(
 
   return {
     ...input,
+    definition: normalizeFeatureDefinition(input.definition),
     contractVersion: CONTRACT_VERSION,
     documentId,
   }

@@ -324,15 +324,13 @@ export function createSeedFeatureDefinitions(
         kind: 'extrude',
         featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: {
+          profiles: [{
             kind: 'region',
             sketchId: OCC_KERNEL_PRIMARY_SKETCH_ID,
             regionId,
-          },
+          }],
           startExtent: { kind: 'profilePlane' },
           endExtent: { kind: 'blind', direction: 'positive', distance: 12 },
-          depth: 12,
-          direction: 'oneSided',
           operation: 'newBody',
           booleanScope: { kind: 'standalone' },
         },

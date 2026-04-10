@@ -2,7 +2,7 @@ import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/defi
 import { isBooleanOperation, toBooleanScope } from '@/domain/feature-authoring/definition'
 import { createSelectionFilterForRequirement, extrudeSelectionFilter } from '@/domain/editor/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
-import { asBodyRef, asExtrudeProfileRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
+import { appendUniqueTarget, asBodyRef, asExtrudeProfileRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
 
 export const extrudeAuthoringDefinition = {
   metadata: {
@@ -17,19 +17,18 @@ export const extrudeAuthoringDefinition = {
   featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
   selectionFilter: extrudeSelectionFilter,
   createDraft(input) {
+    const profileTarget = asExtrudeProfileRef(input.selectedTarget)
     return {
-      profileTarget: asExtrudeProfileRef(input.selectedTarget),
+      profileTargets: profileTarget ? [profileTarget] : [],
       depth: 12,
-      direction: 'oneSided',
       operation: 'newBody',
       booleanScope: { kind: 'standalone' },
     }
   },
   hydrateDraft(feature) {
     return {
-      profileTarget: feature.parameters.profile,
+      profileTargets: [...feature.parameters.profiles],
       depth: feature.parameters.endExtent.distance,
-      direction: feature.parameters.direction ?? 'oneSided',
       operation: feature.parameters.operation,
       booleanScope: feature.parameters.booleanScope,
     }
@@ -37,17 +36,25 @@ export const extrudeAuthoringDefinition = {
   applyPatch(draft, patch) {
     return {
       ...draft,
-      profileTarget:
-        patch.profileTarget === undefined ? draft.profileTarget : asExtrudeProfileRef(patch.profileTarget as Parameters<typeof asExtrudeProfileRef>[0]),
+      profileTargets:
+        patch.profileTargets === undefined && patch.profileTarget === undefined
+          ? draft.profileTargets
+          : Array.isArray(patch.profileTargets)
+            ? patch.profileTargets.filter((entry): entry is typeof draft.profileTargets[number] => asExtrudeProfileRef(entry as Parameters<typeof asExtrudeProfileRef>[0]) !== null)
+            : asExtrudeProfileRef(patch.profileTarget as Parameters<typeof asExtrudeProfileRef>[0])
+              ? [patch.profileTarget as typeof draft.profileTargets[number]]
+              : draft.profileTargets,
       depth: typeof patch.depth === 'number' ? patch.depth : draft.depth,
-      direction: patch.direction === 'oneSided' ? 'oneSided' : draft.direction,
       operation: isBooleanOperation(patch.operation) ? patch.operation : draft.operation,
       booleanScope: toBooleanScope(patch, draft.booleanScope),
     }
   },
   applySelection(draft, target) {
     if (target.kind === 'region' || target.kind === 'face') {
-      return this.applyPatch(draft, { profileTarget: target })
+      return {
+        ...draft,
+        profileTargets: appendUniqueTarget(draft.profileTargets, target),
+      }
     }
 
     const bodyTarget = asBodyRef(target)
@@ -56,12 +63,12 @@ export const extrudeAuthoringDefinition = {
       : draft
   },
   getPrimarySelectionTarget(draft) {
-    return draft.profileTarget
+    return draft.profileTargets[0] ?? null
   },
   getPreviewLabel(draft, prefix) {
-    return draft.profileTarget
-      ? `${prefix} extrude on ${draft.profileTarget.kind}`
-      : 'Select a sketch region or planar face for extrude'
+    return draft.profileTargets.length > 0
+      ? `${prefix} extrude on ${draft.profileTargets.length} profile${draft.profileTargets.length === 1 ? '' : 's'}`
+      : 'Select one or more sketch regions or planar faces for extrude'
   },
   getMissingInputsDiagnostics(input) {
     return [createMissingInputDiagnostic({
@@ -72,20 +79,18 @@ export const extrudeAuthoringDefinition = {
     })]
   },
   buildDefinition(draft) {
-    return draft.profileTarget
+    return draft.profileTargets.length > 0
       ? {
           kind: 'extrude',
           featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
           parameters: {
-            profile: draft.profileTarget,
+            profiles: draft.profileTargets as readonly [typeof draft.profileTargets[number], ...typeof draft.profileTargets[number][]],
             startExtent: { kind: 'profilePlane' },
             endExtent: {
               kind: 'blind',
               direction: 'positive',
               distance: draft.depth,
             },
-            depth: draft.depth,
-            direction: draft.direction,
             operation: draft.operation,
             booleanScope: draft.booleanScope,
           },
@@ -99,19 +104,20 @@ export const extrudeAuthoringDefinition = {
           id: 'references',
           title: 'References',
           fields: [{
-            kind: 'referencePicker',
+            kind: 'referenceCollection',
             id: 'extrude-profile',
-            label: 'Profile target',
-            value: session.draft.profileTarget,
+            label: 'Profile targets',
+            value: session.draft.profileTargets,
             emptyLabel: 'None selected',
-            helper: 'Accepted targets: one derived sketch region or one planar face.',
-            error: session.draft.profileTarget ? null : { message: 'Select a profile target.' },
+            helper: 'Accepted targets: derived sketch regions or planar faces.',
+            error: session.draft.profileTargets.length > 0 ? null : { message: 'Select at least one profile target.' },
             picker: {
-              mode: 'replace',
-              allowsMultiple: false,
+              mode: 'appendUnique',
+              allowsMultiple: true,
               selectionFilter: createSelectionFilterForRequirement(extrudeSelectionFilter, 'extrude-profile', 'Extrude profile'),
+              itemLabel: 'Profile',
             },
-            patch: { patchKey: 'profileTarget' },
+            patch: { patchKey: 'profileTargets' },
           }],
         },
         {

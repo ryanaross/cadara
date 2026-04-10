@@ -6,7 +6,7 @@ import {
   validateOperationHistoryPayload,
   type ModelingOperationHistoryPayload,
 } from '@/contracts/modeling/operation-history'
-import type { CommitSketchRequest, CreateFeatureRequest, ReorderFeatureRequest } from '@/contracts/modeling/schema'
+import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
 
@@ -68,16 +68,16 @@ const createFeatureRequest: CreateFeatureRequest = {
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: { kind: 'region', sketchId: 'sketch_profile', regionId: 'region_profile' },
+      profiles: [{ kind: 'region', sketchId: 'sketch_profile', regionId: 'region_profile' }],
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance: 10 },
-      depth: 10,
-      direction: 'oneSided',
       operation: 'newBody',
       booleanScope: { kind: 'standalone' },
     },
   },
 }
+
+const createExtrudeDefinition = createFeatureRequest.definition as Extract<FeatureDefinition, { kind: 'extrude' }>
 
 const reorderFeatureRequest: ReorderFeatureRequest = {
   contractVersion: 'modeling-contract/v1alpha1',
@@ -145,6 +145,90 @@ function testRejectsTransportMetadataLeak() {
   )
 }
 
+function testValidatesProfileCollectionFeaturePayloads() {
+  const multiProfilePayload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: {
+          ...createExtrudeDefinition,
+          parameters: {
+            ...createExtrudeDefinition.parameters,
+            profiles: [
+              createExtrudeDefinition.parameters.profiles[0],
+              { kind: 'region', sketchId: 'sketch_profile', regionId: 'region_inner' },
+            ],
+          },
+        },
+      }),
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(multiProfilePayload)
+
+  assert(result.ok, 'One-profile and multi-profile extrude history payloads should validate.')
+}
+
+function testRejectsLegacyAndInvalidProfileCollections() {
+  const legacyPayload = validateOperationHistoryPayload({
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [{
+      kind: 'createFeature',
+      payload: {
+        definition: {
+          ...createExtrudeDefinition,
+          parameters: {
+            ...createExtrudeDefinition.parameters,
+            profiles: undefined,
+            profile: createExtrudeDefinition.parameters.profiles[0],
+          },
+        },
+      },
+    }],
+  })
+  const emptyPayload = validateOperationHistoryPayload({
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [{
+      kind: 'createFeature',
+      payload: {
+        definition: {
+          ...createExtrudeDefinition,
+          parameters: {
+            ...createExtrudeDefinition.parameters,
+            profiles: [],
+          },
+        },
+      },
+    }],
+  })
+  const duplicatePayload = validateOperationHistoryPayload({
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [{
+      kind: 'updateFeature',
+      payload: {
+        featureId: 'feature_extrude-1',
+        definition: {
+          ...createExtrudeDefinition,
+          parameters: {
+            ...createExtrudeDefinition.parameters,
+            profiles: [
+              createExtrudeDefinition.parameters.profiles[0],
+              createExtrudeDefinition.parameters.profiles[0],
+            ],
+          },
+        },
+      },
+    }],
+  })
+
+  assert(!legacyPayload.ok && legacyPayload.reasonCode === 'legacy-profile-parameter', 'Legacy singular profile history payloads should be rejected.')
+  assert(!emptyPayload.ok && emptyPayload.reasonCode === 'invalid-profile-collection', 'Empty profile collection history payloads should be rejected.')
+  assert(!duplicatePayload.ok && duplicatePayload.reasonCode === 'duplicate-profile-reference', 'Duplicate profile collection history payloads should be rejected.')
+}
+
 testValidatesRepresentativeHistory()
 testRejectsUnsupportedVersion()
 testRejectsTransportMetadataLeak()
+testValidatesProfileCollectionFeaturePayloads()
+testRejectsLegacyAndInvalidProfileCollections()

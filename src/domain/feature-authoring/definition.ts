@@ -27,15 +27,14 @@ import type { ToolIconId, ToolbarMode } from '@/domain/tools/schema'
 import type { FeatureEditorFormSchema } from '@/domain/feature-authoring/form-schema'
 
 export interface ExtrudeFeatureParameterDraft {
-  profileTarget: ExtrudeProfileRef | null
+  profileTargets: readonly ExtrudeProfileRef[]
   depth: number
-  direction: 'oneSided'
   operation: FeatureBooleanOperation
   booleanScope: FeatureBooleanScope
 }
 
 export interface RevolveFeatureParameterDraft {
-  profileTarget: ExtrudeProfileRef | null
+  profileTargets: readonly ExtrudeProfileRef[]
   axisTarget: RevolveAxisRef | null
   startAngle: number
   angle: number

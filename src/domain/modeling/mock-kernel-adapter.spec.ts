@@ -1,5 +1,5 @@
 import { MockKernelAdapter } from './mock-kernel-adapter'
-import { modelingRuntimeValidators } from './modeling-service'
+import { createModelingService, modelingRuntimeValidators } from './modeling-service'
 import { resolvePickTarget } from '@/domain/workspace/render-picking'
 import * as THREE from 'three'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
@@ -37,11 +37,9 @@ async function testExtrudePreviewDependsOnDefinition() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: existingExtrude.definition.parameters.profile,
+        profiles: existingExtrude.definition.parameters.profiles,
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 12 },
-        depth: 12,
-        direction: 'oneSided',
         operation: 'newBody',
         booleanScope: { kind: 'standalone' },
       },
@@ -81,11 +79,9 @@ async function testExtrudePreviewDependsOnDefinition() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: existingExtrude.definition.parameters.profile,
+        profiles: existingExtrude.definition.parameters.profiles,
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 0 },
-        depth: 0,
-        direction: 'oneSided',
         operation: 'newBody',
         booleanScope: { kind: 'standalone' },
       },
@@ -97,6 +93,71 @@ async function testExtrudePreviewDependsOnDefinition() {
     invalid.diagnostics.some((diagnostic) => diagnostic.code === 'mock-invalid-extrude'),
     'Invalid extrude previews must emit structured diagnostics.',
   )
+}
+
+async function testProfileCollectionContractBoundaryRejectsInvalidPayloads() {
+  const service = createModelingService(new MockKernelAdapter(), {
+    currentDocumentId: 'doc_workspace',
+  })
+  const snapshot = await service.getCurrentDocumentSnapshot()
+  const existingExtrude = snapshot.features.find(
+    (feature) => feature.featureId === 'feature_extrude-1' && feature.definition.kind === 'extrude',
+  )
+
+  if (!existingExtrude || existingExtrude.definition.kind !== 'extrude') {
+    throw new Error('Mock snapshot must expose the seeded extrude feature definition.')
+  }
+
+  const profile = existingExtrude.definition.parameters.profiles[0]
+  const invalidCases = [
+    {
+      parameters: {
+        ...existingExtrude.definition.parameters,
+        profiles: undefined,
+        profile,
+      },
+      message: 'Legacy singular profile payloads should be rejected before preview.',
+    },
+    {
+      parameters: {
+        ...existingExtrude.definition.parameters,
+        profiles: [],
+      },
+      message: 'Empty profile arrays should be rejected before preview.',
+    },
+    {
+      parameters: {
+        ...existingExtrude.definition.parameters,
+        profiles: [{ kind: 'sketch', sketchId: 'sketch_primary' }],
+      },
+      message: 'Whole-sketch profile seeds should be rejected before preview.',
+    },
+    {
+      parameters: {
+        ...existingExtrude.definition.parameters,
+        profiles: [profile, profile],
+      },
+      message: 'Duplicate profile references should be rejected before preview.',
+    },
+  ] as const
+
+  for (const testCase of invalidCases) {
+    let rejected = false
+    try {
+      await service.evaluatePreview({
+        baseRevisionId: snapshot.revisionId,
+        previewId: 'preview_invalid_profiles',
+        definition: {
+          kind: 'extrude',
+          featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
+          parameters: testCase.parameters,
+        } as never,
+      })
+    } catch {
+      rejected = true
+    }
+    assert(rejected, testCase.message)
+  }
 }
 
 async function testUnsupportedFeatureDefinitionsAreRejectedByMock() {
@@ -155,7 +216,6 @@ async function testMutationResponsesReportRebuildResults() {
         ...extrude.definition.parameters,
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 8 },
-        depth: 8,
       },
     },
   })
@@ -205,7 +265,6 @@ async function testAcceptedCreateMutatesCommittedSnapshot() {
         ...seedExtrude.definition.parameters,
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 16 },
-        depth: 16,
       },
     },
   })
@@ -625,6 +684,7 @@ function testRenderValidatorRejectsInvalidGeometry() {
 }
 
 await testExtrudePreviewDependsOnDefinition()
+await testProfileCollectionContractBoundaryRejectsInvalidPayloads()
 await testUnsupportedFeatureDefinitionsAreRejectedByMock()
 await testMutationResponsesReportRebuildResults()
 await testAcceptedCreateMutatesCommittedSnapshot()

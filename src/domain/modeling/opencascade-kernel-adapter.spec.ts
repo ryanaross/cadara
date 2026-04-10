@@ -395,15 +395,13 @@ function createExtrudeDefinition(sketch: SketchSnapshotRecord, distance: number)
     kind: 'extrude',
     featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: {
+      profiles: [{
         kind: 'region',
         sketchId: sketch.sketchId,
         regionId: region.regionId,
-      },
+      }],
       startExtent: { kind: 'profilePlane' },
       endExtent: { kind: 'blind', direction: 'positive', distance },
-      depth: distance,
-      direction: 'oneSided',
       operation: 'newBody',
       booleanScope: { kind: 'standalone' },
     },
@@ -451,11 +449,11 @@ function createRevolveDefinition(
     kind: 'revolve',
     featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: {
+      profiles: [{
         kind: 'region',
         sketchId: sketch.sketchId,
         regionId: region.regionId,
-      },
+      }],
       axis: {
         kind: 'edge',
         bodyId: axisBodyId,
@@ -484,11 +482,11 @@ function createConstructionAxisRevolveDefinition(
     kind: 'revolve',
     featureTypeVersion: REVOLVE_FEATURE_SCHEMA_VERSION,
     parameters: {
-      profile: {
+      profiles: [{
         kind: 'region',
         sketchId: sketch.sketchId,
         regionId: region.regionId,
-      },
+      }],
       axis: {
         kind: 'construction',
         constructionId,
@@ -1294,15 +1292,13 @@ async function testDownstreamInvalidReferencesRejectWithStructuredDiagnostics() 
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: {
+        profiles: [{
           kind: 'region',
           sketchId: sketch.sketchId,
           regionId: sketch.sketch.regions[0]!.regionId,
-        },
+        }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 6 },
-        depth: 6,
-        direction: 'oneSided',
         operation: 'join',
         booleanScope: { kind: 'targetBody', bodyId: bodyTarget.bodyId },
       },
@@ -1364,15 +1360,13 @@ async function testMultiBodyBooleanPolicyJoinUsesFirstTargetIdentity() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: {
+        profiles: [{
           kind: 'region',
           sketchId: firstSketch.sketchId,
           regionId: region.regionId,
-        },
+        }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
-        depth: 1,
-        direction: 'oneSided',
         operation: 'join',
         booleanScope: { kind: 'targetBodies', bodyIds: [bodyB.bodyId, bodyA.bodyId] },
       },
@@ -1450,15 +1444,13 @@ async function testMultiBodyBooleanPolicyUsesPerTargetCutBehavior() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: {
+        profiles: [{
           kind: 'region',
           sketchId: firstSketch.sketchId,
           regionId: region.regionId,
-        },
+        }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
-        depth: 1,
-        direction: 'oneSided',
         operation: 'cut',
         booleanScope: { kind: 'targetBodies', bodyIds: [bodyA.bodyId, bodyB.bodyId] },
       },
@@ -1528,15 +1520,13 @@ async function testMultiBodyBooleanPolicyIntersectDropsEmptyTargets() {
       kind: 'extrude',
       featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
       parameters: {
-        profile: {
+        profiles: [{
           kind: 'region',
           sketchId: firstSketch.sketchId,
           regionId: region.regionId,
-        },
+        }],
         startExtent: { kind: 'profilePlane' },
         endExtent: { kind: 'blind', direction: 'positive', distance: 1 },
-        depth: 1,
-        direction: 'oneSided',
         operation: 'intersect',
         booleanScope: { kind: 'targetBodies', bodyIds: [bodyA.bodyId, bodyB.bodyId] },
       },
@@ -1604,6 +1594,164 @@ async function testUnknownPrefixedRebuildErrorsFallbackToOccRebuildFailure() {
   }
 }
 
+async function testProfileCollectionAdapterDiagnostics() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+  assert(committed.revisionState.kind === 'accepted', 'Profile collection adapter diagnostics require a committed sketch.')
+
+  const snapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(snapshot.snapshot)
+  const extrudeDefinition = createExtrudeDefinition(sketch, 4)
+  assert(extrudeDefinition.kind === 'extrude', 'Test helper should build an extrude definition.')
+
+  const single = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: committed.revisionId,
+    previewId: 'preview_single_profile_extrude',
+    definition: extrudeDefinition,
+  })
+  assertNoErrorDiagnostics(single.diagnostics, 'Single-profile extrude previews should remain supported')
+
+  const axisFeature = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: committed.revisionId,
+    definition: extrudeDefinition,
+  })
+  assert(axisFeature.revisionState.kind === 'accepted', 'Profile collection adapter diagnostics require an axis source body.')
+  const axisSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const axisBodyTarget = axisFeature.changedTargets.find((target) => target.kind === 'body')
+  assert(axisBodyTarget?.kind === 'body', 'Accepted axis source feature must produce a body target.')
+  const axisBody = requireBody(axisSnapshot.snapshot, axisBodyTarget.bodyId)
+  const axisEdgeId = axisBody.topology.edgeIds[0]
+  assert(axisEdgeId, 'Axis source body must expose an edge for revolve diagnostics.')
+  const revolveDefinition = createRevolveDefinition(sketch, axisBody.bodyId, axisEdgeId)
+  assert(revolveDefinition.kind === 'revolve', 'Test helper should build a revolve definition.')
+
+  const empty = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: axisFeature.revisionId,
+    previewId: 'preview_empty_profile_extrude',
+    definition: {
+      ...extrudeDefinition,
+      parameters: {
+        ...extrudeDefinition.parameters,
+        profiles: [],
+      },
+    } as never,
+  })
+  assert(hasErrorDiagnostics(empty.diagnostics), 'Empty profile arrays should return explicit adapter diagnostics.')
+
+  const invalid = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: axisFeature.revisionId,
+    previewId: 'preview_invalid_profile_extrude',
+    definition: {
+      ...extrudeDefinition,
+      parameters: {
+        ...extrudeDefinition.parameters,
+        profiles: [{ kind: 'region', sketchId: sketch.sketchId, regionId: 'region_missing' }],
+      },
+    } as never,
+  })
+  assert(hasErrorDiagnostics(invalid.diagnostics), 'Invalid profile references should return explicit adapter diagnostics.')
+
+  const duplicate = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: axisFeature.revisionId,
+    previewId: 'preview_duplicate_profile_extrude',
+    definition: {
+      ...extrudeDefinition,
+      parameters: {
+        ...extrudeDefinition.parameters,
+        profiles: [extrudeDefinition.parameters.profiles[0], extrudeDefinition.parameters.profiles[0]],
+      },
+    },
+  })
+  assert(
+    duplicate.diagnostics.some((diagnostic) => diagnostic.code === 'unsupported-profile-group'),
+    'Duplicate profile groups should not be silently reduced by the OCC adapter.',
+  )
+
+  const emptyRevolve = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: axisFeature.revisionId,
+    previewId: 'preview_empty_profile_revolve',
+    definition: {
+      ...revolveDefinition,
+      parameters: {
+        ...revolveDefinition.parameters,
+        profiles: [],
+      },
+    } as never,
+  })
+  assert(hasErrorDiagnostics(emptyRevolve.diagnostics), 'Empty revolve profile arrays should return explicit adapter diagnostics.')
+
+  const duplicateRevolve = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: axisFeature.revisionId,
+    previewId: 'preview_duplicate_profile_revolve',
+    definition: {
+      ...revolveDefinition,
+      parameters: {
+        ...revolveDefinition.parameters,
+        profiles: [revolveDefinition.parameters.profiles[0], revolveDefinition.parameters.profiles[0]],
+      },
+    },
+  })
+  assert(
+    duplicateRevolve.diagnostics.some((diagnostic) => diagnostic.code === 'unsupported-profile-group'),
+    'Duplicate revolve profile groups should not be silently reduced by the OCC adapter.',
+  )
+
+  const offsetSketchCommit = await commitOffsetSketch(adapter, axisFeature.revisionId, {
+    sketchLabel: 'Second Profile',
+    offsetX: 8,
+    offsetY: 0,
+  })
+  assert(offsetSketchCommit.revisionState.kind === 'accepted', 'Second sketch commit should support multi-profile adapter coverage.')
+  const multiSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const secondSketch = requireSketch(multiSnapshot.snapshot, offsetSketchCommit.sketchId)
+  const secondRegion = secondSketch.sketch.regions[0]
+  assert(secondRegion, 'Second sketch must expose a region for multi-profile adapter coverage.')
+
+  const multi = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: offsetSketchCommit.revisionId,
+    previewId: 'preview_multi_profile_extrude',
+    definition: {
+      ...extrudeDefinition,
+      parameters: {
+        ...extrudeDefinition.parameters,
+        profiles: [
+          extrudeDefinition.parameters.profiles[0],
+          { kind: 'region', sketchId: secondSketch.sketchId, regionId: secondRegion.regionId },
+        ],
+      },
+    },
+  })
+  assert(
+    multi.diagnostics.some((diagnostic) => diagnostic.code === 'unsupported-profile-group'),
+    'Multi-profile extrude groups should return an explicit unsupported profile group diagnostic.',
+  )
+}
+
 await testSnapshotFetchAndSketchCommit()
 await testPlaneFeatureCreateSupportsConstructionAndPlanarFaceReferences()
 await testExtrudePreviewCreateAndUpdateCommitGeometry()
@@ -1621,5 +1769,6 @@ await testMultiBodyBooleanPolicyJoinUsesFirstTargetIdentity()
 await testMultiBodyBooleanPolicyUsesPerTargetCutBehavior()
 await testMultiBodyBooleanPolicyIntersectDropsEmptyTargets()
 await testUnknownPrefixedRebuildErrorsFallbackToOccRebuildFailure()
+await testProfileCollectionAdapterDiagnostics()
 
 console.log('OCC phase 8 adapter tests passed.')

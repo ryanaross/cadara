@@ -6,7 +6,6 @@ import {
 import type {
   ConstructionSnapshotRecord,
   FeatureDefinition,
-  GetDocumentSnapshotRequest,
   GetDocumentSnapshotResponse,
   SketchSnapshotRecord,
 } from '@/contracts/modeling/schema'
@@ -288,7 +287,7 @@ async function createBoxBody() {
 
 function createSnapshotAdapter(snapshot: GetDocumentSnapshotResponse['snapshot']): ModelingKernelAdapter {
   return {
-    async getDocumentSnapshot(_request: GetDocumentSnapshotRequest) {
+    async getDocumentSnapshot() {
       return {
         contractVersion: snapshot.document.contractVersion,
         snapshot,
@@ -358,11 +357,11 @@ async function testWorkspaceSnapshotBuildsContractValidRenderExport() {
         kind: 'extrude',
         featureTypeVersion: EXTRUDE_FEATURE_SCHEMA_VERSION,
         parameters: {
-          profile: {
+          profiles: [{
             kind: 'region',
             sketchId: sketch.sketchId,
             regionId: region.regionId,
-          },
+          }],
           startExtent: { kind: 'profilePlane' },
           endExtent: { kind: 'blind', direction: 'positive', distance: 6 },
           operation: 'newBody',
