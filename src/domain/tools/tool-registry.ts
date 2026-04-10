@@ -3,6 +3,7 @@ import type {
   ToolGroupDefinition,
   ToolbarSection,
 } from '@/domain/tools/schema'
+import { getRegisteredFeatureAuthoringDefinitions } from '@/domain/feature-authoring/registry'
 
 export const toolGroups = {
   history: {
@@ -68,6 +69,15 @@ export const toolGroups = {
 } as const satisfies Record<string, ToolGroupDefinition>
 
 export type ToolGroupId = keyof typeof toolGroups
+
+const featureToolDefinitions = getRegisteredFeatureAuthoringDefinitions().map(({ metadata }) => ({
+  id: metadata.toolId,
+  group: metadata.groupId,
+  name: metadata.name,
+  tooltip: metadata.tooltip,
+  icon: metadata.icon,
+  modes: metadata.modes,
+})) satisfies readonly ToolDefinition[]
 
 export const toolDefinitions = [
   {
@@ -182,46 +192,7 @@ export const toolDefinitions = [
     icon: 'offset',
     modes: ['sketch'],
   },
-  {
-    id: 'extrude',
-    group: 'features',
-    name: 'Extrude',
-    tooltip: 'Create an extruded solid or surface.',
-    icon: 'extrude',
-    modes: ['part'],
-  },
-  {
-    id: 'revolve',
-    group: 'features',
-    name: 'Revolve',
-    tooltip: 'Create a revolved solid or surface.',
-    icon: 'revolve',
-    modes: ['part'],
-  },
-  {
-    id: 'fillet',
-    group: 'features',
-    name: 'Fillet',
-    tooltip: 'Round selected edges.',
-    icon: 'fillet',
-    modes: ['part'],
-  },
-  {
-    id: 'shell',
-    group: 'features',
-    name: 'Shell',
-    tooltip: 'Hollow a solid body.',
-    icon: 'shell',
-    modes: ['part'],
-  },
-  {
-    id: 'plane',
-    group: 'features',
-    name: 'Plane',
-    tooltip: 'Create a construction plane.',
-    icon: 'plane',
-    modes: ['part'],
-  },
+  ...featureToolDefinitions,
   {
     id: 'combine',
     group: 'features',

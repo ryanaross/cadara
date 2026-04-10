@@ -8,6 +8,7 @@ import {
   createPreviewMissingInputsDiagnostics,
   getFeaturePrimarySelectionTarget,
   getFeatureSessionPreviewLabel,
+  getSelectionFilterForFeatureType,
   hydrateFeatureEditSession,
   patchFeatureEditSession,
   type FeatureDraftPatch,
@@ -30,7 +31,6 @@ import {
   getSelectionFilterForCommand,
   getSelectionFilterRejectionLabel,
   getSelectionPreviewLabel,
-  getSelectionFilterForFeatureType,
   primitiveRefEquals,
   resolveSelectionCandidate,
   selectionFilterAllowsTarget,
@@ -1460,7 +1460,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           effects: [],
         }
       }
-    case 'form.featurePatched':
+    case 'form.featurePatched': {
       if (state.kind !== 'editingFeature') {
         return {
           state,
@@ -1479,6 +1479,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         pendingPreviewRequestId: null,
         preview: createFeatureSelectionPreview(nextSession),
       })
+    }
     case 'effect.snapshotLoaded':
       if (state.pendingSnapshotRequestId !== event.payload.requestId) {
         return {

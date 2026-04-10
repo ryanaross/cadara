@@ -385,35 +385,8 @@ export function getSelectionFilterForCommand(
   switch (toolId) {
     case 'sketch':
       return sketchStartSelectionFilter
-    case 'extrude':
-      return extrudeSelectionFilter
-    case 'revolve':
-      return revolveSelectionFilter
-    case 'fillet':
-      return filletSelectionFilter
-    case 'shell':
-      return shellSelectionFilter
-    case 'plane':
-      return planeSelectionFilter
     default:
       return getDefaultSelectionFilterForMode(mode)
-  }
-}
-
-export function getSelectionFilterForFeatureType(
-  featureType: 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane',
-): SelectionFilter {
-  switch (featureType) {
-    case 'extrude':
-      return extrudeSelectionFilter
-    case 'revolve':
-      return revolveSelectionFilter
-    case 'fillet':
-      return filletSelectionFilter
-    case 'shell':
-      return shellSelectionFilter
-    case 'plane':
-      return planeSelectionFilter
   }
 }
 

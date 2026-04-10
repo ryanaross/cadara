@@ -1,8 +1,11 @@
 import { Check, CircleSlash, Layers3 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
-import type { FeatureBooleanOperation, FeatureSnapshotRecord, ModelingDiagnostic } from '@/contracts/modeling/schema'
+import type { FeatureSnapshotRecord, ModelingDiagnostic } from '@/contracts/modeling/schema'
 import { getPrimitiveRefLabel } from '@/domain/editor/schema'
+import { getFeatureEditorFormSchema } from '@/domain/editor/feature-editing'
+import { createFeatureEditorFieldPatch } from '@/domain/feature-authoring/form-events'
+import type { FeatureEditorFormField, FeatureNumericField } from '@/domain/feature-authoring/form-schema'
 import { useEditorState } from '@/hooks/use-editor-state'
 
 interface FeatureInspectorProps {
@@ -12,7 +15,7 @@ interface FeatureInspectorProps {
   onCancel: () => void
 }
 
-function DiagnosticsList({ diagnostics }: { diagnostics: ModelingDiagnostic[] }) {
+function DiagnosticsList({ diagnostics }: { diagnostics: readonly ModelingDiagnostic[] }) {
   if (diagnostics.length === 0) {
     return (
       <p className="text-xs text-[var(--cad-muted-foreground)]">
@@ -70,62 +73,59 @@ function renderReference(value: unknown) {
 }
 
 function NumericField(props: {
-  id: string
-  label: string
-  value: number
-  step?: number
-  onChange: (value: number) => void
+  field: FeatureNumericField
+  onPatch: (patch: Record<string, unknown>) => void
 }) {
   return (
     <section className="space-y-2">
-      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]" htmlFor={props.id}>
-        {props.label}
+      <label className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]" htmlFor={props.field.id}>
+        {props.field.label}
       </label>
       <Input
-        id={props.id}
+        id={props.field.id}
         type="number"
-        value={Number.isFinite(props.value) ? props.value : 0}
-        step={props.step ?? 0.1}
-        onChange={(event) => props.onChange(Number(event.target.value))}
+        value={Number.isFinite(props.field.value) ? props.field.value : 0}
+        step={props.field.step ?? 0.1}
+        disabled={props.field.disabled}
+        onChange={(event) => props.onPatch(createFeatureEditorFieldPatch(props.field, Number(event.target.value)))}
         className="h-10 rounded-md border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)]"
       />
+      {props.field.helper ? (
+        <p className="text-xs text-[var(--cad-muted-foreground)]">{props.field.helper}</p>
+      ) : null}
     </section>
   )
 }
 
-function radiansToDegrees(value: number) {
-  return value * (180 / Math.PI)
-}
-
-function degreesToRadians(value: number) {
-  return value * (Math.PI / 180)
-}
-
-function OperationButtons(props: {
-  value: FeatureBooleanOperation
-  onChange: (value: FeatureBooleanOperation) => void
+function EnumField(props: {
+  field: Extract<FeatureEditorFormField, { kind: 'enum' }>
+  onPatch: (patch: Record<string, unknown>) => void
 }) {
   return (
     <section className="space-y-2">
       <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-        Operation
+        {props.field.label}
       </p>
       <div className="grid grid-cols-4 gap-2">
-        {(['newBody', 'join', 'cut', 'intersect'] as const).map((operation) => (
+        {props.field.options.map((option) => (
           <button
-            key={operation}
+            key={option.value}
             type="button"
-            onClick={() => props.onChange(operation)}
+            disabled={props.field.disabled}
+            onClick={() => props.onPatch(createFeatureEditorFieldPatch(props.field, option.value))}
             className={`rounded-md border px-2 py-2 text-xs font-medium transition ${
-              props.value === operation
+              props.field.value === option.value
                 ? 'border-[var(--cad-border-strong)] bg-[var(--cad-surface-elevated)] text-[var(--cad-foreground)]'
                 : 'border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)] text-[var(--cad-muted-foreground)] hover:border-[var(--cad-border-strong)]'
             }`}
           >
-            {operation}
+            {option.label}
           </button>
         ))}
       </div>
+      {props.field.helper ? (
+        <p className="text-xs text-[var(--cad-muted-foreground)]">{props.field.helper}</p>
+      ) : null}
     </section>
   )
 }
@@ -133,15 +133,65 @@ function OperationButtons(props: {
 function ReferenceCard(props: {
   title: string
   value: string
-  helper: string
+  helper?: string
 }) {
   return (
     <div className="rounded-md border border-[var(--cad-border)] bg-[rgba(12,16,22,0.8)] px-3 py-3">
       <p className="text-xs text-[var(--cad-muted-foreground)]">{props.title}</p>
       <p className="mt-1 text-sm text-[var(--cad-foreground)]">{props.value}</p>
-      <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">{props.helper}</p>
+      {props.helper ? (
+        <p className="mt-2 text-xs text-[var(--cad-muted-foreground)]">{props.helper}</p>
+      ) : null}
     </div>
   )
+}
+
+function FeatureFormFieldRenderer(props: {
+  field: FeatureEditorFormField
+  onPatch: (patch: Record<string, unknown>) => void
+}) {
+  if (props.field.hidden) {
+    return null
+  }
+
+  switch (props.field.kind) {
+    case 'numeric':
+      return <NumericField field={props.field} onPatch={props.onPatch} />
+    case 'enum':
+      return <EnumField field={props.field} onPatch={props.onPatch} />
+    case 'referencePicker':
+      return (
+        <ReferenceCard
+          title={props.field.label}
+          value={renderReference(props.field.value) || props.field.emptyLabel}
+          helper={props.field.helper}
+        />
+      )
+    case 'referenceCollection':
+      return (
+        <ReferenceCard
+          title={props.field.label}
+          value={
+            props.field.value.length > 0
+              ? props.field.value.map(getPrimitiveRefLabel).join(', ')
+              : props.field.emptyLabel
+          }
+          helper={props.field.helper}
+        />
+      )
+    case 'summary':
+      return <ReferenceCard title={props.field.label} value={props.field.value} helper={props.field.helper} />
+    case 'diagnostics':
+      return <DiagnosticsList diagnostics={props.field.diagnostics} />
+    case 'custom':
+      return (
+        <ReferenceCard
+          title={props.field.label}
+          value={`Custom renderer: ${props.field.rendererId}`}
+          helper={props.field.helper}
+        />
+      )
+  }
 }
 
 export function FeatureInspector({
@@ -162,6 +212,7 @@ export function FeatureInspector({
     activeEditSession.mode === 'edit'
       ? featureSnapshot?.label ?? activeEditSession.featureId ?? `Edit ${activeEditSession.featureType}`
       : `Create ${activeEditSession.featureType[0]!.toUpperCase()}${activeEditSession.featureType.slice(1)}`
+  const formSchema = getFeatureEditorFormSchema(activeEditSession)
 
   return (
     <aside className="flex w-[320px] min-w-[320px] flex-col border-l border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(16,21,29,0.98),_rgba(10,14,20,0.98))]">
@@ -185,135 +236,16 @@ export function FeatureInspector({
       </header>
 
       <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
-        <section className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-            References
-          </p>
-          {activeEditSession.featureType === 'extrude' ? (
-            <ReferenceCard
-              title="Profile target"
-              value={renderReference(activeEditSession.draft.profileTarget)}
-              helper="Accepted targets: one derived sketch region or one planar face."
-            />
-          ) : null}
-          {activeEditSession.featureType === 'revolve' ? (
-            <>
-              <ReferenceCard
-                title="Profile target"
-                value={renderReference(activeEditSession.draft.profileTarget)}
-                helper="Accepted targets: one derived sketch region or one planar face."
-              />
-              <ReferenceCard
-                title="Axis target"
-                value={renderReference(activeEditSession.draft.axisTarget)}
-                helper="Accepted targets: one durable edge or one construction axis."
-              />
-            </>
-          ) : null}
-          {activeEditSession.featureType === 'fillet' ? (
-            <ReferenceCard
-              title="Edge targets"
-              value={
-                activeEditSession.draft.edgeTargets.length > 0
-                  ? activeEditSession.draft.edgeTargets.map(getPrimitiveRefLabel).join(', ')
-                  : 'None selected'
-              }
-              helper="Each selected durable edge is preserved explicitly in the draft."
-            />
-          ) : null}
-          {activeEditSession.featureType === 'plane' ? (
-            <ReferenceCard
-              title="Plane reference"
-              value={renderReference(activeEditSession.draft.referenceTarget)}
-              helper="Accepted targets: one construction plane or one planar face."
-            />
-          ) : null}
-          {activeEditSession.featureType === 'shell' ? (
-            <>
-              <ReferenceCard
-                title="Source body"
-                value={renderReference(activeEditSession.draft.bodyTarget)}
-                helper="Shell requires one explicit source body."
-              />
-              <ReferenceCard
-                title="Removable faces"
-                value={
-                  activeEditSession.draft.faceTargets.length > 0
-                    ? activeEditSession.draft.faceTargets.map(getPrimitiveRefLabel).join(', ')
-                    : 'None selected'
-                }
-                helper="The draft preserves each removable face explicitly."
-              />
-            </>
-          ) : null}
-        </section>
-
-        {activeEditSession.featureType === 'extrude' ? (
-          <>
-            <NumericField
-              id="extrude-depth"
-              label="Depth"
-              value={activeEditSession.draft.depth}
-              onChange={(value) => onPatch({ depth: value })}
-            />
-            <OperationButtons
-              value={activeEditSession.draft.operation}
-              onChange={(value) => onPatch({ operation: value })}
-            />
-          </>
-        ) : null}
-
-        {activeEditSession.featureType === 'revolve' ? (
-          <>
-            <NumericField
-              id="revolve-angle"
-              label="Angle (degrees)"
-              value={radiansToDegrees(activeEditSession.draft.angle)}
-              onChange={(value) => onPatch({ angle: degreesToRadians(value) })}
-            />
-            <NumericField
-              id="revolve-start-angle"
-              label="Start Angle (degrees)"
-              value={radiansToDegrees(activeEditSession.draft.startAngle)}
-              onChange={(value) => onPatch({ startAngle: degreesToRadians(value) })}
-            />
-            <OperationButtons
-              value={activeEditSession.draft.operation}
-              onChange={(value) => onPatch({ operation: value })}
-            />
-          </>
-        ) : null}
-
-        {activeEditSession.featureType === 'fillet' ? (
-          <NumericField
-            id="fillet-radius"
-            label="Radius"
-            value={activeEditSession.draft.radius}
-            onChange={(value) => onPatch({ radius: value })}
-          />
-        ) : null}
-
-        {activeEditSession.featureType === 'shell' ? (
-          <>
-            <NumericField
-              id="shell-thickness"
-              label="Thickness"
-              value={activeEditSession.draft.thickness}
-              onChange={(value) => onPatch({ thickness: value })}
-            />
-            <OperationButtons
-              value={activeEditSession.draft.operation}
-              onChange={(value) => onPatch({ operation: value })}
-            />
-          </>
-        ) : null}
-
-        <section className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-            Diagnostics
-          </p>
-          <DiagnosticsList diagnostics={activeEditSession.diagnostics} />
-        </section>
+        {formSchema.sections.map((section) => (
+          <section key={section.id} className="space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
+              {section.title}
+            </p>
+            {section.fields.map((field) => (
+              <FeatureFormFieldRenderer key={field.id} field={field} onPatch={onPatch} />
+            ))}
+          </section>
+        ))}
       </div>
 
       <footer className="grid grid-cols-2 gap-2 border-t border-[var(--cad-border)] px-4 py-4">

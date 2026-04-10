@@ -1,0 +1,119 @@
+import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
+import { filletSelectionFilter } from '@/domain/editor/schema'
+import { FILLET_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
+import { appendUniqueTarget, asEdgeRef, createMissingInputDiagnostic } from '@/domain/feature-authoring/features/shared'
+
+export const filletAuthoringDefinition = {
+  metadata: {
+    kind: 'fillet',
+    name: 'Fillet',
+    tooltip: 'Round selected edges.',
+    icon: 'fillet',
+    toolId: 'fillet',
+    groupId: 'features',
+    modes: ['part'],
+  },
+  featureTypeVersion: FILLET_FEATURE_SCHEMA_VERSION,
+  selectionFilter: filletSelectionFilter,
+  createDraft(input) {
+    const edgeTarget = asEdgeRef(input.selectedTarget)
+    return {
+      edgeTargets: edgeTarget ? [edgeTarget] : [],
+      radius: 1,
+    }
+  },
+  hydrateDraft(feature) {
+    return {
+      edgeTargets: [...feature.parameters.edgeTargets],
+      radius: feature.parameters.radius,
+    }
+  },
+  applyPatch(draft, patch) {
+    return {
+      ...draft,
+      edgeTargets:
+        patch.edgeTargets === undefined && patch.edgeTarget === undefined
+          ? draft.edgeTargets
+          : Array.isArray(patch.edgeTargets)
+            ? patch.edgeTargets.filter((entry): entry is Extract<typeof draft.edgeTargets[number], { kind: 'edge' }> => entry?.kind === 'edge')
+            : asEdgeRef(patch.edgeTarget as Parameters<typeof asEdgeRef>[0])
+              ? [patch.edgeTarget as typeof draft.edgeTargets[number]]
+              : draft.edgeTargets,
+      radius: typeof patch.radius === 'number' ? patch.radius : draft.radius,
+    }
+  },
+  applySelection(draft, target) {
+    return target.kind === 'edge'
+      ? {
+          ...draft,
+          edgeTargets: appendUniqueTarget(draft.edgeTargets, target),
+        }
+      : draft
+  },
+  getPrimarySelectionTarget(draft) {
+    return draft.edgeTargets[0] ?? null
+  },
+  getPreviewLabel(draft, prefix) {
+    return draft.edgeTargets.length > 0
+      ? `${prefix} fillet on ${draft.edgeTargets.length} edge${draft.edgeTargets.length === 1 ? '' : 's'}`
+      : 'Select one or more edges for fillet'
+  },
+  getMissingInputsDiagnostics(input) {
+    return [createMissingInputDiagnostic({
+      feature: 'fillet',
+      phase: input.phase,
+      suffix: 'edge',
+      message: 'Fillet preview requires at least one edge target.',
+    })]
+  },
+  buildDefinition(draft) {
+    return draft.edgeTargets.length > 0
+      ? {
+          kind: 'fillet',
+          featureTypeVersion: FILLET_FEATURE_SCHEMA_VERSION,
+          parameters: {
+            edgeTargets: draft.edgeTargets,
+            radius: draft.radius,
+          },
+        }
+      : null
+  },
+  getFormSchema(session) {
+    return {
+      sections: [
+        {
+          id: 'references',
+          title: 'References',
+          fields: [{
+            kind: 'referenceCollection',
+            id: 'fillet-edges',
+            label: 'Edge targets',
+            value: session.draft.edgeTargets,
+            emptyLabel: 'None selected',
+            helper: 'Each selected durable edge is preserved explicitly in the draft.',
+            picker: { mode: 'appendUnique', selectionFilter: filletSelectionFilter },
+            patch: { patchKey: 'edgeTargets' },
+          }],
+        },
+        {
+          id: 'parameters',
+          title: 'Parameters',
+          fields: [{
+            kind: 'numeric',
+            id: 'fillet-radius',
+            label: 'Radius',
+            value: session.draft.radius,
+            input: 'number',
+            step: 0.1,
+            patch: { patchKey: 'radius' },
+          }],
+        },
+        {
+          id: 'diagnostics',
+          title: 'Diagnostics',
+          fields: [{ kind: 'diagnostics', id: 'fillet-diagnostics', label: 'Diagnostics', diagnostics: session.diagnostics }],
+        },
+      ],
+    }
+  },
+} satisfies FeatureAuthoringDefinition<'fillet'>
