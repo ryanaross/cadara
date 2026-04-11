@@ -17,7 +17,8 @@ test('viewport hover and selection resolve durable face, edge, and vertex target
   ])
   await expect.poll(() => workbench.currentHoverTarget(), { timeout: 10_000 }).toBe(hoveredFace.targetId)
   await workbench.clickViewportAtReal(hoveredFace.point)
-  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toContain(hoveredFace.targetId)
+  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toBe(hoveredFace.targetId)
+  await expect.poll(() => workbench.currentMachineSelectionCount(), { timeout: 10_000 }).toBe(1)
 
   const hoveredEdge = await workbench.hoverViewportTargetNear(/^body_feature_extrude-1\.edge_.+$/, [
     { x: 540, y: 140 },
@@ -26,7 +27,8 @@ test('viewport hover and selection resolve durable face, edge, and vertex target
   ])
   await expect.poll(() => workbench.currentHoverTarget(), { timeout: 10_000 }).toBe(hoveredEdge.targetId)
   await workbench.clickViewportAtReal(hoveredEdge.point)
-  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toContain(hoveredEdge.targetId)
+  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toBe(hoveredEdge.targetId)
+  await expect.poll(() => workbench.currentMachineSelectionCount(), { timeout: 10_000 }).toBe(1)
 
   const hoveredVertex = await workbench.hoverViewportTargetNear(/^body_feature_extrude-1\.vertex_.+$/, [
     { x: 680, y: 440 },
@@ -35,5 +37,6 @@ test('viewport hover and selection resolve durable face, edge, and vertex target
   ])
   await expect.poll(() => workbench.currentHoverTarget(), { timeout: 10_000 }).toBe(hoveredVertex.targetId)
   await workbench.clickViewportAtReal(hoveredVertex.point)
-  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toContain(hoveredVertex.targetId)
+  await expect.poll(() => workbench.currentEditorSelection(), { timeout: 10_000 }).toBe(hoveredVertex.targetId)
+  await expect.poll(() => workbench.currentMachineSelectionCount(), { timeout: 10_000 }).toBe(1)
 })

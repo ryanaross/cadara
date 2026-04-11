@@ -304,6 +304,42 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 }
 
 {
+  const renderScene = buildWorkspaceRenderScene([solidFaceRenderable, durableEdgeRenderable])
+  const faceObject = renderScene.group.children[0]
+  const edgeLine = renderScene.group.children[1]
+  assert(faceObject instanceof THREE.Mesh)
+  assert(edgeLine instanceof THREE.Line)
+
+  const result = resolvePickTarget(
+    [
+      { distance: 1, object: edgeLine },
+      { distance: 0.8, object: faceObject },
+    ] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+
+  assertDeepEqual(result?.target, solidFaceRenderable.binding.target)
+}
+
+{
+  const renderScene = buildWorkspaceRenderScene([solidFaceRenderable, durableEdgeRenderable])
+  const faceObject = renderScene.group.children[0]
+  const edgeLine = renderScene.group.children[1]
+  assert(faceObject instanceof THREE.Mesh)
+  assert(edgeLine instanceof THREE.Line)
+
+  const result = resolvePickTarget(
+    [
+      { distance: 0.805, object: edgeLine },
+      { distance: 0.8, object: faceObject },
+    ] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+
+  assertDeepEqual(result?.target, durableEdgeRenderable.binding.target)
+}
+
+{
   const displayScene = buildSketchDisplayGroup([sketchDisplayLine])
   const line = displayScene.group.children[0]
   assert(line instanceof THREE.Line)

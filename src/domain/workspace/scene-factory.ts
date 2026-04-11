@@ -3,15 +3,23 @@ import * as THREE from 'three'
 export function createWorkspaceScene() {
   const scene = new THREE.Scene()
   scene.background = null
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9))
+  scene.add(new THREE.AmbientLight(0xd7dfe9, 0.56))
 
-  const keyLight = new THREE.DirectionalLight(0xbcd7ff, 1.4)
-  keyLight.position.set(16, -12, 18)
+  const skyLight = new THREE.HemisphereLight(0xe8edf5, 0x253447, 0.62)
+  skyLight.position.set(0, 0, 1)
+  scene.add(skyLight)
+
+  const keyLight = new THREE.DirectionalLight(0xf5eee2, 1.45)
+  keyLight.position.set(14, -16, 28)
   scene.add(keyLight)
 
-  const fillLight = new THREE.DirectionalLight(0x6f8dab, 0.55)
-  fillLight.position.set(-14, 18, 10)
+  const fillLight = new THREE.DirectionalLight(0x91b4d8, 0.52)
+  fillLight.position.set(-12, 14, 18)
   scene.add(fillLight)
+
+  const rimLight = new THREE.DirectionalLight(0xb6d6f5, 0.18)
+  rimLight.position.set(-14, -10, 12)
+  scene.add(rimLight)
 
   const grid = new THREE.GridHelper(100, 100, 0x43566e, 0x2a3543)
   grid.rotation.x = Math.PI / 2

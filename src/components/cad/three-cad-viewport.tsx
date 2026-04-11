@@ -132,7 +132,7 @@ export function ThreeCadViewport({
 
     const scene = createWorkspaceScene()
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
-    camera.position.set(18, -16, 12)
+    camera.position.set(14, -16, 28)
     camera.up.set(0, 0, 1)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -141,7 +141,7 @@ export function ThreeCadViewport({
     viewportElement.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 0, 0)
+    controls.target.set(0, 0, 4)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
     controls.screenSpacePanning = true
@@ -548,11 +548,12 @@ export function ThreeCadViewport({
         return
       }
 
-      const resolvedTarget = lastPickedTargetRef.current
-        ? { target: lastPickedTargetRef.current }
-        : hoverTargetRef.current
-          ? { target: hoverTargetRef.current }
-          : getPickTargetFromClientPoint(event.clientX, event.clientY)
+      const resolvedTarget = getPickTargetFromClientPoint(event.clientX, event.clientY)
+        ?? (lastPickedTargetRef.current
+          ? { target: lastPickedTargetRef.current }
+          : hoverTargetRef.current
+            ? { target: hoverTargetRef.current }
+            : null)
 
       if (!resolvedTarget) {
         return

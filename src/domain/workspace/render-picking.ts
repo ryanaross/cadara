@@ -139,7 +139,7 @@ function createMeshObject(renderable: RenderableEntityRecord) {
     'position',
     new THREE.Float32BufferAttribute(flattenedPositions, 3),
   )
-
+  geometry.setIndex(geometryData.triangleIndices.flat())
   if (geometryData.vertexNormals) {
     geometry.setAttribute(
       'normal',
@@ -148,8 +148,6 @@ function createMeshObject(renderable: RenderableEntityRecord) {
   } else {
     geometry.computeVertexNormals()
   }
-
-  geometry.setIndex(geometryData.triangleIndices.flat())
   const material = isSeededDatumPlaneRenderable(renderable)
     ? new THREE.MeshStandardMaterial({
         color: 0x9ea8b5,
@@ -170,13 +168,13 @@ function createMeshObject(renderable: RenderableEntityRecord) {
         transparent: renderable.binding.semanticClass === 'region',
         opacity: getBaseMeshOpacity(renderable.binding.semanticClass),
         side: THREE.DoubleSide,
-        metalness: renderable.binding.semanticClass === 'region' ? 0.02 : 0.03,
-        roughness: renderable.binding.semanticClass === 'region' ? 0.92 : 0.86,
-        emissive: renderable.binding.semanticClass === 'region' ? 0x10252d : 0x000000,
-        emissiveIntensity: renderable.binding.semanticClass === 'region' ? 0.08 : 0,
+        metalness: renderable.binding.semanticClass === 'region' ? 0.02 : 0.02,
+        roughness: renderable.binding.semanticClass === 'region' ? 0.9 : 0.76,
+        emissive: renderable.binding.semanticClass === 'region' ? 0x10252d : 0x343028,
+        emissiveIntensity: renderable.binding.semanticClass === 'region' ? 0.08 : 0.08,
         polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -2,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
       })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 1 : 2
@@ -243,7 +241,8 @@ function createMarkerObject(renderable: RenderableEntityRecord) {
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
   mesh.scale.setScalar(getVisibleMarkerRadius(geometryData.displayRadius))
   mesh.renderOrder = 4
-  mesh.material.depthTest = false
+  mesh.material.depthTest = true
+  mesh.material.depthWrite = false
 
   const group = new THREE.Group()
   group.add(mesh)
@@ -264,14 +263,12 @@ function createDisplayFaceObject(renderable: SketchSessionDisplayRenderable) {
 
   const geometry = new THREE.BufferGeometry()
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(geometryData.vertexPositions.flat(), 3))
-
+  geometry.setIndex(geometryData.triangleIndices.flat())
   if (geometryData.vertexNormals) {
     geometry.setAttribute('normal', new THREE.Float32BufferAttribute(geometryData.vertexNormals.flat(), 3))
   } else {
     geometry.computeVertexNormals()
   }
-
-  geometry.setIndex(geometryData.triangleIndices.flat())
   const material = new THREE.MeshStandardMaterial({
     color: SURFACE_COLORS.sketchCurve,
     transparent: true,
@@ -335,7 +332,8 @@ function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
   mesh.scale.setScalar(getVisibleMarkerRadius(geometryData.displayRadius))
   mesh.renderOrder = 4
-  mesh.material.depthTest = false
+  mesh.material.depthTest = true
+  mesh.material.depthWrite = false
 
   const group = new THREE.Group()
   group.add(mesh)
@@ -390,7 +388,23 @@ export function resolvePickTarget(
       return left.intersection.distance - right.intersection.distance
     })
 
+  const nearestOccludingFaceDistance = resolvedHits.reduce<number | null>((nearest, hit) => {
+    if (!isOccludingFaceRenderable(hit.renderable)) {
+      return nearest
+    }
+
+    return nearest === null ? hit.intersection.distance : Math.min(nearest, hit.intersection.distance)
+  }, null)
+
   for (const hit of resolvedHits) {
+    if (
+      nearestOccludingFaceDistance !== null
+      && isWireRenderable(hit.renderable)
+      && hit.intersection.distance - nearestOccludingFaceDistance > 0.01
+    ) {
+      continue
+    }
+
     if (acceptsTarget && !acceptsTarget(hit.target)) {
       continue
     }
@@ -526,6 +540,17 @@ function isSeededDatumPlaneRenderable(renderable: RenderableEntityRecord) {
 
 function isConstructionRenderable(renderable: RenderableEntityRecord) {
   return renderable.binding.semanticClass === 'construction'
+}
+
+function isWireRenderable(renderable: RenderableEntityRecord) {
+  return renderable.binding.semanticClass === 'featureEdge'
+    || renderable.binding.semanticClass === 'featureVertex'
+    || renderable.binding.semanticClass === 'sketchCurve'
+    || renderable.binding.semanticClass === 'sketchPoint'
+}
+
+function isOccludingFaceRenderable(renderable: RenderableEntityRecord) {
+  return renderable.binding.semanticClass === 'bodyFace' || renderable.binding.semanticClass === 'planarFace'
 }
 
 function getInteractionSortRank(renderable: RenderableEntityRecord) {
