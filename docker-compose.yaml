@@ -2,8 +2,6 @@ services:
   agent:
     build:
       dockerfile: Dockerfile.agent
-    environment:
-      OPENAI_BASE_URL: https://ai.vpn.dzerv.art/v1
     ports:
       - "8000:8000"
     volumes:

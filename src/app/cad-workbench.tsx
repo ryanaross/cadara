@@ -11,8 +11,8 @@ import { FeatureTimelineBar } from '@/components/layout/feature-timeline-bar'
 import { WorkbenchInspectorOverlay } from '@/components/layout/workbench-inspector-overlay'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
 import { WorkbenchStateDebugger, type WorkbenchStateDebuggerModel } from '@/components/layout/workbench-state-debugger'
+import { composeViewportRenderables } from '@/app/viewport-renderables'
 import type { DocumentFeatureCursor } from '@/contracts/modeling/schema'
-import { mergeSketchRenderables } from '@/domain/editor/sketch-session-controller'
 import {
   getSketchAnnotationDescriptors,
   getSketchToolPresentation,
@@ -170,17 +170,12 @@ export function CadWorkbench() {
   const { commitFeature, cancelFeature } = useFeatureEditing()
   const viewportRenderables = useMemo(
     () => {
-      const mergedRenderables = mergeSketchRenderables(
-        previewRenderables ?? snapshot?.document.render.records ?? [],
+      return composeViewportRenderables({
+        snapshotRenderables: snapshot?.document.render.records ?? [],
+        previewRenderables,
         sketchSession,
-      )
-
-      return {
-        ...mergedRenderables,
-        documentRenderables: mergedRenderables.documentRenderables.filter(
-          (renderable) => !visibleHiddenTargetKeys[getPrimitiveRefKey(renderable.binding.target)],
-        ),
-      }
+        hiddenTargetKeys: visibleHiddenTargetKeys,
+      })
     },
     [previewRenderables, sketchSession, snapshot, visibleHiddenTargetKeys],
   )

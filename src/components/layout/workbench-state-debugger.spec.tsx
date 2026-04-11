@@ -27,6 +27,7 @@ function createDebuggerModel(): WorkbenchStateDebuggerModel {
     previewState: 'Draft extrude profile',
     selectionFilterLabel: 'Extrude profiles, planar faces, or boolean bodies',
     activeTargetRule: 'Join, cut, and intersect require one explicit target body.',
+    hoverTarget: 'none',
     requirements: [
       {
         id: 'extrude-profile',

@@ -12,3 +12,4 @@ bun-debug.log*
 *.log*
 coverage
 .env*
+.playwright-cli

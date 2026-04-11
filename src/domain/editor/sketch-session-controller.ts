@@ -13,6 +13,7 @@ import type {
   ModelingCommitSketchResult,
   ModelingService,
 } from '@/domain/modeling/modeling-service'
+import type { ViewportRenderableRecord } from '@/domain/workspace/viewport-renderables'
 
 export function openSketchSessionFromSelection(
   selection: PrimitiveRef[],
@@ -78,8 +79,8 @@ export async function commitActiveSketchSession(input: {
   return result
 }
 
-export function mergeSketchRenderables(
-  documentRenderables: RenderableEntityRecord[],
+export function mergeSketchRenderables<T extends RenderableEntityRecord | ViewportRenderableRecord>(
+  documentRenderables: T[],
   session: SketchSessionState | null,
 ) {
   if (!session) {
@@ -96,6 +97,6 @@ export function mergeSketchRenderables(
 }
 
 export type MergedSketchRenderables = {
-  documentRenderables: RenderableEntityRecord[]
+  documentRenderables: Array<RenderableEntityRecord | ViewportRenderableRecord>
   sketchDisplayRenderables: SketchSessionDisplayRenderable[]
 }

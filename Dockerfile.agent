@@ -44,15 +44,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
 RUN mkdir -p /usr/local/share/npm-global \
   && chmod 755 /usr/local/share/npm-global
 
-# Set up uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # Install codex from npm globally
 RUN npm install -g @openai/codex@latest @playwright/cli@latest @fission-ai/openspec@latest && npm cache clean --force
 RUN playwright-cli install
-
-# Install spec-kit
-RUN uv tool install specify-cli --from git+https://github.com/github/spec-kit.git
 
 # Set npm global config for any user
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
@@ -61,7 +55,6 @@ ENV PATH=$PATH:/usr/local/share/npm-global/bin:/root/.local/bin
 # Inside the container we consider the environment already sufficiently locked
 # down, therefore instruct Codex CLI to allow running without sandboxing.
 ENV CODEX_UNSAFE_ALLOW_NO_SANDBOX=1
-ENV OPENAI_API_KEY=sk-dummy
 
 RUN mkdir -p /app
 WORKDIR /app

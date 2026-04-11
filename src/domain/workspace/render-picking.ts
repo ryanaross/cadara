@@ -7,6 +7,10 @@ import {
 } from '@/domain/editor/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
+import type {
+  ViewportRenderableOrigin,
+  ViewportRenderableRecord,
+} from '@/domain/workspace/viewport-renderables'
 
 export interface WorkspaceRenderScene {
   group: THREE.Group
@@ -47,15 +51,22 @@ interface RenderObjectBundle {
   highlightObjects: THREE.Object3D[]
 }
 
-export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[]): WorkspaceRenderScene {
+export function buildWorkspaceRenderScene(renderables: ViewportRenderableRecord[]): WorkspaceRenderScene {
   const group = new THREE.Group()
   const pickables: THREE.Object3D[] = []
   const targetToObjects = new Map<string, THREE.Object3D[]>()
   const pickIdToRenderable = new Map<string, RenderableEntityRecord>()
 
-  for (const renderable of renderables) {
-    const object = createObjectForRenderable(renderable)
-    bindRenderableObject(object.root, renderable.binding.pickId, renderable.binding.target, renderable.binding.semanticClass)
+  for (const entry of renderables) {
+    const object = createObjectForRenderable(entry)
+    const renderable = entry.renderable
+    bindRenderableObject(
+      object.root,
+      renderable.binding.pickId,
+      renderable.binding.target,
+      renderable.binding.semanticClass,
+      entry.origin,
+    )
     group.add(object.root)
     pickables.push(object.root)
     pickIdToRenderable.set(renderable.binding.pickId, renderable)
@@ -87,6 +98,7 @@ export function buildSketchDisplayGroup(renderables: SketchSessionDisplayRendera
         null,
         renderable.target,
         renderable.geometry.kind === 'marker' ? 'sketchPoint' : 'sketchCurve',
+        'document',
       )
       const targetKey = getPrimitiveRefKey(renderable.target)
       const targetObjects = targetToObjects.get(targetKey) ?? []
@@ -115,8 +127,8 @@ function createDisplayObject(renderable: SketchSessionDisplayRenderable) {
   }
 }
 
-function createObjectForRenderable(renderable: RenderableEntityRecord) {
-  switch (renderable.geometry.kind) {
+function createObjectForRenderable(renderable: ViewportRenderableRecord) {
+  switch (renderable.renderable.geometry.kind) {
     case 'mesh':
       return createMeshObject(renderable)
     case 'polyline':
@@ -126,7 +138,8 @@ function createObjectForRenderable(renderable: RenderableEntityRecord) {
   }
 }
 
-function createMeshObject(renderable: RenderableEntityRecord) {
+function createMeshObject(entry: ViewportRenderableRecord) {
+  const renderable = entry.renderable
   const geometryData = renderable.geometry.kind === 'mesh' ? renderable.geometry : null
 
   if (!geometryData) {
@@ -163,28 +176,19 @@ function createMeshObject(renderable: RenderableEntityRecord) {
         polygonOffsetFactor: 1,
         polygonOffsetUnits: 1,
       })
-    : new THREE.MeshStandardMaterial({
-        color: getRenderableBaseColor(renderable.binding.semanticClass),
-        transparent: renderable.binding.semanticClass === 'region',
-        opacity: getBaseMeshOpacity(renderable.binding.semanticClass),
-        side: THREE.DoubleSide,
-        metalness: renderable.binding.semanticClass === 'region' ? 0.02 : 0.02,
-        roughness: renderable.binding.semanticClass === 'region' ? 0.9 : 0.76,
-        emissive: renderable.binding.semanticClass === 'region' ? 0x10252d : 0x343028,
-        emissiveIntensity: renderable.binding.semanticClass === 'region' ? 0.08 : 0.08,
-        polygonOffset: true,
-        polygonOffsetFactor: 1,
-        polygonOffsetUnits: 1,
-      })
+    : createRenderableMeshMaterial(renderable, entry.origin)
   const mesh = new THREE.Mesh(geometry, material)
-  mesh.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 1 : 2
+  mesh.renderOrder = isSeededDatumPlaneRenderable(renderable)
+    ? 1
+    : getRenderableRenderOrder(renderable, entry.origin)
   return {
     root: mesh,
     highlightObjects: [mesh],
   } satisfies RenderObjectBundle
 }
 
-function createPolylineObject(renderable: RenderableEntityRecord) {
+function createPolylineObject(entry: ViewportRenderableRecord) {
+  const renderable = entry.renderable
   const geometryData = renderable.geometry.kind === 'polyline' ? renderable.geometry : null
 
   if (!geometryData) {
@@ -200,13 +204,11 @@ function createPolylineObject(renderable: RenderableEntityRecord) {
         transparent: true,
         opacity: 0.4,
       })
-    : new THREE.LineBasicMaterial({
-        color: getRenderableBaseColor(renderable.binding.semanticClass),
-        transparent: true,
-        opacity: 0.95,
-      })
+    : createRenderableLineMaterial(renderable, entry.origin)
   const line = new THREE.Line(geometry, material)
-  line.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 2 : 3
+  line.renderOrder = isSeededDatumPlaneRenderable(renderable)
+    ? 2
+    : getRenderableRenderOrder(renderable, entry.origin)
   line.material.depthTest = true
   line.material.depthWrite = false
 
@@ -223,24 +225,19 @@ function createPolylineObject(renderable: RenderableEntityRecord) {
   } satisfies RenderObjectBundle
 }
 
-function createMarkerObject(renderable: RenderableEntityRecord) {
+function createMarkerObject(entry: ViewportRenderableRecord) {
+  const renderable = entry.renderable
   const geometryData = renderable.geometry.kind === 'marker' ? renderable.geometry : null
 
   if (!geometryData) {
     throw new Error(`Renderable ${renderable.id} is missing marker geometry.`)
   }
 
-  const material = new THREE.MeshStandardMaterial({
-    color: getRenderableBaseColor(renderable.binding.semanticClass),
-    metalness: 0.08,
-    roughness: 0.34,
-    emissive: 0x1c3245,
-    emissiveIntensity: 0.12,
-  })
+  const material = createRenderableMarkerMaterial(renderable, entry.origin)
   const mesh = new THREE.Mesh(MARKER_SPHERE_GEOMETRY, material)
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
   mesh.scale.setScalar(getVisibleMarkerRadius(geometryData.displayRadius))
-  mesh.renderOrder = 4
+  mesh.renderOrder = getRenderableRenderOrder(renderable, entry.origin)
   mesh.material.depthTest = true
   mesh.material.depthWrite = false
 
@@ -428,8 +425,9 @@ export function updateWorkspaceHighlight(
     for (const object of objects) {
       const material = getObjectMaterial(object)
       const semanticClass = getBoundSemanticClass(object)
+      const origin = getBoundRenderableOrigin(object)
 
-      if (!material || !semanticClass) {
+      if (!material || !semanticClass || !origin) {
         continue
       }
 
@@ -441,7 +439,7 @@ export function updateWorkspaceHighlight(
 
       const isSelected = selection.some((entry) => primitiveRefEquals(entry, target))
       const isHovered = hoverTarget !== null && primitiveRefEquals(hoverTarget, target)
-      applyRenderableState(material, semanticClass, isSelected || isHovered, isSelected)
+      applyRenderableState(material, semanticClass, origin, isSelected || isHovered, isSelected)
     }
   }
 }
@@ -449,6 +447,7 @@ export function updateWorkspaceHighlight(
 function applyRenderableState(
   material: THREE.Material | THREE.Material[] | THREE.LineBasicMaterial,
   semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
   isActive: boolean,
   isSelected: boolean,
 ) {
@@ -467,19 +466,21 @@ function applyRenderableState(
     entry.color.setHex(color)
 
     if (entry instanceof THREE.MeshStandardMaterial) {
-      entry.emissive.setHex(isSelected ? 0x2f6b91 : isActive ? 0xa85a16 : semanticClass === 'region' ? 0x10252d : 0x000000)
-      entry.emissiveIntensity = isSelected ? 0.32 : isActive ? 0.24 : semanticClass === 'region' ? 0.08 : 0
-      entry.opacity = semanticClass === 'construction'
-        ? (isSelected ? 0.28 : isActive ? 0.2 : 0.12)
-        : semanticClass === 'region'
-          ? (isSelected ? 0.44 : isActive ? 0.34 : 0.22)
-          : isFaceSemanticClass(semanticClass)
-            ? 1
-          : 1
+      entry.emissive.setHex(
+        isSelected
+          ? 0x2f6b91
+          : isActive
+            ? 0xa85a16
+            : getRenderableMeshEmissive(semanticClass, origin),
+      )
+      entry.emissiveIntensity = isSelected
+        ? 0.32
+        : isActive
+          ? 0.24
+          : getRenderableMeshEmissiveIntensity(semanticClass, origin)
+      entry.opacity = getRenderableMeshOpacity(semanticClass, origin, isActive, isSelected)
     } else {
-      entry.opacity = semanticClass === 'construction'
-        ? (isSelected ? 0.85 : isActive ? 0.62 : 0.4)
-        : isSelected ? 1 : isActive ? 0.98 : 0.94
+      entry.opacity = getRenderableLineOpacity(semanticClass, origin, isActive, isSelected)
     }
   }
 }
@@ -538,10 +539,6 @@ function isSeededDatumPlaneRenderable(renderable: RenderableEntityRecord) {
     && SEEDED_DATUM_CONSTRUCTION_IDS.has(renderable.binding.target.constructionId)
 }
 
-function isConstructionRenderable(renderable: RenderableEntityRecord) {
-  return renderable.binding.semanticClass === 'construction'
-}
-
 function isWireRenderable(renderable: RenderableEntityRecord) {
   return renderable.binding.semanticClass === 'featureEdge'
     || renderable.binding.semanticClass === 'featureVertex'
@@ -571,10 +568,6 @@ function getInteractionSortRank(renderable: RenderableEntityRecord) {
   }
 }
 
-function isFaceSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
-  return semanticClass === 'bodyFace' || semanticClass === 'planarFace' || semanticClass === 'region'
-}
-
 function isWireSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
   return semanticClass === 'featureEdge'
     || semanticClass === 'featureVertex'
@@ -584,6 +577,142 @@ function isWireSemanticClass(semanticClass: RenderableEntityRecord['binding']['s
 
 function getBaseMeshOpacity(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
   return semanticClass === 'region' ? 0.22 : 1
+}
+
+function getRenderableRenderOrder(
+  renderable: RenderableEntityRecord,
+  origin: ViewportRenderableOrigin,
+) {
+  if (renderable.geometry.kind === 'mesh') {
+    return origin === 'preview' ? 5 : 2
+  }
+
+  if (renderable.geometry.kind === 'polyline') {
+    return origin === 'preview' ? 6 : 3
+  }
+
+  return origin === 'preview' ? 7 : 4
+}
+
+function createRenderableMeshMaterial(
+  renderable: RenderableEntityRecord,
+  origin: ViewportRenderableOrigin,
+) {
+  const semanticClass = renderable.binding.semanticClass
+
+  return new THREE.MeshStandardMaterial({
+    color: getRenderableBaseColor(semanticClass),
+    transparent: origin === 'preview' || semanticClass === 'region',
+    opacity: getRenderableMeshOpacity(semanticClass, origin, false, false),
+    side: THREE.DoubleSide,
+    metalness: 0.02,
+    roughness: semanticClass === 'region' ? 0.9 : origin === 'preview' ? 0.7 : 0.76,
+    emissive: getRenderableMeshEmissive(semanticClass, origin),
+    emissiveIntensity: getRenderableMeshEmissiveIntensity(semanticClass, origin),
+    depthWrite: origin === 'preview' ? false : true,
+    polygonOffset: true,
+    polygonOffsetFactor: origin === 'preview' ? -1 : 1,
+    polygonOffsetUnits: origin === 'preview' ? -1 : 1,
+  })
+}
+
+function createRenderableLineMaterial(
+  renderable: RenderableEntityRecord,
+  origin: ViewportRenderableOrigin,
+) {
+  return new THREE.LineBasicMaterial({
+    color: getRenderableBaseColor(renderable.binding.semanticClass),
+    transparent: true,
+    opacity: getRenderableLineOpacity(renderable.binding.semanticClass, origin, false, false),
+  })
+}
+
+function createRenderableMarkerMaterial(
+  renderable: RenderableEntityRecord,
+  origin: ViewportRenderableOrigin,
+) {
+  return new THREE.MeshStandardMaterial({
+    color: getRenderableBaseColor(renderable.binding.semanticClass),
+    transparent: origin === 'preview',
+    opacity: origin === 'preview' ? 0.72 : 1,
+    metalness: 0.08,
+    roughness: 0.34,
+    emissive: origin === 'preview' ? 0x244a63 : 0x1c3245,
+    emissiveIntensity: origin === 'preview' ? 0.16 : 0.12,
+    depthWrite: origin === 'preview' ? false : true,
+  })
+}
+
+function getRenderableMeshEmissive(
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
+) {
+  if (semanticClass === 'region') {
+    return origin === 'preview' ? 0x173643 : 0x10252d
+  }
+
+  return origin === 'preview' ? 0x2f5570 : 0x343028
+}
+
+function getRenderableMeshEmissiveIntensity(
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
+) {
+  if (semanticClass === 'region') {
+    return origin === 'preview' ? 0.12 : 0.08
+  }
+
+  return origin === 'preview' ? 0.12 : 0.08
+}
+
+function getRenderableMeshOpacity(
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
+  isActive: boolean,
+  isSelected: boolean,
+) {
+  if (semanticClass === 'construction') {
+    if (origin === 'preview') {
+      return isSelected ? 0.34 : isActive ? 0.26 : 0.18
+    }
+
+    return isSelected ? 0.28 : isActive ? 0.2 : 0.12
+  }
+
+  if (semanticClass === 'region') {
+    if (origin === 'preview') {
+      return isSelected ? 0.52 : isActive ? 0.42 : 0.32
+    }
+
+    return isSelected ? 0.44 : isActive ? 0.34 : 0.22
+  }
+
+  if (origin === 'preview') {
+    return isSelected ? 0.58 : isActive ? 0.48 : 0.34
+  }
+
+  return getBaseMeshOpacity(semanticClass)
+}
+
+function getRenderableLineOpacity(
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
+  isActive: boolean,
+  isSelected: boolean,
+) {
+  if (semanticClass === 'construction') {
+    if (origin === 'preview') {
+      return isSelected ? 0.92 : isActive ? 0.74 : 0.56
+    }
+
+    return isSelected ? 0.85 : isActive ? 0.62 : 0.4
+  }
+
+  if (origin === 'preview') {
+    return isSelected ? 0.96 : isActive ? 0.86 : 0.72
+  }
+
+  return isSelected ? 1 : isActive ? 0.98 : 0.94
 }
 
 function getObjectMaterial(object: THREE.Object3D) {
@@ -599,9 +728,11 @@ function bindRenderableObject(
   pickId: string | null,
   target: PrimitiveRef,
   semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+  origin: ViewportRenderableOrigin,
 ) {
   object.userData.target = target
   object.userData.semanticClass = semanticClass
+  object.userData.renderableOrigin = origin
 
   if (pickId !== null) {
     object.userData.pickId = pickId
@@ -618,6 +749,10 @@ export function getBoundTarget(object: THREE.Object3D) {
 
 function getBoundSemanticClass(object: THREE.Object3D) {
   return findBoundValue<RenderableEntityRecord['binding']['semanticClass']>(object, 'semanticClass')
+}
+
+function getBoundRenderableOrigin(object: THREE.Object3D) {
+  return findBoundValue<ViewportRenderableOrigin>(object, 'renderableOrigin')
 }
 
 function findBoundValue<T>(object: THREE.Object3D, key: string) {

@@ -8,6 +8,7 @@ import {
   updateWorkspaceHighlight,
 } from '@/domain/workspace/render-picking'
 import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
+import type { ViewportRenderableRecord } from '@/domain/workspace/viewport-renderables'
 
 function assert(condition: unknown, message = 'Assertion failed'): asserts condition {
   if (!condition) {
@@ -174,7 +175,7 @@ const sketchDisplayMarker: SketchSessionDisplayRenderable = {
 const sketchDisplayLine: SketchSessionDisplayRenderable = {
   id: 'renderable_display_line',
   label: 'Display line',
-  target: { kind: 'sketchEntity', sketchId: 'sketch_a', entityId: 'sketch_line_a' },
+  target: { kind: 'sketchEntity', sketchId: 'sketch_a', entityId: 'sketch_entity_a' },
   geometry: {
     kind: 'polyline' as const,
     points: [
@@ -185,13 +186,38 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
   },
 }
 
+function asDocument(renderable: RenderableEntityRecord): ViewportRenderableRecord {
+  return {
+    origin: 'document',
+    renderable,
+  }
+}
+
+function asPreview(renderable: RenderableEntityRecord): ViewportRenderableRecord {
+  return {
+    origin: 'preview',
+    renderable,
+  }
+}
+
+function createIntersection(
+  object: THREE.Object3D,
+  distance: number,
+): THREE.Intersection<THREE.Object3D> {
+  return {
+    distance,
+    object,
+    point: new THREE.Vector3(),
+  } as unknown as THREE.Intersection<THREE.Object3D>
+}
+
 {
   const renderScene = buildWorkspaceRenderScene([
-    datumPlaneRenderable,
-    solidFaceRenderable,
-    regionRenderable,
-    durableEdgeRenderable,
-    durableMarkerRenderable,
+    asDocument(datumPlaneRenderable),
+    asDocument(solidFaceRenderable),
+    asDocument(regionRenderable),
+    asDocument(durableEdgeRenderable),
+    asDocument(durableMarkerRenderable),
   ])
   assertEqual(renderScene.group.children.length, 5)
 
@@ -251,7 +277,10 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 }
 
 {
-  const renderScene = buildWorkspaceRenderScene([durableEdgeRenderable, durableMarkerRenderable])
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(durableEdgeRenderable),
+    asDocument(durableMarkerRenderable),
+  ])
   const edgeLine = renderScene.group.children[0]
   assert(edgeLine instanceof THREE.Line)
   const markerGroup = renderScene.group.children[1]
@@ -259,29 +288,32 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
   const markerHitProxy = markerGroup.children[1]
 
   const edgeHit = resolvePickTarget(
-    [{ distance: 3, object: edgeLine }] as THREE.Intersection<THREE.Object3D>[],
+    [createIntersection(edgeLine, 3)],
     renderScene.pickIdToRenderable,
   )
   assertDeepEqual(edgeHit?.target, durableEdgeRenderable.binding.target)
 
   const markerHit = resolvePickTarget(
-    [{ distance: 1, object: markerHitProxy }] as THREE.Intersection<THREE.Object3D>[],
+    [createIntersection(markerHitProxy, 1)],
     renderScene.pickIdToRenderable,
   )
   assertDeepEqual(markerHit?.target, durableMarkerRenderable.binding.target)
 }
 
 {
-  const renderScene = buildWorkspaceRenderScene([datumPlaneRenderable, durableEdgeRenderable])
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(datumPlaneRenderable),
+    asDocument(durableEdgeRenderable),
+  ])
   const constructionObject = renderScene.group.children[0]
   const edgeLine = renderScene.group.children[1]
   assert(edgeLine instanceof THREE.Line)
 
   const result = resolvePickTarget(
     [
-      { distance: 1, object: constructionObject },
-      { distance: 2, object: edgeLine },
-    ] as THREE.Intersection<THREE.Object3D>[],
+      createIntersection(constructionObject, 1),
+      createIntersection(edgeLine, 2),
+    ],
     renderScene.pickIdToRenderable,
   )
 
@@ -289,14 +321,17 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 }
 
 {
-  const renderScene = buildWorkspaceRenderScene([regionRenderable, solidFaceRenderable])
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(regionRenderable),
+    asDocument(solidFaceRenderable),
+  ])
   const regionObject = renderScene.group.children[0]
   const faceObject = renderScene.group.children[1]
   const result = resolvePickTarget(
     [
-      { distance: 1, object: regionObject },
-      { distance: 2, object: faceObject },
-    ] as THREE.Intersection<THREE.Object3D>[],
+      createIntersection(regionObject, 1),
+      createIntersection(faceObject, 2),
+    ],
     renderScene.pickIdToRenderable,
   )
 
@@ -304,7 +339,10 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 }
 
 {
-  const renderScene = buildWorkspaceRenderScene([solidFaceRenderable, durableEdgeRenderable])
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(solidFaceRenderable),
+    asDocument(durableEdgeRenderable),
+  ])
   const faceObject = renderScene.group.children[0]
   const edgeLine = renderScene.group.children[1]
   assert(faceObject instanceof THREE.Mesh)
@@ -312,9 +350,9 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 
   const result = resolvePickTarget(
     [
-      { distance: 1, object: edgeLine },
-      { distance: 0.8, object: faceObject },
-    ] as THREE.Intersection<THREE.Object3D>[],
+      createIntersection(edgeLine, 1),
+      createIntersection(faceObject, 0.8),
+    ],
     renderScene.pickIdToRenderable,
   )
 
@@ -322,7 +360,10 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 }
 
 {
-  const renderScene = buildWorkspaceRenderScene([solidFaceRenderable, durableEdgeRenderable])
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(solidFaceRenderable),
+    asDocument(durableEdgeRenderable),
+  ])
   const faceObject = renderScene.group.children[0]
   const edgeLine = renderScene.group.children[1]
   assert(faceObject instanceof THREE.Mesh)
@@ -330,9 +371,9 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 
   const result = resolvePickTarget(
     [
-      { distance: 0.805, object: edgeLine },
-      { distance: 0.8, object: faceObject },
-    ] as THREE.Intersection<THREE.Object3D>[],
+      createIntersection(edgeLine, 0.805),
+      createIntersection(faceObject, 0.8),
+    ],
     renderScene.pickIdToRenderable,
   )
 
@@ -348,4 +389,58 @@ const sketchDisplayLine: SketchSessionDisplayRenderable = {
 
   updateWorkspaceHighlight(displayScene.targetToObjects, [], sketchDisplayLine.target)
   assertEqual(line.material.color.getHex(), 0xf0a14a)
+}
+
+{
+  const renderScene = buildWorkspaceRenderScene([
+    asDocument(solidFaceRenderable),
+    asPreview({
+      ...solidFaceRenderable,
+      id: 'renderable_preview_face',
+      binding: {
+        ...solidFaceRenderable.binding,
+        pickId: 'pick_preview_face',
+      },
+    }),
+    asPreview({
+      ...durableEdgeRenderable,
+      id: 'renderable_preview_edge',
+      binding: {
+        ...durableEdgeRenderable.binding,
+        pickId: 'pick_preview_edge',
+      },
+    }),
+    asPreview({
+      ...durableMarkerRenderable,
+      id: 'renderable_preview_marker',
+      binding: {
+        ...durableMarkerRenderable.binding,
+        pickId: 'pick_preview_marker',
+      },
+    }),
+  ])
+
+  const committedMesh = renderScene.group.children[0]
+  const previewMesh = renderScene.group.children[1]
+  const previewLine = renderScene.group.children[2]
+  const previewMarkerGroup = renderScene.group.children[3]
+
+  assert(committedMesh instanceof THREE.Mesh)
+  assert(previewMesh instanceof THREE.Mesh)
+  assert(previewLine instanceof THREE.Line)
+  assert(previewMarkerGroup instanceof THREE.Group)
+  assert(previewMarkerGroup.children[0] instanceof THREE.Mesh)
+
+  assert(committedMesh.material instanceof THREE.MeshStandardMaterial)
+  assert(previewMesh.material instanceof THREE.MeshStandardMaterial)
+  assert(previewLine.material instanceof THREE.LineBasicMaterial)
+  assert(previewMarkerGroup.children[0].material instanceof THREE.MeshStandardMaterial)
+
+  assertEqual(committedMesh.material.opacity, 1)
+  assertEqual(committedMesh.renderOrder, 2)
+  assertEqual(previewMesh.material.opacity, 0.34)
+  assertEqual(previewMesh.renderOrder, 5)
+  assertEqual(previewLine.material.opacity, 0.72)
+  assertEqual(previewLine.renderOrder, 6)
+  assertEqual(previewMarkerGroup.children[0].material.opacity, 0.72)
 }

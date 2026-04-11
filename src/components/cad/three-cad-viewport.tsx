@@ -7,7 +7,6 @@ import {
   primitiveRefEquals,
   selectionFilterAllowsTarget,
 } from '@/domain/editor/schema'
-import type { RenderableEntityRecord } from '@/contracts/render/schema'
 import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
 import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
@@ -20,6 +19,7 @@ import {
   type WorkspaceRenderScene,
 } from '@/domain/workspace/render-picking'
 import { applySketchCameraFrame } from '@/domain/workspace/sketch-camera-framing'
+import type { ViewportRenderableRecord } from '@/domain/workspace/viewport-renderables'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
 import { mapWorldPointToSketch } from '@/domain/modeling/occ/planes'
 import { useEditorState } from '@/hooks/use-editor-state'
@@ -44,7 +44,7 @@ const FACE_INDEX_TO_DIRECTION = {
 
 interface ThreeCadViewportProps {
   hoverTarget: PrimitiveRef | null
-  renderables: RenderableEntityRecord[]
+  renderables: ViewportRenderableRecord[]
   sketchDisplayRenderables: SketchSessionDisplayRenderable[]
   onHover: (target: PrimitiveRef) => void
   onSelect: (target: PrimitiveRef) => void
