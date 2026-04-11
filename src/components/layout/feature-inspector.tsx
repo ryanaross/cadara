@@ -401,7 +401,7 @@ export function FeatureInspector({
   const formSchema = getFeatureEditorFormSchema(activeEditSession)
 
   return (
-    <aside className="flex w-[320px] min-w-[320px] flex-col border-l border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(16,21,29,0.98),_rgba(10,14,20,0.98))]">
+    <aside className="flex h-full max-h-full w-[320px] min-w-[320px] flex-col overflow-hidden border border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(16,21,29,0.98),_rgba(10,14,20,0.98))]">
       <header className="border-b border-[var(--cad-border)] px-4 py-4">
         <div className="flex items-center gap-2 text-[var(--cad-accent)]">
           <Layers3 className="h-4 w-4" />

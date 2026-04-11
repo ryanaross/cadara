@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { SketchConstraintAnnotations } from '@/components/cad/sketch-constraint-annotations'
 import { SketchFloatingInput } from '@/components/cad/sketch-floating-input'
@@ -8,6 +8,7 @@ import { SketchToolPanel } from '@/components/cad/sketch-tool-panel'
 import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
 import { FeatureTimelineBar } from '@/components/layout/feature-timeline-bar'
+import { WorkbenchInspectorOverlay } from '@/components/layout/workbench-inspector-overlay'
 import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
 import { WorkbenchStateDebugger, type WorkbenchStateDebuggerModel } from '@/components/layout/workbench-state-debugger'
 import type { DocumentFeatureCursor } from '@/contracts/modeling/schema'
@@ -35,6 +36,11 @@ import { useEditorState } from '@/hooks/use-editor-state'
 import { useFeatureEditing } from '@/hooks/use-feature-editing'
 import { useModelingService } from '@/hooks/use-modeling-service'
 import { useToolActionBus } from '@/hooks/use-tool-actions'
+import {
+  clampWorkbenchSidebarWidth,
+  DEFAULT_LEFT_SIDEBAR_WIDTH,
+  getWorkbenchSidebarWidthFromPointer,
+} from '@/app/workbench-shell-layout'
 
 export function CadWorkbench() {
   const actionBus = useToolActionBus()
@@ -58,6 +64,8 @@ export function CadWorkbench() {
   const previewRenderables = machineState.previewRenderables
   const [hiddenTargetKeys, setHiddenTargetKeys] = useState<Record<string, boolean>>({})
   const [restoreMessage, setRestoreMessage] = useState<string | null>(null)
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState(DEFAULT_LEFT_SIDEBAR_WIDTH)
+  const shellFrameRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => installConsoleLoggingSubscribers(actionBus), [actionBus])
 
@@ -281,18 +289,81 @@ export function CadWorkbench() {
     dispatch({ type: 'sketch.pointerReleased', point })
   }
 
+  const handleSidebarResizeStart = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const container = shellFrameRef.current
+    if (!container) {
+      return
+    }
+
+    event.preventDefault()
+
+    const containerRect = container.getBoundingClientRect()
+    const updateSidebarWidth = (pointerClientX: number) => {
+      setLeftSidebarWidth((current) => {
+        const nextWidth = getWorkbenchSidebarWidthFromPointer(
+          pointerClientX,
+          containerRect.left,
+          containerRect.width,
+        )
+
+        return nextWidth === current ? current : nextWidth
+      })
+    }
+
+    updateSidebarWidth(event.clientX)
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      updateSidebarWidth(moveEvent.clientX)
+    }
+
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+  }
+
+  useEffect(() => {
+    const container = shellFrameRef.current
+    if (!container) {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(() => {
+      setLeftSidebarWidth((current) =>
+        clampWorkbenchSidebarWidth(current, container.getBoundingClientRect().width),
+      )
+    })
+
+    resizeObserver.observe(container)
+    return () => resizeObserver.disconnect()
+  }, [])
+
   return (
     <div className="flex h-screen min-h-screen flex-col bg-[var(--cad-background)] text-[var(--cad-foreground)]">
       <WorkspaceToolbar />
-      <div className="flex min-h-0 flex-1">
-        <FeatureSidebar
-          snapshot={snapshot}
-          hiddenTargetKeys={visibleHiddenTargetKeys}
-          onSelectTarget={handleViewportSelect}
-          onReopenTarget={handleNavigationReopen}
-          onToggleTargetVisibility={handleTargetVisibilityToggle}
-          visibleSelection={visibleSelection}
-        />
+      <div ref={shellFrameRef} className="flex min-h-0 flex-1">
+        <div className="relative min-h-0 shrink-0" style={{ width: leftSidebarWidth }}>
+          <FeatureSidebar
+            snapshot={snapshot}
+            hiddenTargetKeys={visibleHiddenTargetKeys}
+            onSelectTarget={handleViewportSelect}
+            onReopenTarget={handleNavigationReopen}
+            onToggleTargetVisibility={handleTargetVisibilityToggle}
+            visibleSelection={visibleSelection}
+          />
+          <div
+            role="separator"
+            aria-label="Resize left sidebar"
+            aria-orientation="vertical"
+            className="absolute inset-y-0 right-0 z-20 w-3 translate-x-1/2 cursor-col-resize touch-none"
+            onPointerDown={handleSidebarResizeStart}
+          >
+            <div className="mx-auto h-full w-px bg-[var(--cad-border)] transition hover:bg-[var(--cad-accent)]" />
+          </div>
+        </div>
         <div className="flex min-h-0 flex-1 flex-col">
           <main className="relative min-h-0 flex-1 overflow-hidden border-l border-[var(--cad-border)] bg-[radial-gradient(circle_at_top,_rgba(79,104,140,0.12),_transparent_36%),linear-gradient(180deg,_rgba(14,18,24,0.96),_rgba(8,11,16,1))]">
             <ThreeCadViewport
@@ -337,6 +408,18 @@ export function CadWorkbench() {
               </div>
             ) : null}
             <WorkbenchStateDebugger state={debuggerState} />
+            {activeEditSession ? (
+              <WorkbenchInspectorOverlay>
+                <FeatureInspector
+                  featureSnapshot={editableFeatureSnapshot}
+                  onPatch={(patch) =>
+                    dispatch({ type: 'form.featurePatched', patch })
+                  }
+                  onCommit={commitFeature}
+                  onCancel={cancelFeature}
+                />
+              </WorkbenchInspectorOverlay>
+            ) : null}
           </main>
           <FeatureTimelineBar
             snapshot={snapshot}
@@ -346,14 +429,6 @@ export function CadWorkbench() {
             onCursorRequested={handleTimelineCursorRequested}
           />
         </div>
-        <FeatureInspector
-          featureSnapshot={editableFeatureSnapshot}
-          onPatch={(patch) =>
-            dispatch({ type: 'form.featurePatched', patch })
-          }
-          onCommit={commitFeature}
-          onCancel={cancelFeature}
-        />
       </div>
     </div>
   )

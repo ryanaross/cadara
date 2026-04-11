@@ -3,6 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { FeatureSidebar } from '@/components/layout/feature-sidebar'
 import { FeatureTimelineBar } from '@/components/layout/feature-timeline-bar'
 import {
+  getNearestTimelineAnchorIndex,
+  TIMELINE_CURSOR_GLYPH,
+} from '@/components/layout/feature-timeline-bar.helpers'
+import {
   getEditorViewState,
   initialEditorState,
 } from '@/contracts/editor/state-machine'
@@ -49,7 +53,7 @@ const sidebarMarkup = renderToStaticMarkup(
   </EditorContext.Provider>,
 )
 
-assert(sidebarMarkup.includes('Feature Tree'), 'Sidebar should render the feature tree section.')
+assert(!sidebarMarkup.includes('Feature Tree'), 'Sidebar should not render the feature tree section.')
 assert(sidebarMarkup.includes('Parts &amp; Objects'), 'Sidebar should keep the parts and objects section.')
 assert(sidebarMarkup.includes('Snapshot References'), 'Sidebar should keep snapshot references.')
 assert(sidebarMarkup.includes('Document Diagnostics'), 'Sidebar should keep document diagnostics.')
@@ -70,6 +74,16 @@ assert(timelineMarkup.includes('aria-label="Feature timeline"'), 'Timeline shoul
 assert(timelineMarkup.includes('aria-label="Select Extrude 1. Double-click to reopen."'), 'Timeline should expose feature selection labels.')
 assert(timelineMarkup.includes('aria-current="step"'), 'Timeline should expose the current cursor position.')
 assert(!timelineMarkup.includes('>Extrude 1</button>'), 'Timeline feature controls should be icon-only.')
-assert(timelineMarkup.includes('aria-label="Move cursor before first feature"'), 'Timeline should expose a cursor position before the first feature.')
-assert(timelineMarkup.includes('aria-label="Move cursor after Extrude 1"'), 'Timeline should expose feature cursor positions.')
+assert(
+  timelineMarkup.includes('aria-label="Timeline cursor') && timelineMarkup.includes(TIMELINE_CURSOR_GLYPH),
+  'Timeline should render a draggable cursor handle with the requested glyph.',
+)
 assert(!timelineMarkup.includes('Hide Fillet 1') && !timelineMarkup.includes('Show Fillet 1'), 'Timeline should not render per-feature hide controls.')
+assert(
+  getNearestTimelineAnchorIndex([100, 160, 220, 280], 208) === 1,
+  'Timeline cursor dragging should snap to the nearest earlier valid anchor when dragged near it.',
+)
+assert(
+  getNearestTimelineAnchorIndex([100, 160, 220, 280], 266) === 2,
+  'Timeline cursor dragging should snap to the nearest later valid anchor when dragged near it.',
+)

@@ -1,4 +1,4 @@
-import { Box, Component, Eye, EyeOff, Layers3, PencilRuler } from 'lucide-react'
+import { Box, Component, Eye, EyeOff } from 'lucide-react'
 
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { PrimitiveRef } from '@/domain/editor/schema'
@@ -66,7 +66,7 @@ export function FeatureSidebar({
   snapshot,
   hiddenTargetKeys,
   onSelectTarget,
-  onReopenTarget,
+  onReopenTarget: _onReopenTarget,
   onToggleTargetVisibility,
   visibleSelection,
 }: FeatureSidebarProps) {
@@ -75,69 +75,8 @@ export function FeatureSidebar({
   } = useEditorState()
 
   return (
-    <aside className="flex w-[360px] min-w-[360px] flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
-      <section className="grid min-h-0 flex-[1.35] grid-rows-[minmax(0,0.9fr)_minmax(0,1fr)_minmax(0,0.9fr)] border-b border-[var(--cad-border)]">
-        <div className="flex min-h-0 flex-col border-b border-[var(--cad-border)]">
-          <header className="border-b border-[var(--cad-border)] px-4 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
-              Feature Tree
-            </p>
-          </header>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="space-y-1 px-3 py-3">
-              {(snapshot?.presentation.featureTree ?? []).map((item) => {
-                const isSelected =
-                  visibleSelection.some((entry) => getPrimitiveRefKey(entry) === getPrimitiveRefKey(item.target))
-                const isAllowed = selectionFilterAllowsTarget(selectionFilter, selection, item.target, selectionCatalog)
-                const isReopenable = item.kind === 'feature' || item.kind === 'sketch'
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      if (!isAllowed) {
-                        return
-                      }
-                      onSelectTarget(item.target)
-                    }}
-                    onDoubleClick={() => {
-                      if (!isReopenable) {
-                        return
-                      }
-                      onReopenTarget(item.target)
-                    }}
-                    className={`flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-[var(--cad-surface-elevated)] ${
-                      isSelected ? 'bg-[var(--cad-surface-elevated)]' : ''
-                    } ${!isAllowed ? 'cursor-not-allowed opacity-45' : ''}`}
-                    aria-disabled={!isAllowed}
-                    aria-label={isReopenable ? `Select ${item.label}. Double-click to reopen.` : `Select ${item.label}`}
-                    title={!isAllowed ? 'Filtered out by the current command' : isReopenable ? 'Double-click to reopen authoring in place' : undefined}
-                  >
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center text-[var(--cad-accent)]">
-                      {item.kind === 'plane' ? (
-                        <Component className="h-3.5 w-3.5" />
-                      ) : item.kind === 'sketch' ? (
-                        <PencilRuler className="h-3.5 w-3.5" />
-                      ) : (
-                        <Layers3 className="h-3.5 w-3.5" />
-                      )}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-medium leading-5 text-[var(--cad-foreground)]">
-                        {item.label}
-                      </p>
-                      <p className="truncate text-[11px] uppercase tracking-[0.16em] text-[var(--cad-muted-foreground)]">
-                        {item.description}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </ScrollArea>
-        </div>
-
+    <aside className="flex h-full min-h-0 flex-col border-r border-[var(--cad-border)] bg-[linear-gradient(180deg,_rgba(17,21,28,0.96),_rgba(11,15,21,0.98))]">
+      <section className="grid min-h-0 flex-[1.35] grid-rows-[minmax(0,1.1fr)_minmax(0,0.9fr)] border-b border-[var(--cad-border)]">
         <div className="flex min-h-0 flex-col border-b border-[var(--cad-border)]">
           <header className="border-b border-[var(--cad-border)] px-4 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--cad-muted)]">
