@@ -19,6 +19,7 @@ import {
   updateWorkspaceHighlight,
   type WorkspaceRenderScene,
 } from '@/domain/workspace/render-picking'
+import { applySketchCameraFrame } from '@/domain/workspace/sketch-camera-framing'
 import { snapCameraToVector } from '@/domain/workspace/view-navigation'
 import { mapWorldPointToSketch } from '@/domain/modeling/occ/planes'
 import { useEditorState } from '@/hooks/use-editor-state'
@@ -88,6 +89,7 @@ export function ThreeCadViewport({
   const sketchDisplayGroupRef = useRef<SketchDisplayScene | null>(null)
   const hoverRef = useRef(onHover)
   const hoverTargetRef = useRef(hoverTarget)
+  const sketchCameraSessionTokenRef = useRef<string | null>(null)
   const lastPickedTargetRef = useRef<PrimitiveRef | null>(null)
   const selectRef = useRef(onSelect)
   const clearHoverRef = useRef(onClearHover)
@@ -326,6 +328,30 @@ export function ThreeCadViewport({
     sketchDisplayGroupRef.current = displayScene
     updateWorkspaceHighlight(displayScene.targetToObjects, selectionRef.current, hoverTargetRef.current)
   }, [sketchDisplayRenderables])
+
+  useEffect(() => {
+    const runtime = runtimeRef.current
+
+    if (!runtime || !sketchSession) {
+      sketchCameraSessionTokenRef.current = null
+      return
+    }
+
+    const nextToken = getSketchSessionCameraToken(sketchSession)
+
+    if (sketchCameraSessionTokenRef.current === nextToken) {
+      return
+    }
+
+    applySketchCameraFrame({
+      camera: runtime.camera,
+      controls: runtime.controls,
+      plane: sketchSession.plane,
+      renderables: sketchDisplayRenderables,
+    })
+
+    sketchCameraSessionTokenRef.current = nextToken
+  }, [sketchDisplayRenderables, sketchSession])
 
   useEffect(() => {
     if (renderSceneRef.current) {
@@ -644,4 +670,16 @@ function disposeSketchDisplayGroup(displayScene: SketchDisplayScene | null) {
       }
     }
   }
+}
+
+function getSketchSessionCameraToken(
+  session: NonNullable<ReturnType<typeof useEditorState>['state']['sketchSession']>,
+) {
+  const support = session.plane.support
+  const supportToken = support.kind === 'construction'
+    ? support.constructionId
+    : `${support.bodyId}:${support.faceId}`
+  const origin = session.plane.frame.origin.join(',')
+
+  return `${session.sketchId ?? 'draft'}:${support.kind}:${supportToken}:${origin}`
 }
