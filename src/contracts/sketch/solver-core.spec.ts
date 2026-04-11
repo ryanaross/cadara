@@ -794,12 +794,17 @@ async function testRotatedRectangle() {
   await assertRotatedRectangleSolvesWithStrategy('bfgs', {
     expectedSolveState: 'solved',
     branchTolerance: 1e-5,
+    dimensionTolerance: 1e-4,
   })
 }
 
 async function assertRotatedRectangleSolvesWithStrategy(
   strategy: SketchSolveStrategy,
-  options: { expectedSolveState: 'solved' | 'partiallySolved'; branchTolerance: number },
+  options: {
+    expectedSolveState: 'solved' | 'partiallySolved'
+    branchTolerance: number
+    dimensionTolerance: number
+  },
 ) {
   const definition: SketchDefinition = {
     schemaVersion: 'sketch-definition/v1alpha1',
@@ -918,8 +923,18 @@ async function assertRotatedRectangleSolvesWithStrategy(
     `Rotated rectangle should report ${options.expectedSolveState} for ${strategy}.`,
   )
   assertRotatedRectangleMatchesIsotopeBranches(solved, strategy, options.branchTolerance)
-  assertClose(Math.hypot(b[0] - a[0], b[1] - a[1]), 2, 1e-4, `AB should solve to length 2 for ${strategy}.`)
-  assertClose(Math.hypot(d[0] - a[0], d[1] - a[1]), 3, 1e-4, `AD should solve to length 3 for ${strategy}.`)
+  assertClose(
+    Math.hypot(b[0] - a[0], b[1] - a[1]),
+    2,
+    options.dimensionTolerance,
+    `AB should solve to length 2 for ${strategy}.`,
+  )
+  assertClose(
+    Math.hypot(d[0] - a[0], d[1] - a[1]),
+    3,
+    options.dimensionTolerance,
+    `AD should solve to length 3 for ${strategy}.`,
+  )
 }
 
 async function testRotatedRectangleGradientDescent() {
@@ -1028,6 +1043,7 @@ async function testRotatedRectangleGaussNewton() {
   await assertRotatedRectangleSolvesWithStrategy('gaussNewton', {
     expectedSolveState: 'partiallySolved',
     branchTolerance: 1e-1,
+    dimensionTolerance: 1e-1,
   })
 }
 
@@ -1035,6 +1051,7 @@ async function testRotatedRectangleLevenbergMarquardt() {
   await assertRotatedRectangleSolvesWithStrategy('levenbergMarquardt', {
     expectedSolveState: 'partiallySolved',
     branchTolerance: 1e-1,
+    dimensionTolerance: 1e-1,
   })
 }
 

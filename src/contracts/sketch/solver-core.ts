@@ -833,7 +833,7 @@ function identityMatrix(size: number) {
 }
 
 function multiplyMatrixVector(matrix: Float64Array[], vector: Float64Array) {
-  const result = zeroVector(vector.length)
+  const result = zeroVector(matrix.length)
   for (let row = 0; row < matrix.length; row += 1) {
     result[row] = dot(matrix[row]!, vector)
   }
@@ -1087,47 +1087,6 @@ function symmetricPseudoInverse(matrix: Float64Array[], epsilon: number) {
   return result
 }
 
-function solveLinearSystem(matrix: Float64Array[], vector: Float64Array) {
-  const size = matrix.length
-  const a = matrix.map((row) => Array.from(row))
-  const b = Array.from(vector)
-
-  for (let pivot = 0; pivot < size; pivot += 1) {
-    let maxRow = pivot
-    for (let row = pivot + 1; row < size; row += 1) {
-      if (Math.abs(a[row]![pivot]!) > Math.abs(a[maxRow]![pivot]!)) {
-        maxRow = row
-      }
-    }
-
-    if (Math.abs(a[maxRow]![pivot]!) < 1e-12) {
-      a[maxRow]![pivot] = (a[maxRow]![pivot] ?? 0) + 1e-6
-    }
-
-    ;[a[pivot], a[maxRow]] = [a[maxRow]!, a[pivot]!]
-    ;[b[pivot], b[maxRow]] = [b[maxRow]!, b[pivot]!]
-
-    const pivotValue = a[pivot]![pivot]!
-    for (let column = pivot; column < size; column += 1) {
-      a[pivot]![column] /= pivotValue
-    }
-    b[pivot] /= pivotValue
-
-    for (let row = 0; row < size; row += 1) {
-      if (row === pivot) {
-        continue
-      }
-      const factor = a[row]![pivot]!
-      for (let column = pivot; column < size; column += 1) {
-        a[row]![column] -= factor * a[pivot]![column]!
-      }
-      b[row] -= factor * b[pivot]!
-    }
-  }
-
-  return new Float64Array(b)
-}
-
 function solveGaussNewtonLike(
   initialValues: Float64Array,
   constraints: ScalarConstraintRecord[],
@@ -1158,14 +1117,29 @@ function solveGaussNewtonLike(
       break
     }
 
-    const nextValues = cloneValues(values)
-    addScaled(nextValues, -options.stepSize, delta)
-    if (!Array.from(nextValues).every(Number.isFinite)) {
+    let accepted = false
+    let stepScale = options.stepSize
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const nextValues = cloneValues(values)
+      addScaled(nextValues, -stepScale, delta)
+      if (!Array.from(nextValues).every(Number.isFinite)) {
+        stepScale *= 0.5
+        continue
+      }
+
+      const nextState = evaluateLoss(nextValues, constraints)
+      if (Number.isFinite(nextState.loss) && nextState.loss <= state.loss) {
+        values = nextValues
+        state = nextState
+        accepted = true
+        break
+      }
+      stepScale *= 0.5
+    }
+
+    if (!accepted) {
       break
     }
-    const nextState = evaluateLoss(nextValues, constraints)
-    values = nextValues
-    state = nextState
   }
 
   return { values, loss: state.loss, perConstraint: state.perConstraint }
