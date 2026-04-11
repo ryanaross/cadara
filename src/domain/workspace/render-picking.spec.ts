@@ -1,7 +1,12 @@
 import * as THREE from 'three'
 
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
-import { buildSketchDisplayGroup, buildWorkspaceRenderScene } from '@/domain/workspace/render-picking'
+import {
+  buildSketchDisplayGroup,
+  buildWorkspaceRenderScene,
+  resolvePickTarget,
+  updateWorkspaceHighlight,
+} from '@/domain/workspace/render-picking'
 import type { SketchSessionDisplayRenderable } from '@/domain/editor/sketch-session'
 
 function assert(condition: unknown, message = 'Assertion failed'): asserts condition {
@@ -77,6 +82,84 @@ const durableMarkerRenderable: RenderableEntityRecord = {
   },
 }
 
+const solidFaceRenderable: RenderableEntityRecord = {
+  id: 'renderable_solid_face',
+  label: 'Solid face',
+  ownerBodyId: 'body_a',
+  ownerFeatureId: null,
+  binding: {
+    pickId: 'pick_solid_face',
+    pickPriority: 10,
+    target: { kind: 'face', bodyId: 'body_a', faceId: 'face_a' },
+    topology: 'face',
+    semanticClass: 'bodyFace',
+  },
+  geometry: {
+    kind: 'mesh',
+    vertexPositions: [
+      [0, 0, 0],
+      [2, 0, 0],
+      [0, 2, 0],
+    ],
+    vertexNormals: [
+      [0, 0, 1],
+      [0, 0, 1],
+      [0, 0, 1],
+    ],
+    triangleIndices: [[0, 1, 2]],
+  },
+}
+
+const regionRenderable: RenderableEntityRecord = {
+  id: 'renderable_region',
+  label: 'Region',
+  ownerBodyId: null,
+  ownerFeatureId: 'feature_region',
+  binding: {
+    pickId: 'pick_region',
+    pickPriority: 12,
+    target: { kind: 'region', sketchId: 'sketch_a', regionId: 'region_a' },
+    topology: null,
+    semanticClass: 'region',
+  },
+  geometry: {
+    kind: 'mesh',
+    vertexPositions: [
+      [0, 0, 0],
+      [1, 0, 0],
+      [0, 1, 0],
+    ],
+    vertexNormals: [
+      [0, 0, 1],
+      [0, 0, 1],
+      [0, 0, 1],
+    ],
+    triangleIndices: [[0, 1, 2]],
+  },
+}
+
+const durableEdgeRenderable: RenderableEntityRecord = {
+  id: 'renderable_edge',
+  label: 'Edge',
+  ownerBodyId: 'body_a',
+  ownerFeatureId: null,
+  binding: {
+    pickId: 'pick_edge',
+    pickPriority: 1,
+    target: { kind: 'edge', bodyId: 'body_a', edgeId: 'edge_a' },
+    topology: 'edge',
+    semanticClass: 'featureEdge',
+  },
+  geometry: {
+    kind: 'polyline',
+    points: [
+      [0, 0, 0],
+      [2, 0, 0],
+    ],
+    isClosed: false,
+  },
+}
+
 const sketchDisplayMarker: SketchSessionDisplayRenderable = {
   id: 'renderable_display_marker',
   label: 'Display marker',
@@ -88,9 +171,29 @@ const sketchDisplayMarker: SketchSessionDisplayRenderable = {
   },
 }
 
+const sketchDisplayLine: SketchSessionDisplayRenderable = {
+  id: 'renderable_display_line',
+  label: 'Display line',
+  target: { kind: 'sketchEntity', sketchId: 'sketch_a', entityId: 'sketch_line_a' },
+  geometry: {
+    kind: 'polyline' as const,
+    points: [
+      [0, 0, 0] as const,
+      [4, 0, 0] as const,
+    ],
+    isClosed: false,
+  },
+}
+
 {
-  const renderScene = buildWorkspaceRenderScene([datumPlaneRenderable, durableMarkerRenderable])
-  assertEqual(renderScene.group.children.length, 2)
+  const renderScene = buildWorkspaceRenderScene([
+    datumPlaneRenderable,
+    solidFaceRenderable,
+    regionRenderable,
+    durableEdgeRenderable,
+    durableMarkerRenderable,
+  ])
+  assertEqual(renderScene.group.children.length, 5)
 
   const datumMesh = renderScene.group.children[0]
   assert(datumMesh instanceof THREE.Mesh)
@@ -98,11 +201,39 @@ const sketchDisplayMarker: SketchSessionDisplayRenderable = {
   assertEqual(datumMesh.material.color.getHex(), 0x9ea8b5)
   assertEqual(datumMesh.material.opacity, 0.12)
 
-  const markerMesh = renderScene.group.children[1]
+  const solidMesh = renderScene.group.children[1]
+  assert(solidMesh instanceof THREE.Mesh)
+  assert(solidMesh.material instanceof THREE.MeshStandardMaterial)
+  assertEqual(solidMesh.material.color.getHex(), 0xf1eee4)
+  assertEqual(solidMesh.material.opacity, 1)
+
+  const regionMesh = renderScene.group.children[2]
+  assert(regionMesh instanceof THREE.Mesh)
+  assert(regionMesh.material instanceof THREE.MeshStandardMaterial)
+  assertEqual(regionMesh.material.color.getHex(), 0x93dff2)
+  assertEqual(regionMesh.material.opacity, 0.22)
+
+  const edgeGroup = renderScene.group.children[3]
+  assert(edgeGroup instanceof THREE.Line)
+
+  const markerGroup = renderScene.group.children[4]
+  assert(markerGroup instanceof THREE.Group)
+  assertEqual(markerGroup.children.length, 2)
+  const markerMesh = markerGroup.children[0]
   assert(markerMesh instanceof THREE.Mesh)
   assert(markerMesh.material instanceof THREE.MeshStandardMaterial)
   assertDeepEqual(markerMesh.position.toArray(), [2, 3, 4])
-  assertDeepEqual(markerMesh.scale.toArray(), [0.25, 0.25, 0.25])
+  assertDeepEqual(markerMesh.scale.toArray(), [0.11, 0.11, 0.11])
+
+  updateWorkspaceHighlight(renderScene.targetToObjects, [durableMarkerRenderable.binding.target], durableEdgeRenderable.binding.target)
+  const edgeLine = edgeGroup
+  assert(edgeLine.material instanceof THREE.LineBasicMaterial)
+  assertEqual(edgeLine.material.color.getHex(), 0xf0a14a)
+  assertEqual(markerMesh.material.color.getHex(), 0xf4fbff)
+
+  updateWorkspaceHighlight(renderScene.targetToObjects, [], solidFaceRenderable.binding.target)
+  assertEqual(solidMesh.material.color.getHex(), 0xf7c78c)
+  assertEqual(solidMesh.material.opacity, 1)
 }
 
 {
@@ -110,9 +241,75 @@ const sketchDisplayMarker: SketchSessionDisplayRenderable = {
   assertEqual(displayScene.group.children.length, 1)
   assertEqual(displayScene.pickables.length, 1)
 
-  const markerMesh = displayScene.group.children[0]
+  const markerGroup = displayScene.group.children[0]
+  assert(markerGroup instanceof THREE.Group)
+  const markerMesh = markerGroup.children[0]
   assert(markerMesh instanceof THREE.Mesh)
   assert(markerMesh.material instanceof THREE.MeshStandardMaterial)
   assertDeepEqual(markerMesh.position.toArray(), [5, 6, 7])
-  assertDeepEqual(markerMesh.scale.toArray(), [0.125, 0.125, 0.125])
+  assertDeepEqual(markerMesh.scale.toArray(), [0.055, 0.055, 0.055])
+}
+
+{
+  const renderScene = buildWorkspaceRenderScene([durableEdgeRenderable, durableMarkerRenderable])
+  const edgeLine = renderScene.group.children[0]
+  assert(edgeLine instanceof THREE.Line)
+  const markerGroup = renderScene.group.children[1]
+  assert(markerGroup instanceof THREE.Group)
+  const markerHitProxy = markerGroup.children[1]
+
+  const edgeHit = resolvePickTarget(
+    [{ distance: 3, object: edgeLine }] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+  assertDeepEqual(edgeHit?.target, durableEdgeRenderable.binding.target)
+
+  const markerHit = resolvePickTarget(
+    [{ distance: 1, object: markerHitProxy }] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+  assertDeepEqual(markerHit?.target, durableMarkerRenderable.binding.target)
+}
+
+{
+  const renderScene = buildWorkspaceRenderScene([datumPlaneRenderable, durableEdgeRenderable])
+  const constructionObject = renderScene.group.children[0]
+  const edgeLine = renderScene.group.children[1]
+  assert(edgeLine instanceof THREE.Line)
+
+  const result = resolvePickTarget(
+    [
+      { distance: 1, object: constructionObject },
+      { distance: 2, object: edgeLine },
+    ] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+
+  assertDeepEqual(result?.target, durableEdgeRenderable.binding.target)
+}
+
+{
+  const renderScene = buildWorkspaceRenderScene([regionRenderable, solidFaceRenderable])
+  const regionObject = renderScene.group.children[0]
+  const faceObject = renderScene.group.children[1]
+  const result = resolvePickTarget(
+    [
+      { distance: 1, object: regionObject },
+      { distance: 2, object: faceObject },
+    ] as THREE.Intersection<THREE.Object3D>[],
+    renderScene.pickIdToRenderable,
+  )
+
+  assertDeepEqual(result?.target, solidFaceRenderable.binding.target)
+}
+
+{
+  const displayScene = buildSketchDisplayGroup([sketchDisplayLine])
+  const line = displayScene.group.children[0]
+  assert(line instanceof THREE.Line)
+  assert(line.material instanceof THREE.LineBasicMaterial)
+  assertEqual(line.material.color.getHex(), 0x8db7d6)
+
+  updateWorkspaceHighlight(displayScene.targetToObjects, [], sketchDisplayLine.target)
+  assertEqual(line.material.color.getHex(), 0xf0a14a)
 }

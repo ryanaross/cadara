@@ -204,6 +204,7 @@ export function CadWorkbench() {
       relatedLabels: selectionDetail?.relatedLabels ?? [],
       targetLabel: primarySelection ? getPrimitiveRefLabel(primarySelection) : 'none',
     },
+    hoverTarget: visibleHoverTarget ? getPrimitiveRefLabel(visibleHoverTarget) : 'none',
   }
 
   const handleViewportHover = (target: PrimitiveRef) => {

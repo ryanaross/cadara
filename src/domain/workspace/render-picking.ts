@@ -22,22 +22,30 @@ export interface SketchDisplayScene {
 }
 
 const MARKER_SPHERE_GEOMETRY = new THREE.SphereGeometry(1, 12, 12)
+const PICK_PROXY_SPHERE_GEOMETRY = new THREE.SphereGeometry(1, 16, 16)
 const SEEDED_DATUM_CONSTRUCTION_IDS = new Set([
   'construction_plane-xy',
   'construction_plane-yz',
   'construction_plane-xz',
 ])
+const VISIBLE_MARKER_SCALE_FACTOR = 0.44
+const MARKER_PICK_SCALE_FACTOR = 1.45
 
 const SURFACE_COLORS = {
-  bodyFace: 0x6f89aa,
-  planarFace: 0x6f89aa,
-  region: 0x89b8ff,
-  featureEdge: 0x9fc7ff,
-  featureVertex: 0xe8f3ff,
-  sketchCurve: 0x7cbcff,
-  sketchPoint: 0xe8f3ff,
+  bodyFace: 0xf1eee4,
+  planarFace: 0xf1eee4,
+  region: 0x93dff2,
+  featureEdge: 0x86b6da,
+  featureVertex: 0x86b6da,
+  sketchCurve: 0x8db7d6,
+  sketchPoint: 0x8db7d6,
   construction: 0xb6d6ff,
 } as const
+
+interface RenderObjectBundle {
+  root: THREE.Object3D
+  highlightObjects: THREE.Object3D[]
+}
 
 export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[]): WorkspaceRenderScene {
   const group = new THREE.Group()
@@ -47,16 +55,14 @@ export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[])
 
   for (const renderable of renderables) {
     const object = createObjectForRenderable(renderable)
-    object.userData.pickId = renderable.binding.pickId
-    object.userData.target = renderable.binding.target
-    object.userData.semanticClass = renderable.binding.semanticClass
-    group.add(object)
-    pickables.push(object)
+    bindRenderableObject(object.root, renderable.binding.pickId, renderable.binding.target, renderable.binding.semanticClass)
+    group.add(object.root)
+    pickables.push(object.root)
     pickIdToRenderable.set(renderable.binding.pickId, renderable)
 
     const targetKey = getPrimitiveRefKey(renderable.binding.target)
     const targetObjects = targetToObjects.get(targetKey) ?? []
-    targetObjects.push(object)
+    targetObjects.push(...object.highlightObjects)
     targetToObjects.set(targetKey, targetObjects)
   }
 
@@ -76,15 +82,19 @@ export function buildSketchDisplayGroup(renderables: SketchSessionDisplayRendera
   for (const renderable of renderables) {
     const object = createDisplayObject(renderable)
     if (renderable.target) {
-      object.userData.target = renderable.target
-      object.userData.semanticClass = renderable.geometry.kind === 'marker' ? 'sketchPoint' : 'sketchCurve'
+      bindRenderableObject(
+        object.root,
+        null,
+        renderable.target,
+        renderable.geometry.kind === 'marker' ? 'sketchPoint' : 'sketchCurve',
+      )
       const targetKey = getPrimitiveRefKey(renderable.target)
       const targetObjects = targetToObjects.get(targetKey) ?? []
-      targetObjects.push(object)
+      targetObjects.push(...object.highlightObjects)
       targetToObjects.set(targetKey, targetObjects)
-      pickables.push(object)
+      pickables.push(object.root)
     }
-    group.add(object)
+    group.add(object.root)
   }
 
   return {
@@ -157,20 +167,23 @@ function createMeshObject(renderable: RenderableEntityRecord) {
       })
     : new THREE.MeshStandardMaterial({
         color: getRenderableBaseColor(renderable.binding.semanticClass),
-        transparent: true,
-        opacity: 0.86,
+        transparent: renderable.binding.semanticClass === 'region',
+        opacity: getBaseMeshOpacity(renderable.binding.semanticClass),
         side: THREE.DoubleSide,
-        metalness: 0.12,
-        roughness: 0.72,
-        emissive: 0x07111d,
-        emissiveIntensity: 0.18,
+        metalness: renderable.binding.semanticClass === 'region' ? 0.02 : 0.03,
+        roughness: renderable.binding.semanticClass === 'region' ? 0.92 : 0.86,
+        emissive: renderable.binding.semanticClass === 'region' ? 0x10252d : 0x000000,
+        emissiveIntensity: renderable.binding.semanticClass === 'region' ? 0.08 : 0,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -2,
       })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 1 : 2
-  return mesh
+  return {
+    root: mesh,
+    highlightObjects: [mesh],
+  } satisfies RenderObjectBundle
 }
 
 function createPolylineObject(renderable: RenderableEntityRecord) {
@@ -196,7 +209,20 @@ function createPolylineObject(renderable: RenderableEntityRecord) {
       })
   const line = new THREE.Line(geometry, material)
   line.renderOrder = isSeededDatumPlaneRenderable(renderable) ? 2 : 3
-  return line
+  line.material.depthTest = true
+  line.material.depthWrite = false
+
+  if (isSeededDatumPlaneRenderable(renderable)) {
+    return {
+      root: line,
+      highlightObjects: [line],
+    } satisfies RenderObjectBundle
+  }
+
+  return {
+    root: line,
+    highlightObjects: [line],
+  } satisfies RenderObjectBundle
 }
 
 function createMarkerObject(renderable: RenderableEntityRecord) {
@@ -210,14 +236,23 @@ function createMarkerObject(renderable: RenderableEntityRecord) {
     color: getRenderableBaseColor(renderable.binding.semanticClass),
     metalness: 0.08,
     roughness: 0.34,
-    emissive: 0x2559a8,
-    emissiveIntensity: 0.18,
+    emissive: 0x1c3245,
+    emissiveIntensity: 0.12,
   })
   const mesh = new THREE.Mesh(MARKER_SPHERE_GEOMETRY, material)
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
-  mesh.scale.setScalar(Math.max(geometryData.displayRadius, Number.EPSILON))
+  mesh.scale.setScalar(getVisibleMarkerRadius(geometryData.displayRadius))
   mesh.renderOrder = 4
-  return mesh
+  mesh.material.depthTest = false
+
+  const group = new THREE.Group()
+  group.add(mesh)
+  group.add(createMarkerPickProxy(geometryData.position, geometryData.displayRadius))
+
+  return {
+    root: group,
+    highlightObjects: [mesh],
+  } satisfies RenderObjectBundle
 }
 
 function createDisplayFaceObject(renderable: SketchSessionDisplayRenderable) {
@@ -248,7 +283,11 @@ function createDisplayFaceObject(renderable: SketchSessionDisplayRenderable) {
     emissiveIntensity: 0.18,
   })
 
-  return new THREE.Mesh(geometry, material)
+  const mesh = new THREE.Mesh(geometry, material)
+  return {
+    root: mesh,
+    highlightObjects: [mesh],
+  } satisfies RenderObjectBundle
 }
 
 function createDisplayEdgeObject(renderable: SketchSessionDisplayRenderable) {
@@ -262,12 +301,20 @@ function createDisplayEdgeObject(renderable: SketchSessionDisplayRenderable) {
   const displayPoints = geometryData.isClosed && points.length > 0 ? [...points, points[0].clone()] : points
   const geometry = new THREE.BufferGeometry().setFromPoints(displayPoints)
   const material = new THREE.LineBasicMaterial({
-    color: 0x7cbcff,
+    color: SURFACE_COLORS.sketchCurve,
     transparent: true,
     opacity: 0.95,
   })
 
-  return new THREE.Line(geometry, material)
+  const line = new THREE.Line(geometry, material)
+  line.renderOrder = 3
+  line.material.depthTest = true
+  line.material.depthWrite = false
+
+  return {
+    root: line,
+    highlightObjects: [line],
+  } satisfies RenderObjectBundle
 }
 
 function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
@@ -281,13 +328,23 @@ function createDisplayMarkerObject(renderable: SketchSessionDisplayRenderable) {
     color: SURFACE_COLORS.sketchPoint,
     metalness: 0.08,
     roughness: 0.34,
-    emissive: 0x2559a8,
-    emissiveIntensity: 0.28,
+    emissive: 0x1c3245,
+    emissiveIntensity: 0.16,
   })
   const mesh = new THREE.Mesh(MARKER_SPHERE_GEOMETRY, material)
   mesh.position.set(geometryData.position[0], geometryData.position[1], geometryData.position[2])
-  mesh.scale.setScalar(Math.max(geometryData.displayRadius, Number.EPSILON))
-  return mesh
+  mesh.scale.setScalar(getVisibleMarkerRadius(geometryData.displayRadius))
+  mesh.renderOrder = 4
+  mesh.material.depthTest = false
+
+  const group = new THREE.Group()
+  group.add(mesh)
+  group.add(createMarkerPickProxy(geometryData.position, geometryData.displayRadius))
+
+  return {
+    root: group,
+    highlightObjects: [mesh],
+  } satisfies RenderObjectBundle
 }
 
 export function resolvePickTarget(
@@ -297,7 +354,7 @@ export function resolvePickTarget(
 ) {
   const resolvedHits = intersections
     .map((intersection) => {
-      const pickId = intersection.object.userData.pickId as string | undefined
+      const pickId = getBoundPickId(intersection.object)
 
       if (!pickId) {
         return null
@@ -318,6 +375,12 @@ export function resolvePickTarget(
     })
     .filter((hit): hit is NonNullable<typeof hit> => hit !== null)
     .sort((left, right) => {
+      const semanticRankDelta = getInteractionSortRank(left.renderable) - getInteractionSortRank(right.renderable)
+
+      if (semanticRankDelta !== 0) {
+        return semanticRankDelta
+      }
+
       const priorityDelta = left.renderable.binding.pickPriority - right.renderable.binding.pickPriority
 
       if (priorityDelta !== 0) {
@@ -350,13 +413,13 @@ export function updateWorkspaceHighlight(
   for (const objects of targetToObjects.values()) {
     for (const object of objects) {
       const material = getObjectMaterial(object)
-      const semanticClass = object.userData.semanticClass as RenderableEntityRecord['binding']['semanticClass'] | undefined
+      const semanticClass = getBoundSemanticClass(object)
 
       if (!material || !semanticClass) {
         continue
       }
 
-      const target = object.userData.target as PrimitiveRef | undefined
+      const target = getBoundTarget(object)
 
       if (!target) {
         continue
@@ -390,17 +453,19 @@ function applyRenderableState(
     entry.color.setHex(color)
 
     if (entry instanceof THREE.MeshStandardMaterial) {
-      entry.emissive.setHex(isSelected ? 0x3c8dff : isActive ? 0x1e4f87 : 0x07111d)
-      entry.emissiveIntensity = isSelected ? 0.48 : isActive ? 0.3 : 0.18
+      entry.emissive.setHex(isSelected ? 0x2f6b91 : isActive ? 0xa85a16 : semanticClass === 'region' ? 0x10252d : 0x000000)
+      entry.emissiveIntensity = isSelected ? 0.32 : isActive ? 0.24 : semanticClass === 'region' ? 0.08 : 0
       entry.opacity = semanticClass === 'construction'
         ? (isSelected ? 0.28 : isActive ? 0.2 : 0.12)
-        : isFaceSemanticClass(semanticClass)
-          ? (isActive ? 0.98 : 0.86)
+        : semanticClass === 'region'
+          ? (isSelected ? 0.44 : isActive ? 0.34 : 0.22)
+          : isFaceSemanticClass(semanticClass)
+            ? 1
           : 1
     } else {
       entry.opacity = semanticClass === 'construction'
         ? (isSelected ? 0.85 : isActive ? 0.62 : 0.4)
-        : isSelected ? 1 : isActive ? 0.98 : 0.9
+        : isSelected ? 1 : isActive ? 0.98 : 0.94
     }
   }
 }
@@ -432,7 +497,7 @@ function getHighlightColor(
   isSelected: boolean,
 ) {
   if (isSelected) {
-    return 0xf2fbff
+    return isWireSemanticClass(semanticClass) ? 0xf4fbff : 0xf7f4ec
   }
 
   if (isActive) {
@@ -441,18 +506,14 @@ function getHighlightColor(
     }
 
     if (semanticClass === 'region') {
-      return 0xdcecff
+      return 0xa7e4ef
     }
 
-    if (semanticClass === 'sketchCurve' || semanticClass === 'featureEdge') {
-      return 0xc7e1ff
+    if (isWireSemanticClass(semanticClass)) {
+      return 0xf0a14a
     }
 
-    if (semanticClass === 'sketchPoint' || semanticClass === 'featureVertex') {
-      return 0xffffff
-    }
-
-    return 0x79b3ff
+    return 0xf7c78c
   }
 
   return getRenderableBaseColor(semanticClass)
@@ -463,8 +524,41 @@ function isSeededDatumPlaneRenderable(renderable: RenderableEntityRecord) {
     && SEEDED_DATUM_CONSTRUCTION_IDS.has(renderable.binding.target.constructionId)
 }
 
+function isConstructionRenderable(renderable: RenderableEntityRecord) {
+  return renderable.binding.semanticClass === 'construction'
+}
+
+function getInteractionSortRank(renderable: RenderableEntityRecord) {
+  switch (renderable.binding.semanticClass) {
+    case 'featureVertex':
+    case 'sketchPoint':
+      return 0
+    case 'featureEdge':
+    case 'sketchCurve':
+      return 1
+    case 'bodyFace':
+    case 'planarFace':
+      return 2
+    case 'region':
+      return 3
+    case 'construction':
+      return 4
+  }
+}
+
 function isFaceSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
   return semanticClass === 'bodyFace' || semanticClass === 'planarFace' || semanticClass === 'region'
+}
+
+function isWireSemanticClass(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
+  return semanticClass === 'featureEdge'
+    || semanticClass === 'featureVertex'
+    || semanticClass === 'sketchCurve'
+    || semanticClass === 'sketchPoint'
+}
+
+function getBaseMeshOpacity(semanticClass: RenderableEntityRecord['binding']['semanticClass']) {
+  return semanticClass === 'region' ? 0.22 : 1
 }
 
 function getObjectMaterial(object: THREE.Object3D) {
@@ -473,4 +567,69 @@ function getObjectMaterial(object: THREE.Object3D) {
   }
 
   return null
+}
+
+function bindRenderableObject(
+  object: THREE.Object3D,
+  pickId: string | null,
+  target: PrimitiveRef,
+  semanticClass: RenderableEntityRecord['binding']['semanticClass'],
+) {
+  object.userData.target = target
+  object.userData.semanticClass = semanticClass
+
+  if (pickId !== null) {
+    object.userData.pickId = pickId
+  }
+}
+
+function getBoundPickId(object: THREE.Object3D) {
+  return findBoundValue<string>(object, 'pickId')
+}
+
+export function getBoundTarget(object: THREE.Object3D) {
+  return findBoundValue<PrimitiveRef>(object, 'target')
+}
+
+function getBoundSemanticClass(object: THREE.Object3D) {
+  return findBoundValue<RenderableEntityRecord['binding']['semanticClass']>(object, 'semanticClass')
+}
+
+function findBoundValue<T>(object: THREE.Object3D, key: string) {
+  let current: THREE.Object3D | null = object
+
+  while (current) {
+    const value = current.userData[key] as T | undefined
+
+    if (value !== undefined) {
+      return value
+    }
+
+    current = current.parent
+  }
+
+  return undefined
+}
+
+function createMarkerPickProxy(position: readonly [number, number, number], displayRadius: number) {
+  const material = createInvisiblePickMaterial()
+  const mesh = new THREE.Mesh(PICK_PROXY_SPHERE_GEOMETRY, material)
+  mesh.position.set(position[0], position[1], position[2])
+  mesh.scale.setScalar(Math.max(displayRadius * MARKER_PICK_SCALE_FACTOR, displayRadius, Number.EPSILON))
+  return mesh
+}
+
+function createInvisiblePickMaterial() {
+  const material = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false,
+  })
+  material.colorWrite = false
+  return material
+}
+
+function getVisibleMarkerRadius(displayRadius: number) {
+  return Math.max(displayRadius * VISIBLE_MARKER_SCALE_FACTOR, Number.EPSILON)
 }

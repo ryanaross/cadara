@@ -69,7 +69,7 @@ export class SketchWorkbenchHarness {
   }
 
   async hoverViewportAtReal(point: { x: number; y: number }) {
-    const box = await this.viewportSurface().boundingBox()
+    const box = await this.viewport().boundingBox()
 
     if (!box) {
       throw new Error('Viewport surface is not visible.')
@@ -79,7 +79,7 @@ export class SketchWorkbenchHarness {
   }
 
   async clickViewportAtReal(point: { x: number; y: number }) {
-    const box = await this.viewportSurface().boundingBox()
+    const box = await this.viewport().boundingBox()
 
     if (!box) {
       throw new Error('Viewport surface is not visible.')
@@ -89,8 +89,8 @@ export class SketchWorkbenchHarness {
   }
 
   async currentHoverTarget() {
-    const diagnostics = await this.page.locator('text=Target:').first().textContent()
-    return diagnostics?.replace(/^Target:\s*/, '').trim() ?? 'none'
+    const bodyText = await this.page.locator('body').textContent()
+    return bodyText?.match(/Hover target:\s*([\s\S]*?)Selection detail:/)?.[1]?.replace(/\s+/g, '').trim() ?? 'none'
   }
 
   async currentEditorSelection() {
@@ -164,6 +164,56 @@ export class SketchWorkbenchHarness {
     }
 
     throw new Error(`Viewport target ${targetId} was not found in the current camera framing.`)
+  }
+
+  async hoverFirstViewportTargetMatching(pattern: RegExp) {
+    const viewport = this.viewport()
+    const box = await viewport.boundingBox()
+
+    if (!box) {
+      throw new Error('Viewport surface is not visible.')
+    }
+
+    const xSteps = 11
+    const ySteps = 7
+
+    for (let row = 1; row <= ySteps; row += 1) {
+      for (let column = 1; column <= xSteps; column += 1) {
+        const point = {
+          x: Math.round((box.width * column) / (xSteps + 1)),
+          y: Math.round((box.height * row) / (ySteps + 1)),
+        }
+
+        await this.page.mouse.move(box.x + point.x, box.y + point.y)
+        await this.page.waitForTimeout(20)
+
+        const targetId = (await this.currentHoverTarget()).match(pattern)?.[0]
+
+        if (targetId) {
+          return targetId
+        }
+      }
+    }
+
+    throw new Error(`Viewport target matching ${pattern} was not found in the current camera framing.`)
+  }
+
+  async hoverViewportTargetNear(
+    pattern: RegExp,
+    candidates: Array<{ x: number; y: number }>,
+  ) {
+    for (const point of candidates) {
+      await this.hoverViewportAtReal(point)
+      await this.page.waitForTimeout(50)
+
+      const targetId = (await this.currentHoverTarget()).match(pattern)?.[0]
+
+      if (targetId) {
+        return { point, targetId }
+      }
+    }
+
+    throw new Error(`Viewport target matching ${pattern} was not found near the provided candidates.`)
   }
 
   async expectSketchPlane(label: string) {

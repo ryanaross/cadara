@@ -13,6 +13,7 @@ import { createWorkspaceScene } from '@/domain/workspace/scene-factory'
 import {
   buildWorkspaceRenderScene,
   buildSketchDisplayGroup,
+  getBoundTarget,
   resolvePickTarget,
   type SketchDisplayScene,
   updateWorkspaceHighlight,
@@ -192,7 +193,7 @@ export function ThreeCadViewport({
       primaryPointerDown: null,
       animationFrameId: 0,
     }
-    runtime.raycaster.params.Line.threshold = 16
+    runtime.raycaster.params.Line.threshold = 0.75
 
     runtimeRef.current = runtime
 
@@ -309,6 +310,7 @@ export function ThreeCadViewport({
     const nextScene = buildWorkspaceRenderScene(renderables)
     runtime.scene.add(nextScene.group)
     renderSceneRef.current = nextScene
+    updateWorkspaceHighlight(nextScene.targetToObjects, selectionRef.current, hoverTargetRef.current)
   }, [renderables])
 
   useEffect(() => {
@@ -322,6 +324,7 @@ export function ThreeCadViewport({
     const displayScene = buildSketchDisplayGroup(sketchDisplayRenderables)
     runtime.scene.add(displayScene.group)
     sketchDisplayGroupRef.current = displayScene
+    updateWorkspaceHighlight(displayScene.targetToObjects, selectionRef.current, hoverTargetRef.current)
   }, [sketchDisplayRenderables])
 
   useEffect(() => {
@@ -370,7 +373,7 @@ export function ThreeCadViewport({
       }
 
       const sketchDisplayHit = intersections.find((intersection) => {
-        const target = intersection.object.userData.target as PrimitiveRef | undefined
+        const target = getBoundTarget(intersection.object)
 
         return target
           ? selectionFilterAllowsTarget(
@@ -388,7 +391,7 @@ export function ThreeCadViewport({
 
       return {
         pickId: null,
-        target: sketchDisplayHit.object.userData.target as PrimitiveRef,
+        target: getBoundTarget(sketchDisplayHit.object) as PrimitiveRef,
         renderable: null,
       }
     }

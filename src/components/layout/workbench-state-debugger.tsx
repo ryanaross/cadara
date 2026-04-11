@@ -33,6 +33,7 @@ export interface WorkbenchStateDebuggerModel {
   activeTargetRule: string
   requirements: readonly WorkbenchStateDebuggerRequirement[]
   selectionDetail: WorkbenchStateDebuggerSelectionDetail
+  hoverTarget: string
 }
 
 interface WorkbenchStateDebuggerProps {
@@ -111,6 +112,7 @@ export function WorkbenchStateDebugger({ state, defaultExpanded = true }: Workbe
           </div>
 
           <div className="border-t border-[var(--cad-border)] pt-2">
+            <DebuggerRow label="Hover target" value={state.hoverTarget} />
             <DebuggerRow label="Selection detail" value={state.selectionDetail.label} />
             <DebuggerRow label="Kind" value={state.selectionDetail.kindLabel} />
             <DebuggerRow label="Owner" value={state.selectionDetail.ownerLabel} />
