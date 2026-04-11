@@ -782,6 +782,62 @@ function validateFeatureDefinitionAgainstSnapshot(
 
       return { accepted: true as const, diagnostics: [] }
     }
+    case 'thicken': {
+      const faceTargets = getAdvancedParticipant(definition, 'face')?.targets ?? []
+      const targetBodyTargets = getAdvancedParticipant(definition, 'targetBody')?.targets ?? []
+      const thickness = definition.parameters.options?.thickness
+      const side = definition.parameters.options?.side
+
+      if (faceTargets.length === 0 || faceTargets.some((target) => target.kind !== 'face')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-thicken',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Thicken requires at least one durable face participant.')],
+        }
+      }
+
+      if (typeof thickness !== 'number' || !Number.isFinite(thickness) || thickness <= 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-thicken',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Thicken requires a positive thickness option.')],
+        }
+      }
+
+      if (side !== undefined && side !== 'oneSide' && side !== 'symmetric') {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-thicken',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Thicken side must be oneSide or symmetric.')],
+        }
+      }
+
+      if (faceTargets.some((target) => target.kind !== 'face' || !hasFaceTarget(snapshot, target.bodyId, target.faceId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-thicken',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Thicken face participants must resolve to live durable faces.')],
+        }
+      }
+
+      if (definition.parameters.operationIntent !== undefined && definition.parameters.operationIntent !== 'create') {
+        if (targetBodyTargets.length === 0 || targetBodyTargets.some((target) => target.kind !== 'body')) {
+          return {
+            accepted: false as const,
+            reasonCode: 'mock-invalid-thicken',
+            diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Thicken boolean operation intents require explicit targetBody participants.')],
+          }
+        }
+
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock thicken does not implement boolean composition yet.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     default:
       return {
         accepted: false as const,
@@ -805,6 +861,11 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
   if (definition.kind === 'chamfer') {
     const edge = getAdvancedParticipant(definition, 'edge')?.targets[0]
     return edge ? createPreviewRenderableSet(getPrimitiveRefKey(edge)) : []
+  }
+
+  if (definition.kind === 'thicken') {
+    const face = getAdvancedParticipant(definition, 'face')?.targets[0]
+    return face ? createPreviewRenderableSet(getPrimitiveRefKey(face)) : []
   }
 
   if (definition.kind !== 'extrude') {
@@ -1469,8 +1530,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       angularToleranceRadians: 0.0001,
     },
     capabilities: {
-      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'loft', 'chamfer'],
-      previewableFeatureKinds: ['extrude', 'sweep', 'loft', 'chamfer'],
+      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'loft', 'chamfer', 'thicken'],
+      previewableFeatureKinds: ['extrude', 'sweep', 'loft', 'chamfer', 'thicken'],
       supportedProfileKinds: ['region', 'face'],
       supportsFaceBackedSketchPlanes: true,
       supportsDurableTopologyNaming: false,

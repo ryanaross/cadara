@@ -289,6 +289,21 @@ export const chamferAdvancedFeatureExample = {
   },
 } satisfies AdvancedSolidFeatureDefinition
 
+export const thickenAdvancedFeatureExample = {
+  kind: 'thicken',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    operationIntent: 'create',
+    participants: [
+      {
+        role: 'face',
+        targets: [{ kind: 'face', bodyId: 'body_sheet', faceId: 'face_sheet' }],
+      },
+    ],
+    options: { thickness: 1.5, side: 'oneSide' },
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
 export const splitAdvancedFeatureExample = {
   kind: 'split',
   featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,

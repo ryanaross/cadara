@@ -32,6 +32,8 @@ export type {
   ShellFeatureParameterDraft,
   SweepFeatureEditSessionState,
   SweepFeatureParameterDraft,
+  ThickenFeatureEditSessionState,
+  ThickenFeatureParameterDraft,
 } from '@/domain/feature-authoring/definition'
 
 function createBaseFeatureSession(
@@ -99,6 +101,7 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'sweep'
     && feature.definition.kind !== 'loft'
     && feature.definition.kind !== 'chamfer'
+    && feature.definition.kind !== 'thicken'
   ) {
     return null
   }

@@ -20,6 +20,7 @@ export type ToolIconId =
   | 'loft'
   | 'fillet'
   | 'chamfer'
+  | 'thicken'
   | 'shell'
   | 'linearPattern'
   | 'circularPattern'

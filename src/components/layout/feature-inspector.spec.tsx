@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { FeatureInspector } from '@/components/layout/feature-inspector'
 import { initialEditorState, type EditorViewState } from '@/contracts/editor/state-machine'
 import { createFeatureEditSession, patchFeatureEditSession } from '@/domain/editor/feature-editing'
+import type { ToolId } from '@/domain/tools/tool-registry'
 import { EditorContext } from '@/hooks/editor-context'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -19,7 +20,7 @@ function renderInspector(input: {
     mode: 'part',
     activeCommand: {
       commandSessionId: 'command_shell-1',
-      toolId: input.activeEditSession.featureType,
+      toolId: input.activeEditSession.featureType as ToolId,
       phase: 'editing',
     },
     selection: [],

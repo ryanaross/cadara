@@ -613,6 +613,33 @@ function testShellActivationSeedsBodyFromSelectedFace() {
   assert(activation.effects[0]?.type === 'feature.evaluatePreview', 'Shell activation should request a preview effect.')
 }
 
+function testThickenActivationSeedsFaceTargetsFromSelection() {
+  const activation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'thicken',
+    },
+  )
+
+  assert(activation.state.kind === 'editingFeature', 'Thicken activation should enter feature editing.')
+  assert(activation.state.session.featureType === 'thicken', 'Thicken activation should create a thicken session.')
+  assert(
+    activation.state.session.draft.faceTargets[0]?.faceId === 'face_top',
+    'Thicken activation should seed the selected face into the draft.',
+  )
+  assert(activation.effects.length === 1, 'Thicken activation with a face target should emit one preview effect.')
+  assert(activation.effects[0]?.type === 'feature.evaluatePreview', 'Thicken activation should request a preview effect.')
+}
+
 function testActiveReferencePickerRoutesSingleAndMultiSelections() {
   const catalog = createRegionSelectionCatalog()
   const activation = transitionEditorState(
@@ -1023,6 +1050,7 @@ testFeaturePreviewIgnoresStaleResponseIds()
 testRevolveActivationStartsFeaturePreviewFlow()
 testRevolveActivationSupportsFaceThenEdgeSelection()
 testShellActivationSeedsBodyFromSelectedFace()
+testThickenActivationSeedsFaceTargetsFromSelection()
 testActiveReferencePickerRoutesSingleAndMultiSelections()
 testReferencePickerCancellationAndSessionCleanup()
 testReplayIsDeterministic()

@@ -62,6 +62,7 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
   loft: Shapes,
   fillet: Crop,
   chamfer: Diamond,
+  thicken: Cuboid,
   shell: Cuboid,
   linearPattern: Shapes,
   circularPattern: RotateCcw,

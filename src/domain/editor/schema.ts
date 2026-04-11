@@ -69,6 +69,7 @@ export type SelectionFilterKind =
   | 'revolveReferences'
   | 'sweepReferences'
   | 'loftReferences'
+  | 'thickenReferences'
   | 'filletEdges'
   | 'chamferEdges'
   | 'shellReferences'
@@ -478,6 +479,42 @@ export const shellSelectionFilter: SelectionFilter = {
   ],
 }
 
+export const thickenSelectionFilter: SelectionFilter = {
+  kind: 'thickenReferences',
+  allowedKinds: ['face', 'body'],
+  label: 'Thicken references',
+  requirements: [
+    {
+      id: 'thicken-face',
+      label: 'Face target',
+      description: 'Thicken accepts one or more explicit durable face targets.',
+      slots: [
+        {
+          id: 'thicken-face',
+          label: 'Face target',
+          description: 'Select one face to offset into a solid.',
+          acceptedKinds: ['face'],
+          acceptedSemantics: ['face', 'planarFace'],
+        },
+      ],
+    },
+    {
+      id: 'thicken-boolean-target',
+      label: 'Boolean target',
+      description: 'Add, subtract, and intersect require one explicit target body.',
+      slots: [
+        {
+          id: 'thicken-boolean-target',
+          label: 'Boolean target',
+          description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
 export function getPrimitiveRefLabel(target: PrimitiveRef) {
   switch (target.kind) {
     case 'body':
@@ -796,6 +833,8 @@ export function getSelectionPreviewLabel(
       ? 'revolve reference'
       : filter.kind === 'sweepReferences'
         ? 'sweep reference'
+        : filter.kind === 'thickenReferences'
+          ? 'thicken reference'
         : filter.kind === 'filletEdges'
         ? 'fillet edge'
         : filter.kind === 'shellReferences'

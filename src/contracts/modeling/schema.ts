@@ -69,7 +69,7 @@ export type SketchPoint = SketchPoint2D
  * This union is closed so callers cannot invent feature types ad hoc.
  */
 export type FeatureKind = 'extrude' | 'fillet' | 'plane' | 'revolve' | 'shell'
-export type AuthoredFeatureKind = FeatureKind | 'sweep' | 'loft' | 'chamfer'
+export type AuthoredFeatureKind = FeatureKind | 'sweep' | 'loft' | 'chamfer' | 'thicken'
 export type ModelingFeatureKind = FeatureKind | AdvancedSolidFeatureKind
 
 /** Ordered collection that must contain at least one entry. */

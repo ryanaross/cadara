@@ -9,7 +9,7 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import { chamferAdvancedFeatureExample, loftAdvancedFeatureExample, sweepAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import { chamferAdvancedFeatureExample, loftAdvancedFeatureExample, sweepAdvancedFeatureExample, thickenAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -378,6 +378,46 @@ function testRejectsInvalidAdvancedParticipants() {
   assert(!result.ok && result.reasonCode === 'invalid-advanced-participant', 'Invalid advanced participants should report a stable reason code.')
 }
 
+function testPreservesThickenParticipantsAndOptions() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: thickenAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_thicken-1',
+          definition: {
+            ...thickenAdvancedFeatureExample,
+            parameters: {
+              ...thickenAdvancedFeatureExample.parameters,
+              options: { thickness: 2, side: 'symmetric' },
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Thicken advanced solid feature history payloads should validate.')
+  assert(
+    result.ok &&
+      result.payload.entries[0]?.kind === 'createFeature' &&
+      result.payload.entries[0].payload.definition.kind === 'thicken' &&
+      result.payload.entries[0].payload.definition.parameters.participants.some((participant) => participant.role === 'face') &&
+      result.payload.entries[1]?.kind === 'updateFeature' &&
+      result.payload.entries[1].payload.definition.kind === 'thicken' &&
+      result.payload.entries[1].payload.definition.parameters.options?.thickness === 2 &&
+      result.payload.entries[1].payload.definition.parameters.options?.side === 'symmetric',
+    'Thicken operation history must preserve face participants and option payloads across updates.',
+  )
+}
+
 testValidatesRepresentativeHistory()
 testRejectsUnsupportedVersion()
 testRejectsTransportMetadataLeak()
@@ -387,3 +427,4 @@ testPreservesAdvancedParticipantsAndOperationIntent()
 testPreservesChamferParticipantsAndDistanceOptions()
 testPreservesLoftParticipantOrderAndGuideCurves()
 testRejectsInvalidAdvancedParticipants()
+testPreservesThickenParticipantsAndOptions()

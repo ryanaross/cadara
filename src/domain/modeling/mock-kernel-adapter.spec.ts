@@ -841,6 +841,88 @@ async function testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipant
   assert(afterInvalid.snapshot.revisionId === created.revisionId, 'Rejected chamfer create requests must not mutate committed document state.')
 }
 
+async function testThickenPreviewCommitAndUnsupportedCasesUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const thickenDefinition = {
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'face', targets: [{ kind: 'face', bodyId: 'body_part-1', faceId: 'face_top' }] },
+      ],
+      options: { thickness: 0.5, side: 'oneSide' },
+    },
+  } as const
+  const invalidThicknessDefinition = {
+    ...thickenDefinition,
+    parameters: {
+      ...thickenDefinition.parameters,
+      options: { thickness: 0, side: 'oneSide' },
+    },
+  } as const
+  const booleanDefinition = {
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'subtract' as const,
+      participants: [
+        { role: 'face' as const, targets: [{ kind: 'face' as const, bodyId: 'body_part-1' as const, faceId: 'face_top' as const }] },
+        { role: 'targetBody' as const, targets: [{ kind: 'body' as const, bodyId: 'body_part-1' as const }] },
+      ],
+      options: { thickness: 0.5, side: 'symmetric' as const },
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_thicken_valid',
+    definition: thickenDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: thickenDefinition,
+  })
+  const invalid = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: invalidThicknessDefinition,
+  })
+  const booleanCreate = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: booleanDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedThicken = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock thicken previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock thicken previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock thicken create requests should be accepted.')
+  assert(committedThicken?.definition.kind === 'thicken', 'Committed mock thicken should be present in the next snapshot.')
+  assert(
+    committedThicken.definition.parameters.participants.some((participant) => participant.role === 'face'),
+    'Committed mock thicken should preserve the face participant role.',
+  )
+  assert(committedThicken.definition.parameters.options?.thickness === 0.5, 'Committed mock thicken should preserve the thickness option.')
+  assert(invalid.revisionState.kind === 'rejected', 'Invalid thicken thickness should reject explicitly.')
+  assert(booleanCreate.revisionState.kind === 'rejected', 'Unsupported thicken boolean create requests should reject explicitly.')
+  assert(after.snapshot.revisionId === created.revisionId, 'Rejected thicken create requests must not mutate committed document state.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -1076,10 +1158,11 @@ await testMockKernelRejectsUnsupportedContractEnvelope()
 await testAdvancedPreviewReturnsStructuredUnsupportedDiagnosticsWithoutMutation()
 await testSweepPreviewAndCommitUseAdvancedParticipants()
 await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
-await testLoftPreviewAndCommitUseOrderedAdvancedParticipants()
-await testLoftUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
-await testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
-await testSnapshotRenderablesExposeSemanticBindings()
+  await testLoftPreviewAndCommitUseOrderedAdvancedParticipants()
+  await testLoftUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
+  await testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
+  await testThickenPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
+  await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()
 testRenderValidatorRejectsInvalidGeometry()

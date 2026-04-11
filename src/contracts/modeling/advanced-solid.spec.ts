@@ -107,6 +107,42 @@ const chamferDescriptor = {
   ],
 } satisfies AdvancedSolidFeatureAuthoringDescriptor
 
+const thickenDescriptor = {
+  featureKind: 'thicken',
+  participants: [
+    {
+      role: 'face',
+      label: 'Face targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['face'],
+    },
+    {
+      role: 'targetBody',
+      label: 'Boolean target body',
+      required: false,
+      cardinality: { min: 0, max: null },
+      acceptedKinds: ['body'],
+    },
+  ],
+  operationIntent: {
+    supportedIntents: ['create', 'add', 'subtract', 'intersect'],
+    requiredParticipantsByIntent: {
+      add: ['targetBody'],
+      subtract: ['targetBody'],
+      intersect: ['targetBody'],
+    },
+  },
+  options: [
+    {
+      key: 'thickness',
+      label: 'Thickness',
+      required: true,
+      valueKind: 'positiveNumber',
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
 function testAdvancedParticipantValidationAcceptsRoleSpecificPayloads() {
   const diagnostics = validateAdvancedSolidFeatureDefinition({
     kind: 'sweep',
@@ -326,6 +362,67 @@ function testChamferEdgeParticipantsAndDistanceValidation() {
   )
 }
 
+function testThickenFaceParticipantsAndThicknessValidation() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'face', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_outer' }] },
+      ],
+      options: { thickness: 0.5, side: 'oneSide' },
+    },
+  }, thickenDescriptor)
+  const wrongKind = validateAdvancedSolidFeatureDefinition({
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'face', targets: [{ kind: 'edge', bodyId: 'body_a', edgeId: 'edge_outer' }] },
+      ],
+      options: { thickness: 0.5, side: 'oneSide' },
+    },
+  }, thickenDescriptor)
+  const invalidThickness = validateAdvancedSolidFeatureDefinition({
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'face', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_outer' }] },
+      ],
+      options: { thickness: 0, side: 'oneSide' },
+    },
+  }, thickenDescriptor)
+  const missingTargetBody = validateAdvancedSolidFeatureDefinition({
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'subtract',
+      participants: [
+        { role: 'face', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_outer' }] },
+      ],
+      options: { thickness: 0.5, side: 'symmetric' },
+    },
+  }, thickenDescriptor)
+
+  assert(valid.length === 0, 'Thicken validation should accept face participants and positive thickness.')
+  assert(
+    wrongKind.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'face'),
+    'Thicken validation should reject non-face participants.',
+  )
+  assert(
+    invalidThickness.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-option'),
+    'Thicken validation should reject non-positive thickness values.',
+  )
+  assert(
+    missingTargetBody.some((diagnostic) => diagnostic.code === 'advanced-feature-missing-participant' && diagnostic.role === 'targetBody'),
+    'Thicken boolean validation should require explicit target bodies.',
+  )
+}
+
 testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
 testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
 testAdvancedOperationIntentValidationRejectsUnsupportedModes()
@@ -333,3 +430,4 @@ testSweepPathCardinalityAndBooleanTargetValidation()
 testLoftValidationPreservesOrderedProfilesAndGuideCurves()
 testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets()
 testChamferEdgeParticipantsAndDistanceValidation()
+testThickenFaceParticipantsAndThicknessValidation()

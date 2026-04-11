@@ -8,7 +8,7 @@ export const FEATURE_FIXTURE = {
   body: 'body_feature_extrude-1',
 } as const
 
-type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'shell' | 'plane'
+type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'thicken' | 'shell' | 'plane'
 
 export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   constructor(page: Page) {
@@ -60,6 +60,7 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
       loft: 'Create a lofted solid from ordered profiles.',
       fillet: 'Round selected edges.',
       chamfer: 'Bevel selected edges.',
+      thicken: 'Offset selected faces into a solid.',
       shell: 'Hollow a solid body.',
       plane: 'Create a construction plane.',
     }

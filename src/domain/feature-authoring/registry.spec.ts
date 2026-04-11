@@ -1,4 +1,3 @@
-// @ts-expect-error vite-node executes this spec under Node even though app tsconfig excludes Node globals.
 import { readFileSync } from 'node:fs'
 
 import {
@@ -30,7 +29,7 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'sweep']),
+    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'sweep', 'thicken']),
     'The feature authoring registry should contain every current authored feature kind.',
   )
 }
@@ -244,6 +243,105 @@ function testLoftHydrationPreservesOrderedProfilesForEditing() {
   )
 }
 
+function testThickenDraftSelectionOptionsAndDefinitionBuilder() {
+  const faceA = { kind: 'face' as const, bodyId: 'body_a' as const, faceId: 'face_a' as const }
+  const faceB = { kind: 'face' as const, bodyId: 'body_a' as const, faceId: 'face_b' as const }
+  const targetBody = { kind: 'body' as const, bodyId: 'body_target' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'thicken',
+    selectedTarget: faceA,
+  })
+
+  assert(initialSession.featureType === 'thicken', 'Thicken activation should create a thicken authoring session.')
+
+  const facesField = getFeatureEditorFormSchema(initialSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'thicken-faces')
+  assert(facesField?.kind === 'referenceCollection', 'Thicken form schema should expose selected faces as a reference collection.')
+  assert(facesField.advancedParticipant?.role === 'face', 'Thicken face field should expose the face participant role.')
+
+  const multiFaceSession = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(facesField, faceB),
+  )
+  const thicknessField = getFeatureEditorFormSchema(multiFaceSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'thicken-thickness')
+  const operationField = getFeatureEditorFormSchema(multiFaceSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'thicken-operation-intent')
+
+  assert(thicknessField?.kind === 'numeric', 'Thicken form schema should expose thickness as a numeric field.')
+  assert(operationField?.kind === 'enum', 'Thicken form schema should expose operation intent as a generic enum field.')
+
+  const subtractSession = patchFeatureEditSession(
+    patchFeatureEditSession(
+      patchFeatureEditSession(multiFaceSession, createFeatureEditorFieldPatch(thicknessField, 1.25)),
+      createFeatureEditorFieldPatch(operationField, 'subtract'),
+    ),
+    { side: 'symmetric' },
+  )
+  assert(buildFeatureDefinition(subtractSession) === null, 'Boolean thicken drafts should require explicit target bodies.')
+
+  const targetBodiesField = getFeatureEditorFormSchema(subtractSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'thicken-target-bodies')
+  assert(targetBodiesField?.kind === 'referenceCollection', 'Thicken form schema should expose target bodies as a reference collection.')
+
+  const completeSession = patchFeatureEditSession(
+    subtractSession,
+    createFeatureEditorReferenceSelectionPatch(targetBodiesField, targetBody),
+  )
+  const definition = buildFeatureDefinition(completeSession)
+
+  assert(definition?.kind === 'thicken', 'Completed thicken drafts should build a thicken advanced-solid definition.')
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'face' && participant.targets.length === 2),
+    'Thicken definitions should preserve explicit face participants.',
+  )
+  assert(definition.parameters.options?.thickness === 1.25, 'Thicken definitions should preserve the thickness option.')
+  assert(definition.parameters.options?.side === 'symmetric', 'Thicken definitions should preserve the side option.')
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'targetBody'),
+    'Thicken boolean authoring should build explicit targetBody participants.',
+  )
+}
+
+function testThickenHydrationPreservesFaceTargetsAndOptions() {
+  const hydrated = hydrateFeatureEditSession({
+    ownerDocumentId: 'doc_workspace',
+    ownerRevisionId: 'rev_1',
+    ownerFeatureId: 'feature_thicken-1',
+    ownerSketchId: null,
+    ownerBodyId: null,
+    featureId: 'feature_thicken-1',
+    label: 'feature_thicken-1',
+    definition: {
+      kind: 'thicken',
+      featureTypeVersion: 'advanced-solid-feature/v0',
+      parameters: {
+        operationIntent: 'create',
+        participants: [
+          {
+            role: 'face',
+            targets: [
+              { kind: 'face', bodyId: 'body_a', faceId: 'face_a' },
+              { kind: 'face', bodyId: 'body_a', faceId: 'face_b' },
+            ],
+          },
+        ],
+        options: { thickness: 2, side: 'symmetric' },
+      },
+    },
+    producedTargets: [{ kind: 'body', bodyId: 'body_thicken-1' }],
+  })
+
+  assert(hydrated?.featureType === 'thicken', 'Thicken snapshots should hydrate into thicken edit sessions.')
+  assert(hydrated?.draft.faceTargets.length === 2, 'Thicken hydration should preserve face participants for edit sessions.')
+  assert(hydrated?.draft.options.thickness === 2, 'Thicken hydration should preserve thickness.')
+  assert(hydrated?.draft.options.side === 'symmetric', 'Thicken hydration should preserve side.')
+}
+
 function testProfileBasedAuthoringUsesReferenceCollections() {
   const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
   const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
@@ -323,6 +421,7 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const sweep = definitions.find((definition) => definition.metadata.kind === 'sweep')
   const loft = definitions.find((definition) => definition.metadata.kind === 'loft')
   const chamfer = definitions.find((definition) => definition.metadata.kind === 'chamfer')
+  const thicken = definitions.find((definition) => definition.metadata.kind === 'thicken')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
@@ -330,6 +429,7 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   assert(sweep?.advancedParticipants?.some((participant) => participant.role === 'path'), 'Sweep should declare path participants for profile/path substrate coverage.')
   assert(loft?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Loft should declare ordered profile participants for profile-family coverage.')
   assert(chamfer?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Chamfer should declare edge participants for topology modifier substrate coverage.')
+  assert(thicken?.advancedParticipants?.some((participant) => participant.role === 'face'), 'Thicken should declare face participants for face-driven advanced solid coverage.')
 
   const shellSession = createFeatureEditSession({
     featureType: 'shell',
@@ -358,6 +458,7 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/features/sweep.ts',
     'src/domain/feature-authoring/features/loft.ts',
     'src/domain/feature-authoring/features/chamfer.ts',
+    'src/domain/feature-authoring/features/thicken.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
 
@@ -501,6 +602,8 @@ testSweepDraftSelectionAndDefinitionBuilder()
 testChamferDraftSelectionDistanceAndDefinitionBuilder()
 testLoftDraftSelectionReorderingAndDefinitionBuilder()
 testLoftHydrationPreservesOrderedProfilesForEditing()
+testThickenDraftSelectionOptionsAndDefinitionBuilder()
+testThickenHydrationPreservesFaceTargetsAndOptions()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

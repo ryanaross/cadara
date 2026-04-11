@@ -65,13 +65,3 @@ ENV OPENAI_API_KEY=sk-dummy
 
 RUN mkdir -p /app
 WORKDIR /app
-
-RUN mkdir -p /root/.codex && cat > /root/.codex/config.toml <<EOF
-model = "gpt-5.4"
-openai_base_url = "https://ai.vpn.dzerv.art/v1"
-[projects."/app"]
-trust_level = "trusted"
-
-[notice.model_migrations]
-"gpt-5.3-codex" = "gpt-5.4"
-EOF

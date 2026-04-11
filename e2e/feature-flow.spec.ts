@@ -80,6 +80,19 @@ test('chamfer previews and commits from a durable body edge', async ({ page }) =
   await workbench.commitFeature('feature_chamfer-1')
 })
 
+test('thicken previews and commits from a durable planar face', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  await workbench.createBaseExtrudeFixture()
+  await workbench.activateFeature('thicken')
+  await workbench.selectFirstReferenceMatching(/^Select .* body_feature_extrude-1\.face_/)
+  await workbench.setNumericField('Thickness', 0.6)
+
+  await workbench.expectFeaturePreviewReady('thicken')
+  await workbench.commitFeature('feature_thicken-1')
+})
+
 test('shell previews, commits, and keeps consecutive canvas frames stable', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

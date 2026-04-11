@@ -31,6 +31,7 @@ import {
   loftAdvancedFeatureExample,
   splitAdvancedFeatureExample,
   sweepAdvancedFeatureExample,
+  thickenAdvancedFeatureExample,
 } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -616,6 +617,8 @@ function testAdvancedSolidExamplesUseRoleSpecificParticipants() {
   assert(loftAdvancedFeatureExample.parameters.participants[0]?.role === 'profile', 'Loft example must preserve ordered profile participants.')
   assert(loftAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'guideCurve'), 'Loft example must preserve optional guide-curve participants.')
   assert(chamferAdvancedFeatureExample.parameters.participants[0]?.role === 'edge', 'Chamfer example must preserve topology modifier edge participants.')
+  assert(thickenAdvancedFeatureExample.parameters.participants[0]?.role === 'face', 'Thicken example must preserve explicit face participants.')
+  assert(thickenAdvancedFeatureExample.parameters.options?.thickness === 1.5, 'Thicken example must preserve positive thickness options.')
   assert(splitAdvancedFeatureExample.parameters.operationIntent === 'subtract', 'Split example must preserve operation intent.')
   assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'toolBody'), 'Split example must preserve body-operation tool participants.')
 }

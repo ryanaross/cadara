@@ -8,6 +8,7 @@ import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/pl
 import { revolveAuthoringDefinition } from '@/domain/feature-authoring/features/revolve'
 import { shellAuthoringDefinition } from '@/domain/feature-authoring/features/shell'
 import { sweepAuthoringDefinition } from '@/domain/feature-authoring/features/sweep'
+import { thickenAuthoringDefinition } from '@/domain/feature-authoring/features/thicken'
 
 export const featureAuthoringDefinitions = [
   extrudeAuthoringDefinition,
@@ -18,6 +19,7 @@ export const featureAuthoringDefinitions = [
   sweepAuthoringDefinition,
   loftAuthoringDefinition,
   chamferAuthoringDefinition,
+  thickenAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
 const featureAuthoringRegistry = new Map<AuthoredFeatureKind, FeatureAuthoringDefinition>(

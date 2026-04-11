@@ -610,6 +610,20 @@ function createChamferDefinition(bodyId: BodyId, edgeId: EdgeId, distance: numbe
   }
 }
 
+function createThickenDefinition(bodyId: BodyId, faceId: FaceId, thickness: number, side: 'oneSide' | 'symmetric' = 'oneSide'): FeatureDefinition {
+  return {
+    kind: 'thicken',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      operationIntent: 'create',
+      participants: [
+        { role: 'face', targets: [{ kind: 'face', bodyId, faceId }] },
+      ],
+      options: { thickness, side },
+    },
+  }
+}
+
 function createShellDefinition(bodyId: BodyId, faceId: FaceId, thickness: number): FeatureDefinition {
   return {
     kind: 'shell',
@@ -1444,6 +1458,71 @@ async function testShellPreviewCreateUpdateAndSnapshotRoundTrip() {
   assert(updated.rebuildResult.kind === 'rebuilt', 'Shell update must rebuild.')
 }
 
+async function testThickenPreviewCreateAndUnsupportedCases() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before thicken coverage.')
+  }
+
+  const committedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(committedSnapshot.snapshot)
+  const extrude = await createExtrudeBody(adapter, committedSnapshot.snapshot.revisionId, sketch, 8)
+  const planarFaceId = await findPreviewablePlanarFace(adapter, extrude.response.revisionId, extrude.bodyId)
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    previewId: 'preview_thicken_face',
+    definition: createThickenDefinition(extrude.bodyId, planarFaceId, 0.75, 'oneSide'),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh thicken previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Face-backed thicken preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    definition: createThickenDefinition(extrude.bodyId, planarFaceId, 0.75, 'oneSide'),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Thicken create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Thicken create must rebuild.')
+  assert(
+    created.changedTargets.some((target) => target.kind === 'body'),
+    'Thicken create must report a produced body target.',
+  )
+
+  const unsupportedBoolean = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: {
+      kind: 'thicken',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        operationIntent: 'subtract',
+        participants: [
+          { role: 'face', targets: [{ kind: 'face', bodyId: extrude.bodyId, faceId: planarFaceId }] },
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: extrude.bodyId }] },
+        ],
+        options: { thickness: 0.75, side: 'oneSide' },
+      },
+    },
+  })
+
+  assert(unsupportedBoolean.revisionState.kind === 'rejected', 'Boolean thicken create must reject unsupported composition explicitly.')
+  assert(
+    unsupportedBoolean.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
+    'Unsupported thicken create rejection must surface structured diagnostics.',
+  )
+}
+
 async function testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs() {
   const adapter = createAdapter()
   const committed = await commitSeedSketch(adapter)
@@ -2222,6 +2301,7 @@ await testLoftPreviewCreateAndUnsupportedCases()
 await testFilletCreateAndUpdateMutateBodyTopology()
 await testChamferPreviewCreateAndUnsupportedCases()
 await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
+await testThickenPreviewCreateAndUnsupportedCases()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()
 await testReorderFeatureAndConflictHandling()
 await testPreviewFreshness()
