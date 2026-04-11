@@ -29,6 +29,7 @@ export type ToolIconId =
   | 'curvePattern'
   | 'moveFace'
   | 'mirror'
+  | 'transform'
   | 'measure'
   | 'sectionView'
   | 'trim'

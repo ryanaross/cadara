@@ -43,6 +43,13 @@ export interface SketchCoreValidationResult {
   diagnostics: SketchSolveDiagnostic[]
 }
 
+export interface SketchScalarConstraintEvaluationForTest {
+  id: ConstraintId | DimensionId
+  targetKind: 'constraint' | 'dimension'
+  residual: number
+  gradient: Float64Array
+}
+
 type PointState = {
   kind: 'point'
   pointId: SketchPointId
@@ -93,6 +100,7 @@ type BuildSystemResult = {
 const WOLFE_C1 = 1e-4
 const WOLFE_C2 = 0.9
 const LINE_SEARCH_MAX_ITERATIONS = 15
+const DEGENERATE_NORM_EPSILON = 1e-6
 
 function cloneValues(values: Float64Array) {
   return new Float64Array(values)
@@ -127,6 +135,14 @@ function dot(left: Float64Array, right: Float64Array) {
 
 function euclideanNorm(values: Float64Array) {
   return Math.sqrt(dot(values, values))
+}
+
+function uniformNorm(values: Float64Array) {
+  let value = 0
+  for (let index = 0; index < values.length; index += 1) {
+    value = Math.max(value, Math.abs(values[index]!))
+  }
+  return value
 }
 
 function getPoint(values: Float64Array, point: SolverPointRecord): SketchPoint2D {
@@ -337,7 +353,7 @@ function buildSystem(definition: SketchDefinition): BuildSystemResult {
           const d2 = subtract(p2, pm)
           const norm1 = length(d1)
           const norm2 = length(d2)
-          if (norm1 < 1e-12 || norm2 < 1e-12) {
+          if (norm1 < DEGENERATE_NORM_EPSILON || norm2 < DEGENERATE_NORM_EPSILON) {
             return { residual: 0.5 * constraint.valueRadians * constraint.valueRadians, gradient }
           }
 
@@ -404,7 +420,7 @@ function buildSystem(definition: SketchDefinition): BuildSystemResult {
           const db = subtract(pb1, pb0)
           const na = length(da)
           const nb = length(db)
-          if (na < 1e-12 || nb < 1e-12) {
+          if (na < DEGENERATE_NORM_EPSILON || nb < DEGENERATE_NORM_EPSILON) {
             return { residual: 0, gradient }
           }
 
@@ -485,7 +501,7 @@ function buildSystem(definition: SketchDefinition): BuildSystemResult {
 
           if (dimension.axis === 'aligned') {
             const current = length(delta)
-            if (current < 1e-12) {
+            if (current < DEGENERATE_NORM_EPSILON) {
               return { residual: 0.5 * dimension.value * dimension.value, gradient }
             }
             const err = current - dimension.value
@@ -882,7 +898,7 @@ function solveBfgs(
   let recentlyReset = false
 
   for (let iteration = 0; iteration < 1000; iteration += 1) {
-    if (state.loss < 1e-16 || euclideanNorm(state.gradient) < 1e-8) {
+    if (state.loss < 1e-16 || uniformNorm(state.gradient) < 1e-8) {
       break
     }
 
@@ -944,25 +960,13 @@ function solveGradientDescent(
       direction[index] = -direction[index]!
     }
 
-    let alpha = 1
-    let accepted = false
-
-    for (let searchIteration = 0; searchIteration < LINE_SEARCH_MAX_ITERATIONS * 4; searchIteration += 1) {
-      const candidateValues = cloneValues(values)
-      addScaled(candidateValues, alpha, direction)
-      const candidateState = evaluateLoss(candidateValues, constraints)
-      if (Number.isFinite(candidateState.loss) && candidateState.loss < state.loss) {
-        values = candidateValues
-        state = candidateState
-        accepted = true
-        break
-      }
-      alpha *= 0.5
-    }
-
-    if (!accepted) {
+    const step = lineSearchWolfe(values, direction, state.gradient, constraints)
+    if (!step) {
       break
     }
+
+    values = step.nextValues
+    state = step.next
   }
 
   return { values, loss: state.loss, perConstraint: state.perConstraint }
@@ -999,6 +1003,87 @@ function addDiagonal(matrix: Float64Array[], value: number) {
   for (let index = 0; index < result.length; index += 1) {
     result[index]![index] += value
   }
+  return result
+}
+
+function symmetricPseudoInverse(matrix: Float64Array[], epsilon: number) {
+  const size = matrix.length
+  const eigenvectors = identityMatrix(size)
+  const diagonalized = matrix.map((row) => cloneValues(row))
+  const maxIterations = Math.max(1, size * size * 25)
+
+  for (let iteration = 0; iteration < maxIterations; iteration += 1) {
+    let maxOffDiagonal = 0
+    let pivotRow = 0
+    let pivotColumn = 0
+
+    for (let row = 0; row < size; row += 1) {
+      for (let column = row + 1; column < size; column += 1) {
+        const value = Math.abs(diagonalized[row]![column]!)
+        if (value > maxOffDiagonal) {
+          maxOffDiagonal = value
+          pivotRow = row
+          pivotColumn = column
+        }
+      }
+    }
+
+    if (maxOffDiagonal < 1e-12) {
+      break
+    }
+
+    const app = diagonalized[pivotRow]![pivotRow]!
+    const aqq = diagonalized[pivotColumn]![pivotColumn]!
+    const apq = diagonalized[pivotRow]![pivotColumn]!
+    const angle = 0.5 * Math.atan2(2 * apq, aqq - app)
+    const cosine = Math.cos(angle)
+    const sine = Math.sin(angle)
+
+    for (let index = 0; index < size; index += 1) {
+      if (index === pivotRow || index === pivotColumn) {
+        continue
+      }
+
+      const aip = diagonalized[index]![pivotRow]!
+      const aiq = diagonalized[index]![pivotColumn]!
+      const nextAip = cosine * aip - sine * aiq
+      const nextAiq = sine * aip + cosine * aiq
+      diagonalized[index]![pivotRow] = nextAip
+      diagonalized[pivotRow]![index] = nextAip
+      diagonalized[index]![pivotColumn] = nextAiq
+      diagonalized[pivotColumn]![index] = nextAiq
+    }
+
+    diagonalized[pivotRow]![pivotRow] =
+      cosine * cosine * app - 2 * sine * cosine * apq + sine * sine * aqq
+    diagonalized[pivotColumn]![pivotColumn] =
+      sine * sine * app + 2 * sine * cosine * apq + cosine * cosine * aqq
+    diagonalized[pivotRow]![pivotColumn] = 0
+    diagonalized[pivotColumn]![pivotRow] = 0
+
+    for (let index = 0; index < size; index += 1) {
+      const vip = eigenvectors[index]![pivotRow]!
+      const viq = eigenvectors[index]![pivotColumn]!
+      eigenvectors[index]![pivotRow] = cosine * vip - sine * viq
+      eigenvectors[index]![pivotColumn] = sine * vip + cosine * viq
+    }
+  }
+
+  const result = Array.from({ length: size }, () => zeroVector(size))
+  for (let index = 0; index < size; index += 1) {
+    const eigenvalue = diagonalized[index]![index]!
+    if (Math.abs(eigenvalue) <= epsilon) {
+      continue
+    }
+    const scale = 1 / eigenvalue
+    for (let row = 0; row < size; row += 1) {
+      for (let column = 0; column < size; column += 1) {
+        result[row]![column] +=
+          scale * eigenvectors[row]![index]! * eigenvectors[column]![index]!
+      }
+    }
+  }
+
   return result
 }
 
@@ -1046,26 +1131,28 @@ function solveLinearSystem(matrix: Float64Array[], vector: Float64Array) {
 function solveGaussNewtonLike(
   initialValues: Float64Array,
   constraints: ScalarConstraintRecord[],
-  options: { maxIterations: number; minLoss: number; stepSize: number; damping: number },
+  options: {
+    maxIterations: number
+    minLoss: number
+    stepSize: number
+    damping: number
+    pseudoInverseEpsilon: number
+  },
 ) {
   let values = cloneValues(initialValues)
   let state = evaluateLoss(values, constraints)
 
   for (let iteration = 0; iteration < options.maxIterations && state.loss > options.minLoss; iteration += 1) {
-    const jacobian = state.evaluations.map((evaluation) => {
-      const row = zeroVector(evaluation.gradient.length)
-      const scale = Math.sqrt(Math.max(2 * evaluation.residual, 1e-12))
-      for (let index = 0; index < row.length; index += 1) {
-        row[index] = evaluation.gradient[index]! / scale
-      }
-      return row
-    })
-    const losses = new Float64Array(state.evaluations.map((evaluation) => Math.sqrt(Math.max(2 * evaluation.residual, 0))))
+    const jacobian = state.evaluations.map((evaluation) => cloneValues(evaluation.gradient))
+    const losses = new Float64Array(state.evaluations.map((evaluation) => evaluation.residual))
     const jT = transpose(jacobian)
     const normal = multiplyMatrices(jT, jacobian)
-    const normalWithDamping = options.damping > 0 ? addDiagonal(normal, options.damping) : normal
+    const normalWithDamping = addDiagonal(normal, options.damping + options.pseudoInverseEpsilon)
     const rhs = multiplyMatrixVector(jT, losses)
-    const delta = solveLinearSystem(normalWithDamping, rhs)
+    const delta = multiplyMatrixVector(
+      symmetricPseudoInverse(normalWithDamping, options.pseudoInverseEpsilon),
+      rhs,
+    )
 
     if (!Array.from(delta).every(Number.isFinite)) {
       break
@@ -1073,10 +1160,10 @@ function solveGaussNewtonLike(
 
     const nextValues = cloneValues(values)
     addScaled(nextValues, -options.stepSize, delta)
-    const nextState = evaluateLoss(nextValues, constraints)
-    if (!Number.isFinite(nextState.loss) || nextState.loss > state.loss) {
+    if (!Array.from(nextValues).every(Number.isFinite)) {
       break
     }
+    const nextState = evaluateLoss(nextValues, constraints)
     values = nextValues
     state = nextState
   }
@@ -1258,6 +1345,7 @@ export function solveSketchDefinitionCore(input: {
             minLoss: 1e-8,
             stepSize: 1,
             damping: 0,
+            pseudoInverseEpsilon: 1e-6,
           })
         : strategy === 'levenbergMarquardt'
           ? solveGaussNewtonLike(system.initialValues, system.scalarConstraints, {
@@ -1265,19 +1353,16 @@ export function solveSketchDefinitionCore(input: {
               minLoss: 1e-10,
               stepSize: 0.1,
               damping: 1e-5,
+              pseudoInverseEpsilon: 1e-6,
             })
           : solveBfgs(system.initialValues, system.scalarConstraints)
-  const stabilizedSolved =
-    strategy === 'bfgs' || solved.loss < 1e-8
-      ? solved
-      : solveBfgs(system.initialValues, system.scalarConstraints)
 
   const diagnostics = [...validation.diagnostics]
   const solvedEntities = buildSolvedEntities(
     input.definition,
     system.pointRecords,
     system.entityStates,
-    stabilizedSolved.values,
+    solved.values,
   )
   const solvedPoints = input.definition.points.flatMap((point) => {
     const record = system.pointRecords.get(point.pointId)
@@ -1285,7 +1370,7 @@ export function solveSketchDefinitionCore(input: {
       ? [{
           pointId: point.pointId,
           target: point.target,
-          solvedPosition: getPoint(stabilizedSolved.values, record),
+          solvedPosition: getPoint(solved.values, record),
         }]
       : []
   })
@@ -1301,7 +1386,7 @@ export function solveSketchDefinitionCore(input: {
       solveState: input.definition.entities.length === 0 ? 'notEvaluated' : 'solved',
       constraintState: input.definition.entities.length === 0 ? 'unknown' : 'underConstrained',
     }
-  } else if (stabilizedSolved.loss < 1e-8) {
+  } else if (solved.loss < 1e-8) {
     status = {
       solveState: 'solved',
       constraintState: 'wellConstrained',
@@ -1311,7 +1396,7 @@ export function solveSketchDefinitionCore(input: {
       makeDiagnostic(
         'solver-residual-too-large',
         'warning',
-        `Sketch solve ended with residual ${stabilizedSolved.loss}.`,
+        `Sketch solve ended with residual ${solved.loss}.`,
         null,
       ),
     )
@@ -1329,16 +1414,16 @@ export function solveSketchDefinitionCore(input: {
     constraintStatuses: buildConstraintStatuses(
       input.definition,
       system.pointRecords,
-      stabilizedSolved.values,
+      solved.values,
       input.tolerances,
-      stabilizedSolved.perConstraint,
+      solved.perConstraint,
     ),
     dimensionStatuses: buildDimensionStatuses(
       input.definition,
       system.pointRecords,
       system.entityStates,
-      stabilizedSolved.values,
-      stabilizedSolved.perConstraint,
+      solved.values,
+      solved.perConstraint,
     ),
     diagnostics,
   }
@@ -1355,4 +1440,27 @@ export function validateSketchDefinitionCore(input: {
   tolerances: SketchSolveTolerancePolicy
 }): SketchCoreValidationResult {
   return validateDefinition(input.definition, input.tolerances)
+}
+
+export function getSketchSolveInitialValuesForTest(definition: SketchDefinition) {
+  return buildSystem(definition).initialValues
+}
+
+export function evaluateSketchScalarConstraintForTest(input: {
+  definition: SketchDefinition
+  constraintId: ConstraintId | DimensionId
+  values: Float64Array
+}): SketchScalarConstraintEvaluationForTest {
+  const system = buildSystem(input.definition)
+  const constraint = system.scalarConstraints.find((candidate) => candidate.id === input.constraintId)
+  if (!constraint) {
+    throw new Error(`Unknown scalar constraint ${input.constraintId}.`)
+  }
+  const evaluation = constraint.evaluate(input.values)
+  return {
+    id: constraint.id,
+    targetKind: constraint.targetKind,
+    residual: evaluation.residual,
+    gradient: evaluation.gradient,
+  }
 }

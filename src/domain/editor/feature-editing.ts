@@ -38,6 +38,10 @@ export type {
   ThickenFeatureParameterDraft,
   DeleteSolidFeatureEditSessionState,
   DeleteSolidFeatureParameterDraft,
+  MirrorFeatureEditSessionState,
+  MirrorFeatureParameterDraft,
+  TransformFeatureEditSessionState,
+  TransformFeatureParameterDraft,
 } from '@/domain/feature-authoring/definition'
 
 function createBaseFeatureSession(
@@ -108,6 +112,8 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'thicken'
     && feature.definition.kind !== 'split'
     && feature.definition.kind !== 'deleteSolid'
+    && feature.definition.kind !== 'mirror'
+    && feature.definition.kind !== 'transform'
   ) {
     return null
   }

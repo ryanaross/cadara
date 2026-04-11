@@ -13,9 +13,11 @@ import {
   chamferAdvancedFeatureExample,
   deleteSolidAdvancedFeatureExample,
   loftAdvancedFeatureExample,
+  mirrorAdvancedFeatureExample,
   splitAdvancedFeatureExample,
   sweepAdvancedFeatureExample,
   thickenAdvancedFeatureExample,
+  transformAdvancedFeatureExample,
 } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -511,6 +513,84 @@ function testPreservesThickenParticipantsAndOptions() {
   )
 }
 
+function testPreservesMirrorParticipantsAndCopyOptionAcrossCreateAndUpdateEntries() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: mirrorAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_mirror-1',
+          definition: {
+            ...mirrorAdvancedFeatureExample,
+            parameters: {
+              ...mirrorAdvancedFeatureExample.parameters,
+              options: { copy: false },
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Mirror advanced solid feature history payloads should validate.')
+  assert(
+    result.ok
+      && result.payload.entries[0]?.kind === 'createFeature'
+      && result.payload.entries[0].payload.definition.kind === 'mirror'
+      && result.payload.entries[0].payload.definition.parameters.participants.some((participant) => participant.role === 'plane')
+      && result.payload.entries[1]?.kind === 'updateFeature'
+      && result.payload.entries[1].payload.definition.kind === 'mirror'
+      && result.payload.entries[1].payload.definition.parameters.options?.copy === false,
+    'Mirror operation history must preserve explicit plane participants and copy policy options across updates.',
+  )
+}
+
+function testPreservesTransformParticipantsAndDistanceOptionAcrossCreateAndUpdateEntries() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: transformAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_transform-1',
+          definition: {
+            ...transformAdvancedFeatureExample,
+            parameters: {
+              ...transformAdvancedFeatureExample.parameters,
+              options: { distance: 7.5 },
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Transform advanced solid feature history payloads should validate.')
+  assert(
+    result.ok
+      && result.payload.entries[0]?.kind === 'createFeature'
+      && result.payload.entries[0].payload.definition.kind === 'transform'
+      && result.payload.entries[0].payload.definition.parameters.participants.some((participant) => participant.role === 'transformReference')
+      && result.payload.entries[1]?.kind === 'updateFeature'
+      && result.payload.entries[1].payload.definition.kind === 'transform'
+      && result.payload.entries[1].payload.definition.parameters.options?.distance === 7.5,
+    'Transform operation history must preserve explicit transform references and distance options across updates.',
+  )
+}
+
 testValidatesRepresentativeHistory()
 testRejectsUnsupportedVersion()
 testRejectsTransportMetadataLeak()
@@ -523,3 +603,5 @@ testPreservesDeleteSolidParticipantsAcrossCreateAndUpdateEntries()
 testPreservesLoftParticipantOrderAndGuideCurves()
 testRejectsInvalidAdvancedParticipants()
 testPreservesThickenParticipantsAndOptions()
+testPreservesMirrorParticipantsAndCopyOptionAcrossCreateAndUpdateEntries()
+testPreservesTransformParticipantsAndDistanceOptionAcrossCreateAndUpdateEntries()

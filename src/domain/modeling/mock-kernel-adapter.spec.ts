@@ -8,7 +8,12 @@ import {
   PLANE_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
-import { deleteSolidAdvancedFeatureExample, splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import {
+  deleteSolidAdvancedFeatureExample,
+  mirrorAdvancedFeatureExample,
+  splitAdvancedFeatureExample,
+  transformAdvancedFeatureExample,
+} from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -1048,6 +1053,126 @@ async function testDeleteSolidPreviewCommitAndValidationUseAdvancedParticipants(
   assert(after.snapshot.revisionId === created.revisionId, 'Rejected delete-solid create requests must not mutate committed document state.')
 }
 
+async function testMirrorPreviewCommitAndUnsupportedCasesUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const mirrorDefinition = {
+    ...mirrorAdvancedFeatureExample,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: 'body_part-1' }] },
+        { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+      ],
+      options: { copy: true },
+    },
+  } as const
+  const unsupportedDefinition = {
+    ...mirrorDefinition,
+    parameters: {
+      ...mirrorDefinition.parameters,
+      options: { copy: false },
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_mirror_valid',
+    definition: mirrorDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: mirrorDefinition,
+  })
+  const unsupported = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: unsupportedDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedMirror = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock mirror previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock mirror previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock mirror create requests should be accepted.')
+  assert(committedMirror?.definition.kind === 'mirror', 'Committed mock mirror should be present in the next snapshot.')
+  assert(committedMirror.definition.parameters.participants.some((participant) => participant.role === 'plane'), 'Committed mock mirror should preserve the explicit plane participant.')
+  assert(committedMirror.definition.parameters.options?.copy === true, 'Committed mock mirror should preserve the copy option.')
+  assert(unsupported.revisionState.kind === 'rejected', 'Unsupported mirror replace requests should reject explicitly.')
+  assert(after.snapshot.revisionId === created.revisionId, 'Rejected mirror create requests must not mutate committed document state.')
+}
+
+async function testTransformPreviewCommitAndValidationUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  const transformDefinition = {
+    ...transformAdvancedFeatureExample,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: 'body_part-1' }] },
+        { role: 'transformReference', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+      ],
+      options: { distance: 2 },
+    },
+  } as const
+  const invalidDefinition = {
+    ...transformDefinition,
+    parameters: {
+      ...transformDefinition.parameters,
+      options: { distance: 0 },
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_transform_valid',
+    definition: transformDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: transformDefinition,
+  })
+  const invalid = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: invalidDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedTransform = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock transform previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock transform previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock transform create requests should be accepted.')
+  assert(committedTransform?.definition.kind === 'transform', 'Committed mock transform should be present in the next snapshot.')
+  assert(committedTransform.definition.parameters.participants.some((participant) => participant.role === 'transformReference'), 'Committed mock transform should preserve the explicit transform reference.')
+  assert(committedTransform.definition.parameters.options?.distance === 2, 'Committed mock transform should preserve the typed distance option.')
+  assert(invalid.revisionState.kind === 'rejected', 'Invalid transform distance requests should reject explicitly.')
+  assert(after.snapshot.revisionId === created.revisionId, 'Rejected transform create requests must not mutate committed document state.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -1269,6 +1394,58 @@ function testRenderValidatorRejectsInvalidGeometry() {
   assert(markerRejected, 'Render validator must reject non-positive marker radius.')
 }
 
+function testFeatureSnapshotValidatorPreservesMirrorAndTransformDefinitions() {
+  const features = modelingRuntimeValidators.features([
+    {
+      ownerDocumentId: 'doc_workspace',
+      ownerRevisionId: 'rev_1',
+      ownerFeatureId: 'feature_mirror-1',
+      ownerSketchId: null,
+      ownerBodyId: null,
+      featureId: 'feature_mirror-1',
+      label: 'Mirror 1',
+      definition: {
+        kind: 'mirror',
+        featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+        parameters: {
+          participants: [
+            { role: 'body', targets: [{ kind: 'body', bodyId: 'body_a' }] },
+            { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+          ],
+          options: { copy: true },
+        },
+      },
+      producedTargets: [{ kind: 'body', bodyId: 'body_mirror-1' }],
+    },
+    {
+      ownerDocumentId: 'doc_workspace',
+      ownerRevisionId: 'rev_1',
+      ownerFeatureId: 'feature_transform-1',
+      ownerSketchId: null,
+      ownerBodyId: null,
+      featureId: 'feature_transform-1',
+      label: 'Transform 1',
+      definition: {
+        kind: 'transform',
+        featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+        parameters: {
+          participants: [
+            { role: 'body', targets: [{ kind: 'body', bodyId: 'body_a' }] },
+            { role: 'transformReference', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+          ],
+          options: { distance: 2 },
+        },
+      },
+      producedTargets: [{ kind: 'body', bodyId: 'body_a' }],
+    },
+  ])
+
+  assert(features[0]?.definition.kind === 'mirror', 'Feature snapshot normalization should preserve mirror definitions.')
+  assert(features[0]?.definition.parameters.options?.copy === true, 'Feature snapshot normalization should preserve mirror copy options.')
+  assert(features[1]?.definition.kind === 'transform', 'Feature snapshot normalization should preserve transform definitions.')
+  assert(features[1]?.definition.parameters.options?.distance === 2, 'Feature snapshot normalization should preserve transform distance options.')
+}
+
 await testExtrudePreviewDependsOnDefinition()
 await testProfileCollectionContractBoundaryRejectsInvalidPayloads()
 await testUnsupportedFeatureDefinitionsAreRejectedByMock()
@@ -1289,7 +1466,10 @@ await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
   await testThickenPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
   await testSplitPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
   await testDeleteSolidPreviewCommitAndValidationUseAdvancedParticipants()
+  await testMirrorPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
+  await testTransformPreviewCommitAndValidationUseAdvancedParticipants()
   await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()
 testRenderValidatorRejectsInvalidGeometry()
+testFeatureSnapshotValidatorPreservesMirrorAndTransformDefinitions()

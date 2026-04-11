@@ -123,6 +123,36 @@ test('delete-solid previews and commits from an explicit body target', async ({ 
   await workbench.expectBodyPresent(fixture.toolBody)
 })
 
+test('mirror previews and commits from explicit body and plane references', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createBaseExtrudeFixture()
+  await workbench.selectBodyTarget(fixture.bodyTarget)
+  await workbench.activateFeature('mirror')
+  await workbench.selectMirrorPlane('construction_plane-yz')
+
+  await workbench.expectFeaturePreviewReady('mirror')
+  await workbench.commitFeature('feature_mirror-1')
+  await workbench.expectBodyPresent(fixture.bodyTarget)
+  await workbench.expectBodyCountAtLeast(2)
+})
+
+test('transform previews and commits from explicit body and reference selections', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createBaseExtrudeFixture()
+  await workbench.selectBodyTarget(fixture.bodyTarget)
+  await workbench.activateFeature('transform')
+  await workbench.selectTransformReference('construction_plane-xy')
+  await workbench.setNumericField('Distance', 2)
+
+  await workbench.expectFeaturePreviewReady('transform')
+  await workbench.commitFeature('feature_transform-1')
+  await workbench.expectBodyPresent(fixture.bodyTarget)
+})
+
 test('shell previews, commits, and keeps consecutive canvas frames stable', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

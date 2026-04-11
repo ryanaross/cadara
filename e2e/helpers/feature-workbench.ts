@@ -18,6 +18,8 @@ type FeatureKind =
   | 'chamfer'
   | 'thicken'
   | 'deleteSolid'
+  | 'mirror'
+  | 'transform'
   | 'shell'
   | 'plane'
 
@@ -112,6 +114,8 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
       chamfer: 'Bevel selected edges.',
       thicken: 'Offset selected faces into a solid.',
       deleteSolid: 'Delete one or more solid bodies from the document.',
+      mirror: 'Mirror selected bodies across an explicit plane reference.',
+      transform: 'Translate selected bodies along an explicit planar reference normal.',
       shell: 'Hollow a solid body.',
       plane: 'Create a construction plane.',
     }
@@ -130,6 +134,14 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
 
   async selectSplitToolBody(bodyId: string) {
     await this.selectReference(bodyId)
+  }
+
+  async selectMirrorPlane(targetId: string) {
+    await this.selectReference(targetId)
+  }
+
+  async selectTransformReference(targetId: string) {
+    await this.selectReference(targetId)
   }
 
   async selectFirstReferenceMatching(pattern: RegExp) {

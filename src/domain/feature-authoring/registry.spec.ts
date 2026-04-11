@@ -29,7 +29,7 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'deleteSolid', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'split', 'sweep', 'thicken']),
+    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'deleteSolid', 'extrude', 'fillet', 'loft', 'mirror', 'plane', 'revolve', 'shell', 'split', 'sweep', 'thicken', 'transform']),
     'The feature authoring registry should contain every current authored feature kind.',
   )
 }
@@ -434,6 +434,125 @@ function testDeleteSolidDraftSelectionAndHydration() {
   assert(hydrated?.draft.bodyTargets.length === 2, 'Delete-solid hydration should preserve explicit body targets.')
 }
 
+function testMirrorDraftSelectionOptionHandlingAndHydration() {
+  const bodyA = { kind: 'body' as const, bodyId: 'body_a' as const }
+  const bodyB = { kind: 'body' as const, bodyId: 'body_b' as const }
+  const plane = { kind: 'construction' as const, constructionId: 'construction_plane-xy' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'mirror',
+    selectedTarget: bodyA,
+  })
+
+  assert(initialSession.featureType === 'mirror', 'Mirror activation should create a mirror authoring session.')
+
+  const schema = getFeatureEditorFormSchema(initialSession)
+  const bodiesField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'mirror-bodies')
+  const planeField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'mirror-plane')
+  const modeField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'mirror-copy-mode')
+
+  assert(bodiesField?.kind === 'referenceCollection', 'Mirror should expose body targets as a reference collection.')
+  assert(planeField?.kind === 'referencePicker', 'Mirror should expose the mirror plane as a reference picker.')
+  assert(modeField?.kind === 'enum', 'Mirror should expose the copy policy as a generic enum field.')
+
+  const withSecondBody = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(bodiesField, bodyB),
+  )
+  const withPlane = patchFeatureEditSession(
+    withSecondBody,
+    createFeatureEditorReferenceSelectionPatch(
+      getFeatureEditorFormSchema(withSecondBody).sections.flatMap((section) => section.fields).find((field) => field.id === 'mirror-plane') as typeof planeField,
+      plane,
+    ),
+  )
+  const completed = patchFeatureEditSession(
+    withPlane,
+    createFeatureEditorFieldPatch(
+      getFeatureEditorFormSchema(withPlane).sections.flatMap((section) => section.fields).find((field) => field.id === 'mirror-copy-mode') as typeof modeField,
+      'copy',
+    ),
+  )
+  const definition = buildFeatureDefinition(completed)
+
+  assert(definition?.kind === 'mirror', 'Completed mirror drafts should build a mirror advanced-solid definition.')
+  assert(definition.parameters.participants.find((participant) => participant.role === 'body')?.targets.length === 2, 'Mirror definitions should preserve explicit body targets.')
+  assert(definition.parameters.participants.find((participant) => participant.role === 'plane')?.targets[0] === plane, 'Mirror definitions should preserve the explicit mirror plane.')
+  assert(definition.parameters.options?.copy === true, 'Mirror definitions should preserve the copy policy option.')
+
+  const hydrated = hydrateFeatureEditSession({
+    ownerDocumentId: 'doc_workspace',
+    ownerRevisionId: 'rev_1',
+    ownerFeatureId: 'feature_mirror-1',
+    ownerSketchId: null,
+    ownerBodyId: null,
+    featureId: 'feature_mirror-1',
+    label: 'feature_mirror-1',
+    definition: {
+      kind: 'mirror',
+      featureTypeVersion: 'advanced-solid-feature/v0',
+      parameters: {
+        participants: [
+          { role: 'body', targets: [bodyA, bodyB] },
+          { role: 'plane', targets: [plane] },
+        ],
+        options: { copy: true },
+      },
+    },
+    producedTargets: [{ kind: 'body', bodyId: 'body_mirror-1' }],
+  })
+
+  assert(hydrated?.featureType === 'mirror', 'Mirror snapshots should hydrate into mirror edit sessions.')
+  assert(hydrated?.draft.bodyTargets.length === 2, 'Mirror hydration should preserve explicit body targets.')
+  assert(hydrated?.draft.planeTarget?.kind === 'construction', 'Mirror hydration should preserve the explicit plane reference.')
+}
+
+function testTransformDraftSelectionAndDefinitionBuilder() {
+  const bodyA = { kind: 'body' as const, bodyId: 'body_a' as const }
+  const bodyB = { kind: 'body' as const, bodyId: 'body_b' as const }
+  const plane = { kind: 'face' as const, bodyId: 'body_plane' as const, faceId: 'face_plane' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'transform',
+    selectedTarget: bodyA,
+  })
+
+  assert(initialSession.featureType === 'transform', 'Transform activation should create a transform authoring session.')
+  assert(buildFeatureDefinition(initialSession) === null, 'Transform drafts without an explicit reference should not build a modeling definition.')
+
+  const schema = getFeatureEditorFormSchema(initialSession)
+  const bodiesField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'transform-bodies')
+  const referenceField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'transform-reference')
+  const distanceField = schema.sections.flatMap((section) => section.fields).find((field) => field.id === 'transform-distance')
+
+  assert(bodiesField?.kind === 'referenceCollection', 'Transform should expose body targets as a reference collection.')
+  assert(referenceField?.kind === 'referencePicker', 'Transform should expose the transform reference as a reference picker.')
+  assert(distanceField?.kind === 'numeric', 'Transform should expose the translation distance as a numeric field.')
+
+  const withSecondBody = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(bodiesField, bodyB),
+  )
+  const withReference = patchFeatureEditSession(
+    withSecondBody,
+    createFeatureEditorReferenceSelectionPatch(
+      getFeatureEditorFormSchema(withSecondBody).sections.flatMap((section) => section.fields).find((field) => field.id === 'transform-reference') as typeof referenceField,
+      plane,
+    ),
+  )
+  const completed = patchFeatureEditSession(
+    withReference,
+    createFeatureEditorFieldPatch(
+      getFeatureEditorFormSchema(withReference).sections.flatMap((section) => section.fields).find((field) => field.id === 'transform-distance') as typeof distanceField,
+      2.5,
+    ),
+  )
+  const definition = buildFeatureDefinition(completed)
+
+  assert(definition?.kind === 'transform', 'Completed transform drafts should build a transform advanced-solid definition.')
+  assert(definition.parameters.participants.find((participant) => participant.role === 'body')?.targets.length === 2, 'Transform definitions should preserve explicit body targets.')
+  assert(definition.parameters.participants.find((participant) => participant.role === 'transformReference')?.targets[0] === plane, 'Transform definitions should preserve the explicit transform reference.')
+  assert(definition.parameters.options?.distance === 2.5, 'Transform definitions should preserve the typed distance option.')
+}
+
 function testProfileBasedAuthoringUsesReferenceCollections() {
   const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
   const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
@@ -516,6 +635,8 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const thicken = definitions.find((definition) => definition.metadata.kind === 'thicken')
   const split = definitions.find((definition) => definition.metadata.kind === 'split')
   const deleteSolid = definitions.find((definition) => definition.metadata.kind === 'deleteSolid')
+  const mirror = definitions.find((definition) => definition.metadata.kind === 'mirror')
+  const transform = definitions.find((definition) => definition.metadata.kind === 'transform')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
@@ -526,6 +647,8 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   assert(thicken?.advancedParticipants?.some((participant) => participant.role === 'face'), 'Thicken should declare face participants for face-driven advanced solid coverage.')
   assert(split?.advancedParticipants?.some((participant) => participant.role === 'toolBody'), 'Split should declare explicit toolBody participants for body split coverage.')
   assert(deleteSolid?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Delete-solid should declare explicit body participants for body removal coverage.')
+  assert(mirror?.advancedParticipants?.some((participant) => participant.role === 'plane'), 'Mirror should declare an explicit mirror plane participant.')
+  assert(transform?.advancedParticipants?.some((participant) => participant.role === 'transformReference'), 'Transform should declare an explicit transform reference participant.')
 
   const shellSession = createFeatureEditSession({
     featureType: 'shell',
@@ -557,6 +680,8 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/features/thicken.ts',
     'src/domain/feature-authoring/features/split.ts',
     'src/domain/feature-authoring/features/delete-solid.ts',
+    'src/domain/feature-authoring/features/mirror.ts',
+    'src/domain/feature-authoring/features/transform.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
 
@@ -704,6 +829,8 @@ testThickenDraftSelectionOptionsAndDefinitionBuilder()
 testThickenHydrationPreservesFaceTargetsAndOptions()
 testSplitDraftSelectionAndDefinitionBuilder()
 testDeleteSolidDraftSelectionAndHydration()
+testMirrorDraftSelectionOptionHandlingAndHydration()
+testTransformDraftSelectionAndDefinitionBuilder()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

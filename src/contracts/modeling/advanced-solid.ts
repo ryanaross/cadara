@@ -58,7 +58,7 @@ export interface AdvancedFeatureOptionDescriptor {
   key: string
   label: string
   required: boolean
-  valueKind: 'positiveNumber'
+  valueKind: 'positiveNumber' | 'boolean'
 }
 
 export interface AdvancedParticipantValue {
@@ -243,6 +243,18 @@ export function validateAdvancedSolidFeatureDefinition(
         message: `${option.label} must be a positive number.`,
       }))
     }
+
+    if (
+      value !== undefined &&
+      option.valueKind === 'boolean' &&
+      typeof value !== 'boolean'
+    ) {
+      diagnostics.push(createAdvancedDiagnostic({
+        code: 'advanced-feature-invalid-option',
+        role: null,
+        message: `${option.label} must be true or false.`,
+      }))
+    }
   }
 
   return diagnostics
@@ -322,5 +334,33 @@ export const deleteSolidAdvancedFeatureExample = {
     participants: [
       { role: 'body', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
     ],
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
+export const mirrorAdvancedFeatureExample = {
+  kind: 'mirror',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    participants: [
+      { role: 'body', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
+      { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+    ],
+    options: {
+      copy: true,
+    },
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
+export const transformAdvancedFeatureExample = {
+  kind: 'transform',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    participants: [
+      { role: 'body', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
+      { role: 'transformReference', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+    ],
+    options: {
+      distance: 5,
+    },
   },
 } satisfies AdvancedSolidFeatureDefinition

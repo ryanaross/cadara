@@ -912,6 +912,108 @@ function validateFeatureDefinitionAgainstSnapshot(
 
       return { accepted: true as const, diagnostics: [] }
     }
+    case 'mirror': {
+      const bodyTargets = getAdvancedParticipant(definition, 'body')?.targets ?? []
+      const planeTargets = getAdvancedParticipant(definition, 'plane')?.targets ?? []
+      const copy = definition.parameters.options?.copy
+
+      if (bodyTargets.length === 0 || bodyTargets.some((target) => target.kind !== 'body')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-mirror',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mirror requires one or more explicit body participants.')],
+        }
+      }
+
+      if (planeTargets.length !== 1 || planeTargets.some((target) => target.kind !== 'construction' && target.kind !== 'face')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-mirror',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mirror requires exactly one planar face or construction plane participant.')],
+        }
+      }
+
+      if (copy !== true) {
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock mirror currently supports copy=true only.')],
+        }
+      }
+
+      if (bodyTargets.some((target) => target.kind !== 'body' || !hasBodyTarget(snapshot, target.bodyId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-mirror',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mirror body participants must resolve to live durable bodies.')],
+        }
+      }
+
+      const [planeTarget] = planeTargets
+      if (
+        planeTarget?.kind === 'construction' && !hasConstructionTarget(snapshot, planeTarget.constructionId)
+        || planeTarget?.kind === 'face' && !hasFaceTarget(snapshot, planeTarget.bodyId, planeTarget.faceId)
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-mirror',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mirror planar references must resolve to live construction planes or planar faces.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
+    case 'transform': {
+      const bodyTargets = getAdvancedParticipant(definition, 'body')?.targets ?? []
+      const referenceTargets = getAdvancedParticipant(definition, 'transformReference')?.targets ?? []
+      const distance = definition.parameters.options?.distance
+
+      if (bodyTargets.length === 0 || bodyTargets.some((target) => target.kind !== 'body')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-transform',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Transform requires one or more explicit body participants.')],
+        }
+      }
+
+      if (referenceTargets.length !== 1 || referenceTargets.some((target) => target.kind !== 'construction' && target.kind !== 'face')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-transform',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Transform requires exactly one planar face or construction plane participant.')],
+        }
+      }
+
+      if (typeof distance !== 'number' || !Number.isFinite(distance) || distance <= 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-transform',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Transform requires a positive distance option.')],
+        }
+      }
+
+      if (bodyTargets.some((target) => target.kind !== 'body' || !hasBodyTarget(snapshot, target.bodyId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-transform',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Transform body participants must resolve to live durable bodies.')],
+        }
+      }
+
+      const [referenceTarget] = referenceTargets
+      if (
+        referenceTarget?.kind === 'construction' && !hasConstructionTarget(snapshot, referenceTarget.constructionId)
+        || referenceTarget?.kind === 'face' && !hasFaceTarget(snapshot, referenceTarget.bodyId, referenceTarget.faceId)
+      ) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-transform',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Transform planar references must resolve to live construction planes or planar faces.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     default:
       return {
         accepted: false as const,
@@ -948,6 +1050,11 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
   }
 
   if (definition.kind === 'deleteSolid') {
+    const body = getAdvancedParticipant(definition, 'body')?.targets[0]
+    return body ? createPreviewRenderableSet(getPrimitiveRefKey(body)) : []
+  }
+
+  if (definition.kind === 'mirror' || definition.kind === 'transform') {
     const body = getAdvancedParticipant(definition, 'body')?.targets[0]
     return body ? createPreviewRenderableSet(getPrimitiveRefKey(body)) : []
   }

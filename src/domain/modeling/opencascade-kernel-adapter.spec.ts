@@ -24,6 +24,7 @@ import type {
 } from '@/contracts/modeling/schema'
 import type {
   BodyId,
+  ConstructionId,
   EdgeId,
   DocumentId,
   FaceId,
@@ -645,6 +646,34 @@ function createDeleteSolidDefinition(bodyIds: readonly BodyId[]): FeatureDefinit
       participants: [
         { role: 'body', targets: bodyIds.map((bodyId) => ({ kind: 'body' as const, bodyId })) },
       ],
+    },
+  }
+}
+
+function createMirrorDefinition(bodyIds: readonly BodyId[], planeTarget: { kind: 'construction'; constructionId: ConstructionId } | { kind: 'face'; bodyId: BodyId; faceId: FaceId }): FeatureDefinition {
+  return {
+    kind: 'mirror',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: bodyIds.map((bodyId) => ({ kind: 'body' as const, bodyId })) },
+        { role: 'plane', targets: [planeTarget] },
+      ],
+      options: { copy: true },
+    },
+  }
+}
+
+function createTransformDefinition(bodyIds: readonly BodyId[], referenceTarget: { kind: 'construction'; constructionId: ConstructionId } | { kind: 'face'; bodyId: BodyId; faceId: FaceId }, distance: number): FeatureDefinition {
+  return {
+    kind: 'transform',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: bodyIds.map((bodyId) => ({ kind: 'body' as const, bodyId })) },
+        { role: 'transformReference', targets: [referenceTarget] },
+      ],
+      options: { distance },
     },
   }
 }
@@ -1701,6 +1730,93 @@ async function testDeleteSolidPreviewCreateAndReferenceInvalidation() {
   )
 }
 
+async function testMirrorPreviewCreateAndCopyBodies() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before mirror coverage.')
+  }
+
+  const committedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(committedSnapshot.snapshot)
+  const extrude = await createExtrudeBody(adapter, committedSnapshot.snapshot.revisionId, sketch, 6)
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    previewId: 'preview_mirror_body',
+    definition: createMirrorDefinition([extrude.bodyId], { kind: 'construction', constructionId: 'construction_plane-yz' }),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh mirror previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Mirror preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    definition: createMirrorDefinition([extrude.bodyId], { kind: 'construction', constructionId: 'construction_plane-yz' }),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Mirror create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Accepted mirror create must rebuild.')
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  assert(after.snapshot.bodies.some((body) => body.bodyId === extrude.bodyId), 'Mirror create must preserve the source body in the committed snapshot.')
+  assert(after.snapshot.bodies.length >= 2, 'Mirror create must append a mirrored result body to the committed snapshot.')
+}
+
+async function testTransformPreviewCreateAndReplaceBody() {
+  const adapter = createAdapter()
+  const committed = await commitSeedSketch(adapter)
+
+  if (committed.revisionState.kind !== 'accepted') {
+    throw new Error('Seed sketch commit must succeed before transform coverage.')
+  }
+
+  const committedSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const sketch = requirePrimarySketch(committedSnapshot.snapshot)
+  const extrude = await createExtrudeBody(adapter, committedSnapshot.snapshot.revisionId, sketch, 6)
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    previewId: 'preview_transform_body',
+    definition: createTransformDefinition([extrude.bodyId], { kind: 'construction', constructionId: 'construction_plane-xy' }, 2),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh transform previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Transform preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: extrude.response.revisionId,
+    definition: createTransformDefinition([extrude.bodyId], { kind: 'construction', constructionId: 'construction_plane-xy' }, 2),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Transform create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Accepted transform create must rebuild.')
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  assert(after.snapshot.bodies.some((body) => body.bodyId === extrude.bodyId), 'Transform create must preserve the selected body id in the committed snapshot.')
+}
+
 async function testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs() {
   const adapter = createAdapter()
   const committed = await commitSeedSketch(adapter)
@@ -2482,6 +2598,8 @@ await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
 await testThickenPreviewCreateAndUnsupportedCases()
 await testSplitPreviewCreateAndUnsupportedCases()
 await testDeleteSolidPreviewCreateAndReferenceInvalidation()
+await testMirrorPreviewCreateAndCopyBodies()
+await testTransformPreviewCreateAndReplaceBody()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()
 await testReorderFeatureAndConflictHandling()
 await testPreviewFreshness()

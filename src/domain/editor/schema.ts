@@ -71,6 +71,8 @@ export type SelectionFilterKind =
   | 'loftReferences'
   | 'splitReferences'
   | 'deleteSolidReferences'
+  | 'mirrorReferences'
+  | 'transformReferences'
   | 'thickenReferences'
   | 'filletEdges'
   | 'chamferEdges'
@@ -475,6 +477,78 @@ export const deleteSolidSelectionFilter: SelectionFilter = {
           description: 'Select one body to remove.',
           acceptedKinds: ['body'],
           acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
+export const mirrorSelectionFilter: SelectionFilter = {
+  kind: 'mirrorReferences',
+  allowedKinds: ['body', 'construction', 'face'],
+  label: 'Mirror references',
+  requirements: [
+    {
+      id: 'mirror-body',
+      label: 'Body target',
+      description: 'Mirror accepts one or more explicit durable body targets in the first slice.',
+      slots: [
+        {
+          id: 'mirror-body',
+          label: 'Body target',
+          description: 'Select one body to mirror.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+    {
+      id: 'mirror-plane',
+      label: 'Mirror plane',
+      description: 'Mirror requires one explicit planar face or construction plane reference.',
+      slots: [
+        {
+          id: 'mirror-plane',
+          label: 'Mirror plane',
+          description: 'Select one planar face or construction plane.',
+          acceptedKinds: ['construction', 'face'],
+          acceptedSemantics: ['planarReference'],
+        },
+      ],
+    },
+  ],
+}
+
+export const transformSelectionFilter: SelectionFilter = {
+  kind: 'transformReferences',
+  allowedKinds: ['body', 'construction', 'face'],
+  label: 'Transform references',
+  requirements: [
+    {
+      id: 'transform-body',
+      label: 'Body target',
+      description: 'Transform accepts one or more explicit durable body targets in the first slice.',
+      slots: [
+        {
+          id: 'transform-body',
+          label: 'Body target',
+          description: 'Select one body to transform.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+    {
+      id: 'transform-reference',
+      label: 'Transform reference',
+      description: 'The first transform slice translates bodies along the normal of one explicit planar reference.',
+      slots: [
+        {
+          id: 'transform-reference',
+          label: 'Transform reference',
+          description: 'Select one planar face or construction plane.',
+          acceptedKinds: ['construction', 'face'],
+          acceptedSemantics: ['planarReference'],
         },
       ],
     },

@@ -77,6 +77,8 @@ export type AuthoredFeatureKind =
   | 'thicken'
   | 'split'
   | 'deleteSolid'
+  | 'mirror'
+  | 'transform'
 export type ModelingFeatureKind = FeatureKind | AdvancedSolidFeatureKind
 
 /** Ordered collection that must contain at least one entry. */

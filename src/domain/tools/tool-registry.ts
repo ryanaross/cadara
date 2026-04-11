@@ -221,14 +221,6 @@ export const toolDefinitions = [
     modes: ['part'],
   },
   {
-    id: 'mirror',
-    group: 'transforms',
-    name: 'Mirror',
-    tooltip: 'Mirror parts or features.',
-    icon: 'mirror',
-    modes: ['part'],
-  },
-  {
     id: 'measure',
     group: 'inspect',
     name: 'Measure',
@@ -355,7 +347,7 @@ const toolbarSections = [
     label: 'Transforms',
     align: 'center',
     modes: ['part'],
-    toolIds: ['moveFace', 'mirror'],
+    toolIds: ['moveFace', 'mirror', 'transform'],
   },
   {
     id: 'inspect',

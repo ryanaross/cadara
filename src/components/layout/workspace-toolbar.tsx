@@ -73,6 +73,7 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
   curvePattern: LineChart,
   moveFace: Move3d,
   mirror: Component,
+  transform: Move3d,
   measure: Eye,
   sectionView: Box,
   trim: Minus,

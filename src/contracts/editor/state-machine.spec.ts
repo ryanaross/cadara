@@ -691,6 +691,50 @@ function testSplitAndDeleteSolidActivationStartFeatureSessions() {
   assert(deleteSolidActivation.effects[0]?.type === 'feature.evaluatePreview', 'Delete-solid activation should request a preview effect.')
 }
 
+function testMirrorAndTransformActivationStartFeatureSessions() {
+  const mirrorActivation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'body', bodyId: 'body_a' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'mirror',
+    },
+  )
+
+  assert(mirrorActivation.state.kind === 'editingFeature', 'Mirror activation should enter feature editing.')
+  assert(mirrorActivation.state.session.featureType === 'mirror', 'Mirror activation should create a mirror session.')
+  assert(mirrorActivation.state.session.draft.bodyTargets[0]?.bodyId === 'body_a', 'Mirror activation should seed the selected body as a mirror target.')
+  assert(mirrorActivation.effects.length === 0, 'Mirror activation should wait for an explicit plane before previewing.')
+
+  const transformActivation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'body', bodyId: 'body_a' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'transform',
+    },
+  )
+
+  assert(transformActivation.state.kind === 'editingFeature', 'Transform activation should enter feature editing.')
+  assert(transformActivation.state.session.featureType === 'transform', 'Transform activation should create a transform session.')
+  assert(transformActivation.state.session.draft.bodyTargets[0]?.bodyId === 'body_a', 'Transform activation should seed the selected body as a transform target.')
+  assert(transformActivation.effects.length === 0, 'Transform activation should wait for an explicit transform reference before previewing.')
+}
+
 function testActiveReferencePickerRoutesSingleAndMultiSelections() {
   const catalog = createRegionSelectionCatalog()
   const activation = transitionEditorState(
@@ -1103,6 +1147,7 @@ testRevolveActivationSupportsFaceThenEdgeSelection()
 testShellActivationSeedsBodyFromSelectedFace()
 testThickenActivationSeedsFaceTargetsFromSelection()
 testSplitAndDeleteSolidActivationStartFeatureSessions()
+testMirrorAndTransformActivationStartFeatureSessions()
 testActiveReferencePickerRoutesSingleAndMultiSelections()
 testReferencePickerCancellationAndSessionCleanup()
 testReplayIsDeterministic()

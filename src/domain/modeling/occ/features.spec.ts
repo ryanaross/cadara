@@ -1083,6 +1083,52 @@ async function testDeleteSolidRemovesSelectedBodiesAndKeepsInvalidationHistory()
   assert(result.historyInvalidations.size > 0, 'Delete-solid should preserve invalidation history for removed body topology.')
 }
 
+async function testMirrorCopiesBodiesAcrossExplicitPlanarReferences() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const body = await makeBoxBody(oc, 'body_phase4_mirror' as BodyId, 4, 4, 4, 'feature_phase4_mirror_seed' as FeatureId, [4, 0, 0])
+  const context = await createContext({ bodies: [body] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_mirror' as FeatureId, {
+    kind: 'mirror',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: body.bodyId }] },
+        { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-yz' }] },
+      ],
+      options: { copy: true },
+    },
+  })
+
+  assert(result.bodies.length === 2, 'Mirror copy should preserve the source body and append one mirrored result body.')
+  assert(result.bodies.some((entry) => entry.bodyId === body.bodyId), 'Mirror copy should preserve the source body id.')
+  assert(result.bodies.some((entry) => entry.bodyId !== body.bodyId), 'Mirror copy should append at least one new mirrored body.')
+  assert(result.producedTargets.length === 1 && result.producedTargets[0]?.kind === 'body', 'Mirror copy should report the new mirrored body as its produced target.')
+}
+
+async function testTransformReplacesBodyWithTranslatedResult() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const body = await makeBoxBody(oc, 'body_phase4_transform' as BodyId, 4, 4, 4, 'feature_phase4_transform_seed' as FeatureId)
+  const context = await createContext({ bodies: [body] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_transform' as FeatureId, {
+    kind: 'transform',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: body.bodyId }] },
+        { role: 'transformReference', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+      ],
+      options: { distance: 3 },
+    },
+  })
+
+  assert(result.bodies.length === 1, 'Transform should replace the selected body in place.')
+  assert(result.bodies[0]?.bodyId === body.bodyId, 'Transform should preserve the selected body id when replacing the translated result.')
+  assert(result.producedTargets.length === 1 && result.producedTargets[0]?.kind === 'body' && result.producedTargets[0].bodyId === body.bodyId, 'Transform should report the replaced body target.')
+  assert(result.historyInvalidations.size > 0, 'Transform should preserve topology invalidation history for the replaced body.')
+}
+
 async function testShellBuildsPreviewableSolidFromExplicitBodyAndFaces() {
   const oc = await getDefaultOpenCascadeInstance()
   const boxBody = await makeBoxBody(oc, 'body_phase4_shell' as BodyId, 4, 4, 4, 'feature_phase4_shell_seed' as FeatureId)
@@ -1217,6 +1263,8 @@ await testFilletReplacesAffectedBody()
 await testFilletRejectsEmptyEdgeTargetList()
 await testSplitReplacesTargetBodyWithExplicitResultBodies()
 await testDeleteSolidRemovesSelectedBodiesAndKeepsInvalidationHistory()
+await testMirrorCopiesBodiesAcrossExplicitPlanarReferences()
+await testTransformReplacesBodyWithTranslatedResult()
 await testShellBuildsPreviewableSolidFromExplicitBodyAndFaces()
 await testOccAuthoringStateRebuildUsesFeatureExecutionFlow()
 await testOccAuthoringStateRebuildIsDeterministicAcrossRepeatedRuns()

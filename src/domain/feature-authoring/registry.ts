@@ -5,12 +5,14 @@ import { deleteSolidAuthoringDefinition } from '@/domain/feature-authoring/featu
 import { extrudeAuthoringDefinition } from '@/domain/feature-authoring/features/extrude'
 import { filletAuthoringDefinition } from '@/domain/feature-authoring/features/fillet'
 import { loftAuthoringDefinition } from '@/domain/feature-authoring/features/loft'
+import { mirrorAuthoringDefinition } from '@/domain/feature-authoring/features/mirror'
 import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/plane'
 import { revolveAuthoringDefinition } from '@/domain/feature-authoring/features/revolve'
 import { shellAuthoringDefinition } from '@/domain/feature-authoring/features/shell'
 import { splitAuthoringDefinition } from '@/domain/feature-authoring/features/split'
 import { sweepAuthoringDefinition } from '@/domain/feature-authoring/features/sweep'
 import { thickenAuthoringDefinition } from '@/domain/feature-authoring/features/thicken'
+import { transformAuthoringDefinition } from '@/domain/feature-authoring/features/transform'
 
 export const featureAuthoringDefinitions = [
   extrudeAuthoringDefinition,
@@ -24,6 +26,8 @@ export const featureAuthoringDefinitions = [
   thickenAuthoringDefinition,
   splitAuthoringDefinition,
   deleteSolidAuthoringDefinition,
+  mirrorAuthoringDefinition,
+  transformAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
 const featureAuthoringRegistry = new Map<AuthoredFeatureKind, FeatureAuthoringDefinition>(

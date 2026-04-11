@@ -105,6 +105,18 @@ export interface DeleteSolidFeatureParameterDraft {
   bodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
 }
 
+export interface MirrorFeatureParameterDraft {
+  bodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
+  planeTarget: Extract<PrimitiveRef, { kind: 'construction' | 'face' }> | null
+  copy: boolean
+}
+
+export interface TransformFeatureParameterDraft {
+  bodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
+  transformReferenceTarget: Extract<PrimitiveRef, { kind: 'construction' | 'face' }> | null
+  distance: number
+}
+
 export interface FeatureDraftByKind {
   extrude: ExtrudeFeatureParameterDraft
   revolve: RevolveFeatureParameterDraft
@@ -117,6 +129,8 @@ export interface FeatureDraftByKind {
   thicken: ThickenFeatureParameterDraft
   split: SplitFeatureParameterDraft
   deleteSolid: DeleteSolidFeatureParameterDraft
+  mirror: MirrorFeatureParameterDraft
+  transform: TransformFeatureParameterDraft
 }
 
 export interface FeatureParametersByKind {
@@ -131,6 +145,8 @@ export interface FeatureParametersByKind {
   thicken: AdvancedSolidFeatureParameters
   split: AdvancedSolidFeatureParameters
   deleteSolid: AdvancedSolidFeatureParameters
+  mirror: AdvancedSolidFeatureParameters
+  transform: AdvancedSolidFeatureParameters
 }
 
 export interface FeatureVersionByKind {
@@ -145,10 +161,12 @@ export interface FeatureVersionByKind {
   thicken: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
   split: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
   deleteSolid: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  mirror: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  transform: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
 }
 
 export type FeatureDefinitionByKind<TKind extends AuthoredFeatureKind> =
-  TKind extends 'sweep' | 'loft' | 'chamfer' | 'thicken' | 'split' | 'deleteSolid'
+  TKind extends 'sweep' | 'loft' | 'chamfer' | 'thicken' | 'split' | 'deleteSolid' | 'mirror' | 'transform'
     ? AdvancedSolidFeatureDefinition & { kind: TKind }
     : Extract<FeatureDefinition, { kind: TKind }>
 
@@ -179,6 +197,8 @@ export type ChamferFeatureEditSessionState = FeatureEditSessionStateForKind<'cha
 export type ThickenFeatureEditSessionState = FeatureEditSessionStateForKind<'thicken'>
 export type SplitFeatureEditSessionState = FeatureEditSessionStateForKind<'split'>
 export type DeleteSolidFeatureEditSessionState = FeatureEditSessionStateForKind<'deleteSolid'>
+export type MirrorFeatureEditSessionState = FeatureEditSessionStateForKind<'mirror'>
+export type TransformFeatureEditSessionState = FeatureEditSessionStateForKind<'transform'>
 
 export type FeatureEditSessionState =
   | ExtrudeFeatureEditSessionState
@@ -192,6 +212,8 @@ export type FeatureEditSessionState =
   | ThickenFeatureEditSessionState
   | SplitFeatureEditSessionState
   | DeleteSolidFeatureEditSessionState
+  | MirrorFeatureEditSessionState
+  | TransformFeatureEditSessionState
 
 export type FeatureDraftPatch = Record<string, unknown>
 
@@ -201,7 +223,7 @@ export interface FeatureAuthoringMetadata<TKind extends AuthoredFeatureKind = Au
   tooltip: string
   icon: ToolIconId
   toolId: TKind
-  groupId: 'features'
+  groupId: 'features' | 'transforms'
   modes: readonly ToolbarMode[]
 }
 

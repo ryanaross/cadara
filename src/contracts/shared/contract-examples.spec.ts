@@ -30,9 +30,11 @@ import {
   chamferAdvancedFeatureExample,
   deleteSolidAdvancedFeatureExample,
   loftAdvancedFeatureExample,
+  mirrorAdvancedFeatureExample,
   splitAdvancedFeatureExample,
   sweepAdvancedFeatureExample,
   thickenAdvancedFeatureExample,
+  transformAdvancedFeatureExample,
 } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -623,6 +625,10 @@ function testAdvancedSolidExamplesUseRoleSpecificParticipants() {
   assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'targetBody'), 'Split example must preserve explicit target-body participants.')
   assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'toolBody'), 'Split example must preserve body-operation tool participants.')
   assert(deleteSolidAdvancedFeatureExample.parameters.participants[0]?.role === 'body', 'Delete-solid example must preserve explicit body participants.')
+  assert(mirrorAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'plane'), 'Mirror example must preserve an explicit plane participant.')
+  assert(mirrorAdvancedFeatureExample.parameters.options?.copy === true, 'Mirror example must preserve an explicit copy option.')
+  assert(transformAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'transformReference'), 'Transform example must preserve an explicit transform-reference participant.')
+  assert(transformAdvancedFeatureExample.parameters.options?.distance === 5, 'Transform example must preserve a typed distance option.')
 }
 
 testSolveSketchExampleIsFullyTyped()

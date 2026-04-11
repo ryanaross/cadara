@@ -1149,7 +1149,7 @@ function eventMatchesOptionalDocument(
   return eventMatchesDocument(state, documentId, revisionId)
 }
 
-function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane' | 'sweep' | 'loft' | 'chamfer' | 'thicken' | 'split' | 'deleteSolid'> {
+function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'revolve' | 'fillet' | 'shell' | 'plane' | 'sweep' | 'loft' | 'chamfer' | 'thicken' | 'split' | 'deleteSolid' | 'mirror' | 'transform'> {
   return toolId === 'extrude'
     || toolId === 'revolve'
     || toolId === 'fillet'
@@ -1161,6 +1161,8 @@ function isFeatureTool(toolId: ToolId): toolId is Extract<ToolId, 'extrude' | 'r
     || toolId === 'thicken'
     || toolId === 'split'
     || toolId === 'deleteSolid'
+    || toolId === 'mirror'
+    || toolId === 'transform'
 }
 
 /**

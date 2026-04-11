@@ -183,6 +183,62 @@ const deleteSolidDescriptor = {
   ],
 } satisfies AdvancedSolidFeatureAuthoringDescriptor
 
+const mirrorDescriptor = {
+  featureKind: 'mirror',
+  participants: [
+    {
+      role: 'body',
+      label: 'Body targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['body'],
+    },
+    {
+      role: 'plane',
+      label: 'Mirror plane',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['construction', 'face'],
+    },
+  ],
+  options: [
+    {
+      key: 'copy',
+      label: 'Copy bodies',
+      required: true,
+      valueKind: 'boolean',
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
+const transformDescriptor = {
+  featureKind: 'transform',
+  participants: [
+    {
+      role: 'body',
+      label: 'Body targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['body'],
+    },
+    {
+      role: 'transformReference',
+      label: 'Transform reference',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['construction', 'face'],
+    },
+  ],
+  options: [
+    {
+      key: 'distance',
+      label: 'Distance',
+      required: true,
+      valueKind: 'positiveNumber',
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
 function testAdvancedParticipantValidationAcceptsRoleSpecificPayloads() {
   const diagnostics = validateAdvancedSolidFeatureDefinition({
     kind: 'sweep',
@@ -458,6 +514,74 @@ function testDeleteSolidValidationAcceptsAndRejectsExplicitBodyTargets() {
   )
 }
 
+function testMirrorValidationAcceptsExplicitBodiesPlaneAndCopyPolicy() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'mirror',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: 'body_a' }] },
+        { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+      ],
+      options: { copy: true },
+    },
+  }, mirrorDescriptor)
+
+  const invalid = validateAdvancedSolidFeatureDefinition({
+    kind: 'mirror',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_top' }] },
+        { role: 'plane', targets: [{ kind: 'edge', bodyId: 'body_a', edgeId: 'edge_wrong' }] },
+      ],
+      options: { copy: 'yes' },
+    },
+  }, mirrorDescriptor)
+
+  assert(valid.length === 0, 'Mirror validation should accept explicit body targets, a planar reference, and a boolean copy policy.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'body'), 'Mirror validation should reject non-body target participants.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'plane'), 'Mirror validation should reject non-planar mirror references.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-option'), 'Mirror validation should reject non-boolean copy policies.')
+}
+
+function testTransformValidationAcceptsBodyOnlyScopeAndTypedDistance() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'transform',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        {
+          role: 'body',
+          targets: [
+            { kind: 'body', bodyId: 'body_a' },
+            { kind: 'body', bodyId: 'body_b' },
+          ],
+        },
+        { role: 'transformReference', targets: [{ kind: 'face', bodyId: 'body_ref', faceId: 'face_ref' }] },
+      ],
+      options: { distance: 2 },
+    },
+  }, transformDescriptor)
+
+  const invalid = validateAdvancedSolidFeatureDefinition({
+    kind: 'transform',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+        { role: 'transformReference', targets: [{ kind: 'body', bodyId: 'body_wrong' }] },
+      ],
+      options: { distance: 0 },
+    },
+  }, transformDescriptor)
+
+  assert(valid.length === 0, 'Transform validation should accept body-only targets, an explicit transform reference, and a positive distance.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'body'), 'Transform validation should reject non-body transform targets.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'transformReference'), 'Transform validation should reject non-planar transform references.')
+  assert(invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-option'), 'Transform validation should reject non-positive transform distances.')
+}
+
 testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
 testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
 testAdvancedOperationIntentValidationRejectsUnsupportedModes()
@@ -467,6 +591,8 @@ testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets()
 testSplitValidationAcceptsExplicitTargetAndToolBodies()
 testSplitValidationRejectsMissingBodiesAndUnsupportedToolFamilies()
 testDeleteSolidValidationAcceptsAndRejectsExplicitBodyTargets()
+testMirrorValidationAcceptsExplicitBodiesPlaneAndCopyPolicy()
+testTransformValidationAcceptsBodyOnlyScopeAndTypedDistance()
 
 function testChamferEdgeParticipantsAndDistanceValidation() {
   const valid = validateAdvancedSolidFeatureDefinition({
