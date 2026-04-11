@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+  <defs>
+    <clippath id="clip0_21658_3058">
+      <path fill="#fff" d="M0 0h20v20H0z" />
+    </clippath>
+  </defs>
+  <g clip-path="url(#clip0_21658_3058)">
+    <path fill="#333333" d="M0 0h10v8H0z" />
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M9 4H7v1h2V4zM6 4H4v1h2V4zM3.0005 4H1v1h2.0007l-.0002-1zM4 6h2v1H4V6zm5 1H7V6h2v1zM3.0008 6H1v1h2.001l-.0002-1z" fill="#FFFFFF" />
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M4 1h2v2H4V1zm3 0v2h2V1H7zM3.0001 1H1v2h2.0004l-.0003-2z" fill="#999999" />
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M16.5 13.5a.5.5 0 011 0V15H19a.5.5 0 010 1h-1.5v1.5a.5.5 0 01-1 0V16H15a.5.5 0 010-1h1.5v-1.5zm-2 5.5a.5.5 0 000 1h5a.5.5 0 000-1h-5z" fill="#333333" />
+    <g fill="#333333">
+      <path d="M7.2776 17.3107l-4.5883-4.5883L2 13.4117 6.5883 18l.6893-.6893zM18 6.5883L13.4117 2l-.6893.6893 4.5883 4.5883L18 6.5883zM7.0757 16.8234h4.8738l-1.7516-1.7517 4.866-4.8816 1.7595 1.7594V7.0757h-4.8739l1.7517 1.7517-4.8514 4.8962-1.774-1.7741v4.8739z" />
+    </g>
+  </g>
+</svg>
