@@ -80,6 +80,7 @@ const durableMarkerRenderable: RenderableEntityRecord = {
 const sketchDisplayMarker: SketchSessionDisplayRenderable = {
   id: 'renderable_display_marker',
   label: 'Display marker',
+  target: { kind: 'sketchPoint', sketchId: 'sketch_a', pointId: 'sketch_point_a' },
   geometry: {
     kind: 'marker' as const,
     position: [5, 6, 7] as const,
@@ -105,10 +106,11 @@ const sketchDisplayMarker: SketchSessionDisplayRenderable = {
 }
 
 {
-  const displayGroup = buildSketchDisplayGroup([sketchDisplayMarker])
-  assertEqual(displayGroup.children.length, 1)
+  const displayScene = buildSketchDisplayGroup([sketchDisplayMarker])
+  assertEqual(displayScene.group.children.length, 1)
+  assertEqual(displayScene.pickables.length, 1)
 
-  const markerMesh = displayGroup.children[0]
+  const markerMesh = displayScene.group.children[0]
   assert(markerMesh instanceof THREE.Mesh)
   assert(markerMesh.material instanceof THREE.MeshStandardMaterial)
   assertDeepEqual(markerMesh.position.toArray(), [5, 6, 7])

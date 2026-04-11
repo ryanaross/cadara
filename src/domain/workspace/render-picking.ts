@@ -15,6 +15,12 @@ export interface WorkspaceRenderScene {
   pickIdToRenderable: Map<string, RenderableEntityRecord>
 }
 
+export interface SketchDisplayScene {
+  group: THREE.Group
+  pickables: THREE.Object3D[]
+  targetToObjects: Map<string, THREE.Object3D[]>
+}
+
 const MARKER_SPHERE_GEOMETRY = new THREE.SphereGeometry(1, 12, 12)
 const SEEDED_DATUM_CONSTRUCTION_IDS = new Set([
   'construction_plane-xy',
@@ -62,15 +68,30 @@ export function buildWorkspaceRenderScene(renderables: RenderableEntityRecord[])
   }
 }
 
-export function buildSketchDisplayGroup(renderables: SketchSessionDisplayRenderable[]) {
+export function buildSketchDisplayGroup(renderables: SketchSessionDisplayRenderable[]): SketchDisplayScene {
   const group = new THREE.Group()
+  const pickables: THREE.Object3D[] = []
+  const targetToObjects = new Map<string, THREE.Object3D[]>()
 
   for (const renderable of renderables) {
     const object = createDisplayObject(renderable)
+    if (renderable.target) {
+      object.userData.target = renderable.target
+      object.userData.semanticClass = renderable.geometry.kind === 'marker' ? 'sketchPoint' : 'sketchCurve'
+      const targetKey = getPrimitiveRefKey(renderable.target)
+      const targetObjects = targetToObjects.get(targetKey) ?? []
+      targetObjects.push(object)
+      targetToObjects.set(targetKey, targetObjects)
+      pickables.push(object)
+    }
     group.add(object)
   }
 
-  return group
+  return {
+    group,
+    pickables,
+    targetToObjects,
+  }
 }
 
 function createDisplayObject(renderable: SketchSessionDisplayRenderable) {

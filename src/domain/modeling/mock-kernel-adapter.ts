@@ -2026,6 +2026,12 @@ function getSelectionSemanticsForTarget(target: SnapshotEntityRecord['target']):
       return ['existingSketch']
     case 'sketchEntity':
       return ['sketchEntity']
+    case 'sketchPoint':
+      return ['sketchPoint']
+    case 'constraint':
+      return ['constraintAnnotation']
+    case 'dimension':
+      return ['dimensionAnnotation']
     default:
       return []
   }

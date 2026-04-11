@@ -45,6 +45,8 @@ type DurableRefKindsAreCanonical = Assert<
     | 'sketch'
     | 'sketchEntity'
     | 'sketchPoint'
+    | 'constraint'
+    | 'dimension'
     | 'feature'
     | 'construction'
     | 'region'

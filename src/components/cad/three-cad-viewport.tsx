@@ -14,6 +14,7 @@ import {
   buildWorkspaceRenderScene,
   buildSketchDisplayGroup,
   resolvePickTarget,
+  type SketchDisplayScene,
   updateWorkspaceHighlight,
   type WorkspaceRenderScene,
 } from '@/domain/workspace/render-picking'
@@ -83,7 +84,7 @@ export function ThreeCadViewport({
   const gizmoRef = useRef<HTMLDivElement | null>(null)
   const runtimeRef = useRef<ViewportRuntime | null>(null)
   const renderSceneRef = useRef<WorkspaceRenderScene | null>(null)
-  const sketchDisplayGroupRef = useRef<THREE.Group | null>(null)
+  const sketchDisplayGroupRef = useRef<SketchDisplayScene | null>(null)
   const hoverRef = useRef(onHover)
   const hoverTargetRef = useRef(hoverTarget)
   const lastPickedTargetRef = useRef<PrimitiveRef | null>(null)
@@ -318,17 +319,19 @@ export function ThreeCadViewport({
     }
 
     disposeSketchDisplayGroup(sketchDisplayGroupRef.current)
-    const group = buildSketchDisplayGroup(sketchDisplayRenderables)
-    runtime.scene.add(group)
-    sketchDisplayGroupRef.current = group
+    const displayScene = buildSketchDisplayGroup(sketchDisplayRenderables)
+    runtime.scene.add(displayScene.group)
+    sketchDisplayGroupRef.current = displayScene
   }, [sketchDisplayRenderables])
 
   useEffect(() => {
-    if (!renderSceneRef.current) {
-      return
+    if (renderSceneRef.current) {
+      updateWorkspaceHighlight(renderSceneRef.current.targetToObjects, selection, hoverTarget)
     }
 
-    updateWorkspaceHighlight(renderSceneRef.current.targetToObjects, selection, hoverTarget)
+    if (sketchDisplayGroupRef.current) {
+      updateWorkspaceHighlight(sketchDisplayGroupRef.current.targetToObjects, selection, hoverTarget)
+    }
   }, [hoverTarget, selection])
 
   useEffect(() => {
@@ -347,8 +350,11 @@ export function ThreeCadViewport({
       runtime.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1
       runtime.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1
       runtime.raycaster.setFromCamera(runtime.pointer, runtime.camera)
-      const intersections = runtime.raycaster.intersectObjects(renderScene.pickables, true)
-      return resolvePickTarget(
+      const intersections = runtime.raycaster.intersectObjects(
+        [...renderScene.pickables, ...(sketchDisplayGroupRef.current?.pickables ?? [])],
+        true,
+      )
+      const workspaceTarget = resolvePickTarget(
         intersections,
         renderScene.pickIdToRenderable,
         (target) => selectionFilterAllowsTarget(
@@ -358,6 +364,33 @@ export function ThreeCadViewport({
           selectionCatalogRef.current,
         ),
       )
+
+      if (workspaceTarget) {
+        return workspaceTarget
+      }
+
+      const sketchDisplayHit = intersections.find((intersection) => {
+        const target = intersection.object.userData.target as PrimitiveRef | undefined
+
+        return target
+          ? selectionFilterAllowsTarget(
+              selectionFilterRef.current,
+              selectionRef.current,
+              target,
+              selectionCatalogRef.current,
+            )
+          : false
+      })
+
+      if (!sketchDisplayHit) {
+        return null
+      }
+
+      return {
+        pickId: null,
+        target: sketchDisplayHit.object.userData.target as PrimitiveRef,
+        renderable: null,
+      }
     }
 
     const projectSketchPoint = (event: PointerEvent): readonly [number, number] | null => {
@@ -585,10 +618,12 @@ function disposeRenderScene(renderScene: WorkspaceRenderScene | null) {
   }
 }
 
-function disposeSketchDisplayGroup(group: THREE.Group | null) {
-  if (!group) {
+function disposeSketchDisplayGroup(displayScene: SketchDisplayScene | null) {
+  if (!displayScene) {
     return
   }
+
+  const { group } = displayScene
 
   group.parent?.remove(group)
 

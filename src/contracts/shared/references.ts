@@ -1,6 +1,8 @@
 import type {
   BodyId,
   ConstructionId,
+  ConstraintId,
+  DimensionId,
   EdgeId,
   FaceId,
   FeatureId,
@@ -105,6 +107,30 @@ export interface SketchPointRef {
 }
 
 /**
+ * Durable reference to an authored sketch constraint annotation.
+ */
+export interface SketchConstraintRef {
+  /** Stable discriminant for durable sketch-constraint references. */
+  kind: 'constraint'
+  /** Owning sketch of the referenced constraint. */
+  sketchId: SketchId
+  /** Durable constraint identity within `sketchId`. */
+  constraintId: ConstraintId
+}
+
+/**
+ * Durable reference to an authored sketch dimension annotation.
+ */
+export interface SketchDimensionRef {
+  /** Stable discriminant for durable sketch-dimension references. */
+  kind: 'dimension'
+  /** Owning sketch of the referenced dimension. */
+  sketchId: SketchId
+  /** Durable dimension identity within `sketchId`. */
+  dimensionId: DimensionId
+}
+
+/**
  * Durable reference to an authored feature.
  */
 export interface FeatureRef {
@@ -149,6 +175,8 @@ export type DurableRef =
   | SketchRef
   | SketchEntityRef
   | SketchPointRef
+  | SketchConstraintRef
+  | SketchDimensionRef
   | FeatureRef
   | ConstructionRef
   | RegionRef

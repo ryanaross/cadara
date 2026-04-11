@@ -1,11 +1,18 @@
 import type {
+  ConstraintDefinition,
+  DimensionDefinition,
   RegionRecord,
   SketchDefinition,
   SketchEntityDefinition,
   SketchPointDefinition,
 } from '@/contracts/sketch/schema'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import type { SketchEntityRef, SketchPointRef } from '@/contracts/shared/references'
+import type {
+  SketchConstraintRef,
+  SketchDimensionRef,
+  SketchEntityRef,
+  SketchPointRef,
+} from '@/contracts/shared/references'
 import type { SketchPlaneDefinition, SketchPlaneSupportRef } from '@/contracts/shared/sketch-plane'
 import type {
   ConstraintId,
@@ -22,12 +29,26 @@ import type {
   SketchSnapshotRecord,
 } from '@/contracts/modeling/schema'
 import type { RenderableEntityRecord } from '@/contracts/render/schema'
+import type { PrimitiveRef } from '@/domain/editor/schema'
 import { mapSketchPointToWorld as mapSketchPointToWorldFromPlane } from '@/domain/modeling/occ/planes'
 import {
   createStandardPlaneDefinition,
   deriveStandardPlaneKeyFromConstructionId,
 } from '@/domain/modeling/opencascade-kernel-seed'
-import type { SketchToolPresentationSchema } from '@/domain/sketch-tools/editor-schema'
+import type {
+  SketchToolFloatingInputDescriptor,
+  SketchToolPresentationSchema,
+  SketchToolSelectionGuideDescriptor,
+} from '@/domain/sketch-tools/editor-schema'
+import type {
+  SketchConstraintTargetRecord,
+  SketchConstraintToolId,
+} from '@/domain/sketch-constraints/definition'
+import {
+  getSketchConstraintDefinition,
+  isRegisteredSketchConstraintToolId,
+  resolveSketchConstraintTarget,
+} from '@/domain/sketch-constraints/registry'
 import type {
   SketchDraftEntity,
   SketchToolCommitContribution,
@@ -36,6 +57,25 @@ import type {
 import { getSketchToolDefinition } from '@/domain/sketch-tools/registry'
 
 export type { SketchDraftEntity, SketchToolId } from '@/domain/sketch-tools/definition'
+export type { SketchConstraintToolId } from '@/domain/sketch-constraints/definition'
+
+export type SketchAuthoringToolId = SketchToolId | SketchConstraintToolId
+export type SketchSessionStatus = 'idle' | 'drawing' | 'collectingTargets' | 'awaitingValue'
+
+export interface SketchConstraintAuthoringState {
+  toolId: SketchConstraintToolId
+  selectedTargets: SketchConstraintTargetRecord[]
+  hoverTarget: SketchConstraintTargetRecord | null
+  pendingValue: number | null
+}
+
+export interface SketchAnnotationDescriptor {
+  id: string
+  target: SketchConstraintRef | SketchDimensionRef
+  label: string
+  detail: string
+  status: 'constraint' | 'dimension'
+}
 
 export interface SketchSessionState {
   sketchId: SketchId | null
@@ -45,11 +85,13 @@ export interface SketchSessionState {
   planeKey: SketchPlaneKey | null
   entities: SketchDraftEntity[]
   definition: SketchDefinition
-  activeTool: SketchToolId | null
-  status: 'idle' | 'drawing'
+  activeTool: SketchAuthoringToolId | null
+  status: SketchSessionStatus
   pointerDownPoint: SketchPoint | null
   livePoint: SketchPoint | null
   toolPresentation: SketchToolPresentationSchema | null
+  constraintAuthoring: SketchConstraintAuthoringState | null
+  selectedAnnotation: SketchConstraintRef | SketchDimensionRef | null
   sequence: number
   solvedRegions: RegionRecord[]
   commitRequest: Omit<CommitSketchRequest, 'contractVersion' | 'documentId' | 'baseRevisionId'> | null
@@ -60,6 +102,7 @@ export interface SketchSessionDisplayRenderable {
   id: RenderableId
   label: string
   geometry: RenderableEntityRecord['geometry']
+  target: PrimitiveRef | null
 }
 
 export function derivePlaneKeyFromTarget(target: SketchPlaneSupportRef): SketchPlaneKey | null {
@@ -99,6 +142,28 @@ function createSketchPointRef(sketchId: SketchId, pointId: SketchPointId): Sketc
     kind: 'sketchPoint',
     sketchId,
     pointId,
+  }
+}
+
+function createSketchConstraintRef(
+  sketchId: SketchId,
+  constraintId: ConstraintId,
+): SketchConstraintRef {
+  return {
+    kind: 'constraint',
+    sketchId,
+    constraintId,
+  }
+}
+
+function createSketchDimensionRef(
+  sketchId: SketchId,
+  dimensionId: DimensionId,
+): SketchDimensionRef {
+  return {
+    kind: 'dimension',
+    sketchId,
+    dimensionId,
   }
 }
 
@@ -175,6 +240,8 @@ export function createSketchSessionFromSnapshot(sketch: SketchSnapshotRecord): S
     pointerDownPoint: null,
     livePoint: null,
     toolPresentation: null,
+    constraintAuthoring: null,
+    selectedAnnotation: null,
     sequence: getNextDefinitionSequence(sketch.sketch.definition),
     solvedRegions: [...sketch.sketch.regions],
     commitRequest: buildCommitRequest({
@@ -205,6 +272,8 @@ export function createNewSketchSession(plane: SketchPlaneDefinition): SketchSess
     pointerDownPoint: null,
     livePoint: null,
     toolPresentation: null,
+    constraintAuthoring: null,
+    selectedAnnotation: null,
     sequence: 0,
     solvedRegions: [],
     commitRequest: null,
@@ -484,7 +553,168 @@ function buildAcceptedEntities(
   return acceptedEntities
 }
 
-export function beginSketchTool(session: SketchSessionState, toolId: SketchToolId): SketchSessionState {
+function buildConstraintSelectionGuide(
+  toolId: SketchConstraintToolId,
+  selectedTargets: readonly SketchConstraintTargetRecord[],
+  hoverTarget: SketchConstraintTargetRecord | null,
+): SketchToolSelectionGuideDescriptor {
+  const definition = getSketchConstraintDefinition(toolId)
+  const step = definition.steps[Math.min(selectedTargets.length, definition.steps.length - 1)]
+
+  return {
+    id: `${toolId}-selection-guide`,
+    label: step?.label ?? definition.metadata.name,
+    acceptedKinds: step?.acceptedKinds ?? ['annotation'],
+    selectedCount: selectedTargets.length,
+    requiredCount: definition.steps.length,
+    hoverLabel: hoverTarget?.label ?? null,
+  }
+}
+
+function buildConstraintToolPresentation(authoring: SketchConstraintAuthoringState): SketchToolPresentationSchema {
+  const definition = getSketchConstraintDefinition(authoring.toolId)
+  const selectionGuide = buildConstraintSelectionGuide(
+    authoring.toolId,
+    authoring.selectedTargets,
+    authoring.hoverTarget,
+  )
+  const needsValue =
+    Boolean(definition.valueSpec) && authoring.selectedTargets.length >= definition.steps.length
+  const promptText = needsValue
+    ? `Enter ${definition.valueSpec?.label.toLowerCase() ?? 'value'}`
+    : selectionGuide.label
+
+  const floatingInput: SketchToolFloatingInputDescriptor | null = needsValue && definition.valueSpec
+    ? {
+        id: `${authoring.toolId}-value-input`,
+        label: definition.valueSpec.label,
+        value: authoring.pendingValue,
+        unit: definition.valueSpec.unit,
+        min: definition.valueSpec.min,
+        confirmLabel: 'Commit',
+        cancelLabel: 'Cancel',
+        anchor: authoring.selectedTargets[authoring.selectedTargets.length - 1]?.anchor,
+        submitAction: { type: 'patch', patch: { intent: 'commitConstraintValue' } },
+        cancelAction: { type: 'patch', patch: { intent: 'cancelConstraintValue' } },
+      }
+    : null
+
+  return {
+    prompts: [
+      {
+        id: `${authoring.toolId}-prompt`,
+        text: promptText,
+      },
+    ],
+    steps: definition.steps.map((step) => ({
+      id: step.id,
+      label: step.label,
+    })),
+    cursor: {
+      id: `${authoring.toolId}-cursor`,
+      label: definition.metadata.name,
+      icon: definition.metadata.group === 'dimensions' ? 'dimension' : 'constraint',
+    },
+    selectionGuide,
+    overlays: definition.buildPreview({
+      selectedTargets: authoring.selectedTargets,
+      hoverTarget: authoring.hoverTarget,
+      value: authoring.pendingValue,
+    }),
+    floatingInput,
+    completionHints: [
+      {
+        id: `${authoring.toolId}-completion`,
+        text: needsValue
+          ? 'Confirm the entered value to commit the annotation'
+          : `Select ${definition.steps.length} target${definition.steps.length === 1 ? '' : 's'}`,
+        ready: needsValue ? authoring.pendingValue !== null : false,
+      },
+    ],
+  }
+}
+
+function activateSketchConstraintTool(
+  session: SketchSessionState,
+  toolId: SketchConstraintToolId,
+): SketchSessionState {
+  const definition = getSketchConstraintDefinition(toolId)
+  const authoring: SketchConstraintAuthoringState = {
+    toolId,
+    selectedTargets: [],
+    hoverTarget: null,
+    pendingValue: definition.valueSpec?.defaultValue ?? null,
+  }
+
+  return {
+    ...session,
+    activeTool: toolId,
+    status: 'collectingTargets',
+    pointerDownPoint: null,
+    livePoint: null,
+    entities: session.entities.filter((entity) => entity.status === 'accepted'),
+    validationMessage: null,
+    toolPresentation: buildConstraintToolPresentation(authoring),
+    constraintAuthoring: authoring,
+    selectedAnnotation: null,
+  }
+}
+
+function rebuildSessionCommitRequest(session: SketchSessionState, definition: SketchDefinition) {
+  return buildCommitRequest({
+    sketchId: session.sketchId,
+    sketchLabel: session.sketchLabel,
+    plane: session.plane,
+    planeTarget: session.planeTarget,
+    planeKey: session.planeKey,
+    definition,
+  })
+}
+
+function normalizeConstraintValue(value: number | null | undefined) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null
+  }
+
+  return value
+}
+
+function getTargetKey(target: PrimitiveRef) {
+  switch (target.kind) {
+    case 'sketchPoint':
+      return target.pointId
+    case 'sketchEntity':
+      return target.entityId
+    case 'constraint':
+      return target.constraintId
+    case 'dimension':
+      return target.dimensionId
+    case 'sketch':
+      return target.sketchId
+    case 'body':
+      return target.bodyId
+    case 'face':
+      return `${target.bodyId}:${target.faceId}`
+    case 'edge':
+      return `${target.bodyId}:${target.edgeId}`
+    case 'vertex':
+      return `${target.bodyId}:${target.vertexId}`
+    case 'loop':
+      return `${target.bodyId}:${target.loopId}`
+    case 'feature':
+      return target.featureId
+    case 'construction':
+      return target.constructionId
+    case 'region':
+      return `${target.sketchId}:${target.regionId}`
+  }
+}
+
+export function beginSketchTool(session: SketchSessionState, toolId: SketchAuthoringToolId): SketchSessionState {
+  if (isRegisteredSketchConstraintToolId(toolId)) {
+    return activateSketchConstraintTool(session, toolId)
+  }
+
   const toolDefinition = getSketchToolDefinition(toolId)
   const activation = toolDefinition.activate()
 
@@ -497,6 +727,8 @@ export function beginSketchTool(session: SketchSessionState, toolId: SketchToolI
     entities: session.entities.filter((entity) => entity.status === 'accepted'),
     validationMessage: activation.state.validationMessage,
     toolPresentation: activation.presentation,
+    constraintAuthoring: null,
+    selectedAnnotation: null,
   }
 }
 
@@ -504,7 +736,7 @@ export function updateSketchPointer(
   session: SketchSessionState,
   point: SketchPoint | null,
 ): SketchSessionState {
-  if (session.activeTool === null) {
+  if (session.activeTool === null || isRegisteredSketchConstraintToolId(session.activeTool)) {
     return session
   }
 
@@ -529,7 +761,7 @@ export function updateSketchPointer(
 }
 
 export function startSketchDraw(session: SketchSessionState, point: SketchPoint): SketchSessionState {
-  if (session.activeTool === null) {
+  if (session.activeTool === null || isRegisteredSketchConstraintToolId(session.activeTool)) {
     return session
   }
   const toolDefinition = getSketchToolDefinition(session.activeTool)
@@ -539,7 +771,7 @@ export function startSketchDraw(session: SketchSessionState, point: SketchPoint)
       pointerDownPoint: null,
       livePoint: null,
       validationMessage: null,
-    },
+    } satisfies import('@/domain/sketch-tools/definition').SketchToolRuntimeState,
     point,
   })
 
@@ -558,7 +790,11 @@ export function startSketchDraw(session: SketchSessionState, point: SketchPoint)
 }
 
 export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint): SketchSessionState {
-  if (session.activeTool === null || session.pointerDownPoint === null) {
+  if (
+    session.activeTool === null
+    || isRegisteredSketchConstraintToolId(session.activeTool)
+    || session.pointerDownPoint === null
+  ) {
     return session
   }
 
@@ -620,12 +856,13 @@ export function acceptSketchDraw(session: SketchSessionState, point: SketchPoint
     }),
     validationMessage: null,
     toolPresentation: result.presentation,
+    selectedAnnotation: null,
   }
 }
 
-function getToolRuntimeState(session: SketchSessionState) {
+function getToolRuntimeState(session: SketchSessionState): import('@/domain/sketch-tools/definition').SketchToolRuntimeState {
   return {
-    status: session.status,
+    status: session.status === 'drawing' ? 'drawing' : 'idle',
     pointerDownPoint: session.pointerDownPoint,
     livePoint: session.livePoint,
     validationMessage: session.validationMessage,
@@ -633,6 +870,24 @@ function getToolRuntimeState(session: SketchSessionState) {
 }
 
 export function getSketchSessionPreviewLabel(session: SketchSessionState): string {
+  if (session.constraintAuthoring) {
+    const definition = getSketchConstraintDefinition(session.constraintAuthoring.toolId)
+
+    if (session.status === 'awaitingValue') {
+      return `Enter ${definition.valueSpec?.label.toLowerCase() ?? 'value'}`
+    }
+
+    const step =
+      definition.steps[
+        Math.min(
+          session.constraintAuthoring.selectedTargets.length,
+          definition.steps.length - 1,
+        )
+      ]
+
+    return step?.label ?? definition.metadata.name
+  }
+
   const primaryPrompt = session.toolPresentation?.validation?.[0]?.message
     ?? session.toolPresentation?.prompts[0]?.text
 
@@ -658,12 +913,246 @@ export function getSketchToolPresentation(session: SketchSessionState): SketchTo
     return null
   }
 
+  if (isRegisteredSketchConstraintToolId(session.activeTool)) {
+    return session.toolPresentation
+  }
+
   return session.toolPresentation
     ?? getSketchToolDefinition(session.activeTool).getPresentation(getToolRuntimeState(session))
 }
 
+export function updateSketchConstraintHover(
+  session: SketchSessionState,
+  target: PrimitiveRef | null,
+): SketchSessionState {
+  const authoring = session.constraintAuthoring
+
+  if (!authoring) {
+    return session
+  }
+
+  const hoverTarget =
+    target === null
+      ? null
+      : resolveSketchConstraintTarget(authoring.toolId, session.definition, target)
+
+  return {
+    ...session,
+    toolPresentation: buildConstraintToolPresentation({
+      ...authoring,
+      hoverTarget,
+    }),
+    constraintAuthoring: {
+      ...authoring,
+      hoverTarget,
+    },
+  }
+}
+
+export function selectSketchConstraintTarget(
+  session: SketchSessionState,
+  target: PrimitiveRef,
+): SketchSessionState {
+  const authoring = session.constraintAuthoring
+
+  if (!authoring) {
+    return session
+  }
+
+  const resolved = resolveSketchConstraintTarget(authoring.toolId, session.definition, target)
+
+  if (!resolved) {
+    return session
+  }
+
+  if (authoring.selectedTargets.some((entry) => getTargetKey(entry.target) === getTargetKey(resolved.target))) {
+    return session
+  }
+
+  const nextTargets = [...authoring.selectedTargets, resolved].slice(
+    0,
+    getSketchConstraintDefinition(authoring.toolId).steps.length,
+  )
+  const definition = getSketchConstraintDefinition(authoring.toolId)
+  const readyForValue = Boolean(definition.valueSpec) && nextTargets.length >= definition.steps.length
+  const nextSession: SketchSessionState = {
+    ...session,
+    status: readyForValue ? 'awaitingValue' : 'collectingTargets',
+    toolPresentation: buildConstraintToolPresentation({
+      ...authoring,
+      selectedTargets: nextTargets,
+      hoverTarget: null,
+    }),
+    constraintAuthoring: {
+      ...authoring,
+      selectedTargets: nextTargets,
+      hoverTarget: null,
+    },
+    selectedAnnotation: null,
+  }
+
+  if (!definition.valueSpec && nextTargets.length >= definition.steps.length) {
+    return commitSketchConstraintAuthoring(nextSession)
+  }
+
+  return nextSession
+}
+
+export function patchSketchConstraintValue(
+  session: SketchSessionState,
+  patch: Record<string, unknown>,
+): SketchSessionState {
+  const authoring = session.constraintAuthoring
+
+  if (!authoring) {
+    return session
+  }
+
+  const intent = patch.intent
+
+  if (intent === 'cancelConstraintValue') {
+    return activateSketchConstraintTool(session, authoring.toolId)
+  }
+
+  if ('value' in patch) {
+    const nextAuthoring = {
+      ...authoring,
+      pendingValue: normalizeConstraintValue(patch.value as number | null | undefined),
+    }
+
+    return {
+      ...session,
+      toolPresentation: buildConstraintToolPresentation(nextAuthoring),
+      constraintAuthoring: nextAuthoring,
+    }
+  }
+
+  if (intent !== 'commitConstraintValue') {
+    return session
+  }
+
+  return commitSketchConstraintAuthoring(session)
+}
+
+function commitSketchConstraintAuthoring(session: SketchSessionState): SketchSessionState {
+  const authoring = session.constraintAuthoring
+
+  if (!authoring) {
+    return session
+  }
+
+  const definition = getSketchConstraintDefinition(authoring.toolId)
+  const contribution = definition.createCommitContribution({
+    sequence: session.sequence + 1,
+    selectedTargets: authoring.selectedTargets,
+    value: authoring.pendingValue,
+    createConstraintId: (suffix) => createConstraintId(session.sequence + 1, suffix),
+    createDimensionId: (suffix) => createDimensionId(session.sequence + 1, suffix),
+  })
+  const nextDefinition = appendDefinition(session.definition, {
+    points: [],
+    entities: [],
+    ...contribution,
+  })
+
+  return {
+    ...session,
+    definition: nextDefinition,
+    sequence: session.sequence + 1,
+    status: 'idle',
+    constraintAuthoring: null,
+    commitRequest: rebuildSessionCommitRequest(session, nextDefinition),
+    selectedAnnotation: null,
+    toolPresentation: null,
+    activeTool: null,
+  }
+}
+
+export function selectSketchAnnotation(
+  session: SketchSessionState,
+  target: SketchConstraintRef | SketchDimensionRef | null,
+): SketchSessionState {
+  return {
+    ...session,
+    selectedAnnotation: target,
+  }
+}
+
+export function deleteSelectedSketchAnnotation(session: SketchSessionState): SketchSessionState {
+  const selectedAnnotation = session.selectedAnnotation
+
+  if (!selectedAnnotation) {
+    return session
+  }
+
+  const nextDefinition =
+    selectedAnnotation.kind === 'constraint'
+      ? {
+          ...session.definition,
+          constraintIds: session.definition.constraintIds.filter(
+            (constraintId) => constraintId !== selectedAnnotation.constraintId,
+          ),
+          constraints: session.definition.constraints.filter(
+            (constraint) => constraint.constraintId !== selectedAnnotation.constraintId,
+          ),
+        }
+      : {
+          ...session.definition,
+          dimensionIds: session.definition.dimensionIds.filter(
+            (dimensionId) => dimensionId !== selectedAnnotation.dimensionId,
+          ),
+          dimensions: session.definition.dimensions.filter(
+            (dimension) => dimension.dimensionId !== selectedAnnotation.dimensionId,
+          ),
+        }
+
+  return {
+    ...session,
+    definition: nextDefinition,
+    selectedAnnotation: null,
+    commitRequest: rebuildSessionCommitRequest(session, nextDefinition),
+  }
+}
+
+export function getSketchAnnotationDescriptors(
+  session: SketchSessionState,
+): SketchAnnotationDescriptor[] {
+  const sketchId = session.sketchId ?? ('sketch_draft' as SketchId)
+
+  return [
+    ...session.definition.constraints.map((constraint) => ({
+      id: constraint.constraintId,
+      target: createSketchConstraintRef(sketchId, constraint.constraintId),
+      label: constraint.label,
+      detail: describeConstraint(constraint),
+      status: 'constraint' as const,
+    })),
+    ...session.definition.dimensions.map((dimension) => ({
+      id: dimension.dimensionId,
+      target: createSketchDimensionRef(sketchId, dimension.dimensionId),
+      label: dimension.label,
+      detail: describeDimension(dimension),
+      status: 'dimension' as const,
+    })),
+  ]
+}
+
 export function getSketchSessionDisplayRenderables(session: SketchSessionState): SketchSessionDisplayRenderable[] {
-  return session.entities.map((entity, index) => createDisplayRenderableForEntity(session, entity, index))
+  const sketchId = session.sketchId ?? ('sketch_draft' as SketchId)
+
+  return [
+    ...session.definition.points.map((point) => ({
+      id: `renderable_sketch_point_${point.pointId}` as RenderableId,
+      label: point.label,
+      target: createSketchPointRef(sketchId, point.pointId),
+      geometry: {
+        kind: 'marker' as const,
+        position: mapSketchPointToWorld(session.plane, point.position),
+        displayRadius: 0.16,
+      },
+    })),
+    ...session.entities.map((entity, index) => createDisplayRenderableForEntity(session, entity, index)),
+  ]
 }
 
 function createDisplayRenderableForEntity(
@@ -675,6 +1164,9 @@ function createDisplayRenderableForEntity(
     return {
       id: `renderable_sketch_line_${index}` as RenderableId,
       label: entity.label,
+      target: entity.entityId
+        ? createSketchEntityRef(session.sketchId ?? ('sketch_draft' as SketchId), entity.entityId)
+        : null,
       geometry: {
         kind: 'polyline',
         points: [
@@ -698,11 +1190,51 @@ function createDisplayRenderableForEntity(
   return {
     id: `renderable_sketch_circle_${index}` as RenderableId,
     label: entity.label,
+    target: entity.entityId
+      ? createSketchEntityRef(session.sketchId ?? ('sketch_draft' as SketchId), entity.entityId)
+      : null,
     geometry: {
       kind: 'polyline',
       points,
       isClosed: true,
     },
+  }
+}
+
+function describeConstraint(constraint: ConstraintDefinition) {
+  switch (constraint.kind) {
+    case 'coincident':
+      return 'Coincident points'
+    case 'parallel':
+      return 'Parallel lines'
+    case 'equalLength':
+      return 'Equal-length lines'
+    case 'horizontal':
+      return 'Horizontal line'
+    case 'vertical':
+      return 'Vertical line'
+    case 'fixPoint':
+      return 'Fixed point'
+    case 'angle':
+      return `${(constraint.valueRadians * 180 / Math.PI).toFixed(1)} deg`
+    case 'perpendicular':
+      return 'Perpendicular lines'
+  }
+}
+
+function describeDimension(dimension: DimensionDefinition) {
+  switch (dimension.kind) {
+    case 'distance':
+      return `${dimension.value.toFixed(2)} ${dimension.axis}`
+    case 'horizontalDistance':
+    case 'verticalDistance':
+      return `${dimension.value.toFixed(2)} mm`
+    case 'circleRadius':
+      return `${dimension.value.toFixed(2)} mm`
+    case 'arcStartPointCoincident':
+      return 'Arc start coincident'
+    case 'arcEndPointCoincident':
+      return 'Arc end coincident'
   }
 }
 

@@ -18,6 +18,21 @@ export interface SketchToolStepDescriptor {
   label: string
 }
 
+export interface SketchToolCursorDescriptor {
+  id: string
+  label: string
+  icon?: 'crosshair' | 'constraint' | 'dimension'
+}
+
+export interface SketchToolSelectionGuideDescriptor {
+  id: string
+  label: string
+  acceptedKinds: readonly ('point' | 'line' | 'circle' | 'arc' | 'annotation')[]
+  selectedCount: number
+  requiredCount: number
+  hoverLabel?: string | null
+}
+
 export type SketchToolControlDescriptor =
   | {
       id: string
@@ -65,6 +80,13 @@ export type SketchToolOverlayDescriptor =
     }
   | {
       id: string
+      kind: 'constraintPreview'
+      label: string
+      detail: string
+      anchor: SketchPoint
+    }
+  | {
+      id: string
       kind: 'anchor'
       label: string
       point: SketchPoint
@@ -83,6 +105,19 @@ export type SketchToolOverlayDescriptor =
       ready: boolean
     }
 
+export interface SketchToolFloatingInputDescriptor {
+  id: string
+  label: string
+  value: number | null
+  unit?: string
+  confirmLabel: string
+  cancelLabel: string
+  min?: number
+  anchor?: SketchPoint
+  submitAction: SketchToolActionDescriptor
+  cancelAction: SketchToolActionDescriptor
+}
+
 export interface SketchToolValidationDescriptor {
   id: string
   message: string
@@ -92,10 +127,13 @@ export interface SketchToolValidationDescriptor {
 export interface SketchToolPresentationSchema {
   prompts: readonly SketchToolPromptDescriptor[]
   steps?: readonly SketchToolStepDescriptor[]
+  cursor?: SketchToolCursorDescriptor | null
+  selectionGuide?: SketchToolSelectionGuideDescriptor | null
   controls?: readonly SketchToolControlDescriptor[]
   measurements?: readonly SketchToolMeasurementDescriptor[]
   completionHints?: readonly SketchToolCompletionHintDescriptor[]
   overlays?: readonly SketchToolOverlayDescriptor[]
+  floatingInput?: SketchToolFloatingInputDescriptor | null
   validation?: readonly SketchToolValidationDescriptor[]
   extension?: {
     id: string

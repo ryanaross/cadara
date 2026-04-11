@@ -43,6 +43,9 @@ export type SelectionSemantic =
   | 'existingSketch'
   | 'regionProfile'
   | 'sketchEntity'
+  | 'sketchPoint'
+  | 'constraintAnnotation'
+  | 'dimensionAnnotation'
   | 'planarFace'
   | 'planarReference'
 
@@ -101,7 +104,7 @@ export interface CommandPreview {
 
 export const defaultSelectionFilter: SelectionFilter = {
   kind: 'all',
-  allowedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'feature', 'construction', 'region'],
+  allowedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'constraint', 'dimension', 'feature', 'construction', 'region'],
   label: 'All selectable geometry',
   requirements: [
     {
@@ -113,7 +116,7 @@ export const defaultSelectionFilter: SelectionFilter = {
           id: 'general-selection',
           label: 'General selection',
           description: 'Select any single durable target.',
-          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'feature', 'construction', 'region'],
+          acceptedKinds: ['body', 'face', 'edge', 'vertex', 'loop', 'sketch', 'sketchEntity', 'sketchPoint', 'constraint', 'dimension', 'feature', 'construction', 'region'],
           acceptedSemantics: [
             'body',
             'face',
@@ -122,6 +125,9 @@ export const defaultSelectionFilter: SelectionFilter = {
             'constructionPlane',
             'existingSketch',
             'sketchEntity',
+            'sketchPoint',
+            'constraintAnnotation',
+            'dimensionAnnotation',
             'regionProfile',
           ],
         },
@@ -132,7 +138,7 @@ export const defaultSelectionFilter: SelectionFilter = {
 
 export const sketchSelectionFilter: SelectionFilter = {
   kind: 'sketchSession',
-  allowedKinds: ['construction', 'sketch', 'sketchEntity'],
+  allowedKinds: ['construction', 'sketch', 'sketchEntity', 'sketchPoint', 'constraint', 'dimension'],
   label: 'Sketch references',
   requirements: [
     {
@@ -144,8 +150,8 @@ export const sketchSelectionFilter: SelectionFilter = {
           id: 'sketch-reference',
           label: 'Sketch reference',
           description: 'Select the sketch plane, sketch, or sketch primitive.',
-          acceptedKinds: ['construction', 'sketch', 'sketchEntity'],
-          acceptedSemantics: ['constructionPlane', 'existingSketch', 'sketchEntity'],
+          acceptedKinds: ['construction', 'sketch', 'sketchEntity', 'sketchPoint', 'constraint', 'dimension'],
+          acceptedSemantics: ['constructionPlane', 'existingSketch', 'sketchEntity', 'sketchPoint', 'constraintAnnotation', 'dimensionAnnotation'],
         },
       ],
     },
@@ -667,6 +673,10 @@ export function getPrimitiveRefLabel(target: PrimitiveRef) {
       return `${target.sketchId}.${target.entityId}`
     case 'sketchPoint':
       return `${target.sketchId}.${target.pointId}`
+    case 'constraint':
+      return `${target.sketchId}.${target.constraintId}`
+    case 'dimension':
+      return `${target.sketchId}.${target.dimensionId}`
     case 'feature':
       return target.featureId
     case 'construction':
@@ -694,6 +704,10 @@ export function getPrimitiveRefKey(target: PrimitiveRef) {
       return `sketchEntity:${target.sketchId}:${target.entityId}`
     case 'sketchPoint':
       return `sketchPoint:${target.sketchId}:${target.pointId}`
+    case 'constraint':
+      return `constraint:${target.sketchId}:${target.constraintId}`
+    case 'dimension':
+      return `dimension:${target.sketchId}:${target.dimensionId}`
     case 'feature':
       return `feature:${target.featureId}`
     case 'construction':
@@ -762,7 +776,14 @@ function getTargetSemantics(
   const semantics: SelectionSemantic[] = []
   const targetKey = getPrimitiveRefKey(target)
 
-  if (catalog?.selectableTargetKeys && !catalog.selectableTargetKeys.includes(targetKey)) {
+  const allowSessionOwnedTarget =
+    target.kind === 'sketchPoint' || target.kind === 'constraint' || target.kind === 'dimension'
+
+  if (
+    catalog?.selectableTargetKeys
+    && !catalog.selectableTargetKeys.includes(targetKey)
+    && !allowSessionOwnedTarget
+  ) {
     return semantics
   }
 
@@ -797,6 +818,15 @@ function getTargetSemantics(
       break
     case 'sketchEntity':
       semantics.push('sketchEntity')
+      break
+    case 'sketchPoint':
+      semantics.push('sketchPoint')
+      break
+    case 'constraint':
+      semantics.push('constraintAnnotation')
+      break
+    case 'dimension':
+      semantics.push('dimensionAnnotation')
       break
     default:
       break

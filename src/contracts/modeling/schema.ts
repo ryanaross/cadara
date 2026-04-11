@@ -710,6 +710,9 @@ export interface SnapshotEntityRecord extends SnapshotOwnershipRecord {
     | 'constructionPlane'
     | 'existingSketch'
     | 'sketchEntity'
+    | 'sketchPoint'
+    | 'constraintAnnotation'
+    | 'dimensionAnnotation'
     | 'planarFace'
     | 'planarReference'
   )[]

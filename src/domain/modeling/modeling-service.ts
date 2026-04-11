@@ -409,6 +409,24 @@ function assertPrimitiveRef(value: unknown): PrimitiveRef {
         }
       }
       break
+    case 'constraint':
+      if (isString(value.sketchId) && isString(value.constraintId)) {
+        return {
+          kind: 'constraint',
+          sketchId: value.sketchId as SketchId,
+          constraintId: value.constraintId as ConstraintId,
+        }
+      }
+      break
+    case 'dimension':
+      if (isString(value.sketchId) && isString(value.dimensionId)) {
+        return {
+          kind: 'dimension',
+          sketchId: value.sketchId as SketchId,
+          dimensionId: value.dimensionId as DimensionId,
+        }
+      }
+      break
     case 'feature':
       if (isString(value.featureId)) {
         return { kind: 'feature', featureId: value.featureId as FeatureId }

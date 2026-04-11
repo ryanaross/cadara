@@ -1,6 +1,7 @@
 import type { ToolId } from '@/domain/tools/tool-registry'
 import type { ToolbarMode } from '@/domain/tools/schema'
 import { isRegisteredSketchToolId } from '@/domain/sketch-tools/registry'
+import { isRegisteredSketchConstraintToolId } from '@/domain/sketch-constraints/registry'
 import {
   applySelectionToFeatureEditSession,
   buildFeatureDefinition,
@@ -20,8 +21,13 @@ import { createFeatureEditorReferenceSelectionPatch } from '@/domain/feature-aut
 import {
   acceptSketchDraw,
   beginSketchTool,
+  deleteSelectedSketchAnnotation,
   getSketchSessionPreviewLabel,
+  patchSketchConstraintValue,
+  selectSketchAnnotation,
+  selectSketchConstraintTarget,
   startSketchDraw,
+  updateSketchConstraintHover,
   updateSketchPointer,
   type SketchSessionState,
 } from '@/domain/editor/sketch-session'
@@ -271,6 +277,11 @@ export interface SketchToolPatchedEvent {
   patch: Record<string, unknown>
 }
 
+/** Deletes the currently selected committed sketch annotation, if any. */
+export interface SketchAnnotationDeleteRequestedEvent {
+  type: 'sketch.annotationDeleteRequested'
+}
+
 /** Applies a partial edit to the active feature draft parameters. */
 export interface FormFeaturePatchedEvent {
   type: 'form.featurePatched'
@@ -327,6 +338,7 @@ export type EditorEvent =
   | SketchPointerMovedEvent
   | SketchPointerReleasedEvent
   | SketchToolPatchedEvent
+  | SketchAnnotationDeleteRequestedEvent
   | FormFeaturePatchedEvent
   | FormReferencePickerActivatedEvent
   | FormReferencePickerCancelledEvent
@@ -1180,7 +1192,7 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
 
       if (
         state.kind === 'editingSketch' &&
-        isRegisteredSketchToolId(event.toolId)
+        (isRegisteredSketchToolId(event.toolId) || isRegisteredSketchConstraintToolId(event.toolId))
       ) {
         const session = beginSketchTool(state.session, event.toolId)
 
@@ -1258,7 +1270,10 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       }
 
       const mode =
-        event.toolId === 'line' || event.toolId === 'rectangle' || event.toolId === 'circle'
+        event.toolId === 'line'
+          || event.toolId === 'rectangle'
+          || event.toolId === 'circle'
+          || isRegisteredSketchConstraintToolId(event.toolId)
           ? 'sketch'
           : state.mode
       const filter = getSelectionFilterForCommand(event.toolId, mode)
@@ -1304,6 +1319,24 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         effects: [],
       }
     case 'viewport.hoverCleared':
+      if (state.kind === 'editingSketch' && state.session.constraintAuthoring) {
+        const session = updateSketchConstraintHover(state.session, null)
+
+        return {
+          state: {
+            ...state,
+            hoverTarget: null,
+            session,
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
+      }
+
       return {
         state: withPreview(
           {
@@ -1335,6 +1368,24 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
       ) {
         return {
           state,
+          effects: [],
+        }
+      }
+
+      if (state.kind === 'editingSketch' && state.session.constraintAuthoring) {
+        const session = updateSketchConstraintHover(state.session, event.target)
+
+        return {
+          state: {
+            ...state,
+            hoverTarget: event.target,
+            session,
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
           effects: [],
         }
       }
@@ -1411,6 +1462,51 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           activeReferencePickerFieldId: activeReferenceField?.id ?? state.activeReferencePickerFieldId,
           pendingPreviewRequestId: null,
         })
+      }
+
+      if (
+        state.kind === 'editingSketch'
+        && (event.target.kind === 'constraint' || event.target.kind === 'dimension')
+      ) {
+        const session = selectSketchAnnotation(state.session, event.target)
+
+        return {
+          state: {
+            ...state,
+            selection: [event.target],
+            hoverTarget: event.target,
+            session,
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
+      }
+
+      if (state.kind === 'editingSketch' && state.session.constraintAuthoring) {
+        const session = selectSketchConstraintTarget(state.session, event.target)
+
+        return {
+          state: {
+            ...state,
+            selection: [event.target],
+            hoverTarget: event.target,
+            session,
+            command: {
+              ...state.command,
+              phase: 'collecting',
+            },
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
       }
 
       const candidate = resolveSelectionCandidate(
@@ -1527,6 +1623,23 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         }
       }
 
+      if (state.session.constraintAuthoring) {
+        const session = patchSketchConstraintValue(state.session, event.patch)
+
+        return {
+          state: {
+            ...state,
+            session,
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
+      }
+
       return {
         state: {
           ...state,
@@ -1537,6 +1650,31 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           },
         },
         effects: [],
+      }
+    case 'sketch.annotationDeleteRequested':
+      if (state.kind !== 'editingSketch') {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      {
+        const session = deleteSelectedSketchAnnotation(state.session)
+
+        return {
+          state: {
+            ...state,
+            selection: [],
+            session,
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
       }
     case 'form.featurePatched': {
       if (state.kind !== 'editingFeature') {

@@ -27,11 +27,27 @@ export function SketchToolPanel({ schema, onPatch }: SketchToolPanelProps) {
             {prompt.text}
           </div>
         ))}
+        {schema.cursor ? (
+          <div className="text-[var(--cad-muted-foreground)]">
+            Cursor: <span className="text-[var(--cad-foreground)]">{schema.cursor.label}</span>
+          </div>
+        ) : null}
         {schema.steps?.map((step) => (
           <div key={step.id}>
             Step: <span className="text-[var(--cad-foreground)]">{step.label}</span>
           </div>
         ))}
+        {schema.selectionGuide ? (
+          <div className="rounded-md border border-[var(--cad-border)] px-2 py-1">
+            <div className="text-[var(--cad-foreground)]">{schema.selectionGuide.label}</div>
+            <div className="mt-1">
+              Targets: {schema.selectionGuide.selectedCount}/{schema.selectionGuide.requiredCount}
+            </div>
+            {schema.selectionGuide.hoverLabel ? (
+              <div>Hover: {schema.selectionGuide.hoverLabel}</div>
+            ) : null}
+          </div>
+        ) : null}
         {validation.map((message) => (
           <div key={message.id} className="rounded-md border border-[rgba(255,143,107,0.45)] px-2 py-1 text-[rgb(255,190,164)]">
             {message.message}

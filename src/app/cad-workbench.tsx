@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { SketchConstraintAnnotations } from '@/components/cad/sketch-constraint-annotations'
+import { SketchFloatingInput } from '@/components/cad/sketch-floating-input'
 import { ThreeCadViewport } from '@/components/cad/three-cad-viewport'
 import { SketchToolOverlays } from '@/components/cad/sketch-tool-overlays'
 import { SketchToolPanel } from '@/components/cad/sketch-tool-panel'
@@ -10,7 +12,10 @@ import { WorkspaceToolbar } from '@/components/layout/workspace-toolbar'
 import { WorkbenchStateDebugger, type WorkbenchStateDebuggerModel } from '@/components/layout/workbench-state-debugger'
 import type { DocumentFeatureCursor } from '@/contracts/modeling/schema'
 import { mergeSketchRenderables } from '@/domain/editor/sketch-session-controller'
-import { getSketchToolPresentation } from '@/domain/editor/sketch-session'
+import {
+  getSketchAnnotationDescriptors,
+  getSketchToolPresentation,
+} from '@/domain/editor/sketch-session'
 import {
   getPrimitiveRefLabel,
   getPrimitiveRefKey,
@@ -90,6 +95,28 @@ export function CadWorkbench() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeReferencePickerFieldId, dispatch])
 
+  useEffect(() => {
+    if (!sketchSession) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete' && event.key !== 'Backspace') {
+        return
+      }
+
+      if (selection[0]?.kind !== 'constraint' && selection[0]?.kind !== 'dimension') {
+        return
+      }
+
+      event.preventDefault()
+      dispatch({ type: 'sketch.annotationDeleteRequested' })
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [dispatch, selection, sketchSession])
+
   const visibleHiddenTargetKeys = useMemo(() => {
     if (!snapshot) {
       return hiddenTargetKeys
@@ -140,6 +167,7 @@ export function CadWorkbench() {
     [previewRenderables, sketchSession, snapshot, visibleHiddenTargetKeys],
   )
   const sketchToolPresentation = sketchSession ? getSketchToolPresentation(sketchSession) : null
+  const sketchAnnotations = sketchSession ? getSketchAnnotationDescriptors(sketchSession) : []
   const debuggerState: WorkbenchStateDebuggerModel = {
     activeMode: mode,
     machineState: machineState.kind,
@@ -260,7 +288,16 @@ export function CadWorkbench() {
               schema={sketchToolPresentation}
               onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
             />
+            <SketchFloatingInput
+              descriptor={sketchToolPresentation?.floatingInput}
+              onPatch={(patch) => dispatch({ type: 'sketch.toolPatched', patch })}
+            />
             <SketchToolOverlays schema={sketchToolPresentation} />
+            <SketchConstraintAnnotations
+              annotations={sketchAnnotations}
+              selectedAnnotation={sketchSession?.selectedAnnotation ?? null}
+              onSelect={(target) => dispatch({ type: 'viewport.selectionRequested', target })}
+            />
             {restoreMessage ? (
               <div className="absolute right-4 top-4 max-w-sm rounded-lg border border-[var(--cad-border-strong)] bg-[rgba(8,12,17,0.95)] p-3 text-xs text-[var(--cad-foreground)] shadow-[var(--cad-panel-shadow)]">
                 <div className="font-medium">History restore failed</div>

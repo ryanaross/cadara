@@ -114,6 +114,10 @@ export function getOccDurableRefKey(target: DurableRef) {
       return `sketchEntity:${target.sketchId}:${target.entityId}`
     case 'sketchPoint':
       return `sketchPoint:${target.sketchId}:${target.pointId}`
+    case 'constraint':
+      return `constraint:${target.sketchId}:${target.constraintId}`
+    case 'dimension':
+      return `dimension:${target.sketchId}:${target.dimensionId}`
     case 'feature':
       return `feature:${target.featureId}`
     case 'construction':
@@ -141,6 +145,10 @@ function getDurableRefLabel(target: DurableRef) {
       return `${target.sketchId}.${target.entityId}`
     case 'sketchPoint':
       return `${target.sketchId}.${target.pointId}`
+    case 'constraint':
+      return `${target.sketchId}.${target.constraintId}`
+    case 'dimension':
+      return `${target.sketchId}.${target.dimensionId}`
     case 'feature':
       return target.featureId
     case 'construction':
