@@ -500,6 +500,54 @@ function applyBooleanPolicy(
   }
 }
 
+function createDeletedBodyInvalidations(body: OccTrackedBody) {
+  const invalidations = new Map<string, OccReferenceInvalidationRecord>()
+  const register = (target: DurableRef, sourceTarget: DurableRef | null) => {
+    invalidations.set(getOccDurableRefKey(target), {
+      target,
+      reason: OCC_REFERENCE_INVALIDATION_REASONS.topologyDeleted,
+      sourceTarget,
+    })
+  }
+
+  register({ kind: 'body', bodyId: body.bodyId }, null)
+
+  for (const faceId of body.facesById.keys()) {
+    register({ kind: 'face', bodyId: body.bodyId, faceId }, { kind: 'body', bodyId: body.bodyId })
+  }
+  for (const edgeId of body.edgesById.keys()) {
+    register({ kind: 'edge', bodyId: body.bodyId, edgeId }, { kind: 'body', bodyId: body.bodyId })
+  }
+  for (const vertexId of body.verticesById.keys()) {
+    register({ kind: 'vertex', bodyId: body.bodyId, vertexId }, { kind: 'body', bodyId: body.bodyId })
+  }
+
+  return invalidations
+}
+
+function trackBodiesFromShape(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  label: string,
+  shape: InstanceType<OpenCascadeInstance['TopoDS_Shape']>,
+  suffix: string,
+) {
+  const solids = extractSolidShapes(context.oc, shape)
+
+  if (solids.length === 0) {
+    throw new Error(
+      `advanced-feature-unsupported-kernel-case: ${label} for ${ownerFeatureId} produced no solid result bodies.`,
+    )
+  }
+
+  return solids.map((solid, index) => trackNewSolidBody(context.oc, {
+    bodyId: `body_${ownerFeatureId}_${suffix}${solids.length === 1 ? '' : `_${index + 1}`}` as BodyId,
+    label: `${ownerFeatureId}_${suffix}${solids.length === 1 ? '' : `_${index + 1}`}`,
+    ownerFeatureId,
+    shape: solid,
+  }))
+}
+
 function buildExtrudeFeatureShape(
   context: OccFeatureExecutionContext,
   parameters: ExtrudeFeatureParameters,
@@ -1219,6 +1267,122 @@ function executeThickenFeature(
   }
 }
 
+function getSplitTargetBody(definition: AdvancedSolidFeatureDefinition & { kind: 'split' }) {
+  const targets = getAdvancedParticipant(definition, 'targetBody')?.targets ?? []
+
+  if (targets.length !== 1 || targets[0]?.kind !== 'body') {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC split requires exactly one targetBody participant.')
+  }
+
+  return targets[0]
+}
+
+function getSplitToolBody(definition: AdvancedSolidFeatureDefinition & { kind: 'split' }) {
+  const toolBodies = getAdvancedParticipant(definition, 'toolBody')?.targets ?? []
+  const planes = getAdvancedParticipant(definition, 'plane')?.targets ?? []
+
+  if (planes.length > 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC split does not support plane split tools yet.')
+  }
+
+  if (toolBodies.length !== 1 || toolBodies[0]?.kind !== 'body') {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC split requires exactly one toolBody participant in the initial implementation.')
+  }
+
+  return toolBodies[0]
+}
+
+function executeSplitFeature(
+  context: OccFeatureExecutionContext,
+  ownerFeatureId: FeatureId,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'split' },
+): OccFeatureExecutionResult {
+  if (definition.parameters.operationIntent !== undefined) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC split does not support operation intents.')
+  }
+
+  const targetBodyRef = getSplitTargetBody(definition)
+  const toolBodyRef = getSplitToolBody(definition)
+
+  if (targetBodyRef.bodyId === toolBodyRef.bodyId) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC split requires distinct target and tool bodies.')
+  }
+
+  const targetBody = requireBody(context, targetBodyRef.bodyId)
+  const toolBody = requireBody(context, toolBodyRef.bodyId)
+  const cutResult = runBoolean(context.oc, 'cut', targetBody.shape, toolBody.shape)
+  const intersectResult = runBoolean(context.oc, 'intersect', targetBody.shape, toolBody.shape)
+  const remainderBodies = trackBodiesFromShape(context, ownerFeatureId, 'Split remainder', cutResult.shape, 'remainder')
+  const toolSideBodies = trackBodiesFromShape(context, ownerFeatureId, 'Split tool-side result', intersectResult.shape, 'tool-side')
+  const nextBodies = context.bodies
+    .filter((body) => body.bodyId !== targetBody.bodyId)
+    .concat([...remainderBodies, ...toolSideBodies])
+  const historyInvalidations = createDeletedBodyInvalidations(targetBody)
+
+  for (const [key, value] of collectTopologyHistoryInvalidations(targetBody, cutResult.builder)) {
+    historyInvalidations.set(key, value)
+  }
+  for (const [key, value] of collectTopologyHistoryInvalidations(targetBody, intersectResult.builder)) {
+    historyInvalidations.set(key, value)
+  }
+
+  return {
+    bodies: nextBodies,
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets: [...remainderBodies, ...toolSideBodies].map((body) => ({ kind: 'body' as const, bodyId: body.bodyId })),
+    entities: [],
+    renderRecords: [],
+    historyInvalidations,
+  }
+}
+
+function getDeleteSolidBodyTargets(definition: AdvancedSolidFeatureDefinition & { kind: 'deleteSolid' }) {
+  const bodyTargets = getAdvancedParticipant(definition, 'body')?.targets ?? []
+
+  if (bodyTargets.length === 0) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC delete-solid requires at least one body participant.')
+  }
+
+  for (const target of bodyTargets) {
+    if (target.kind !== 'body') {
+      throw new Error('advanced-feature-unsupported-kernel-case: OCC delete-solid body participants must be durable body targets.')
+    }
+  }
+
+  return bodyTargets as readonly Extract<DurableRef, { kind: 'body' }>[]
+}
+
+function executeDeleteSolidFeature(
+  context: OccFeatureExecutionContext,
+  definition: AdvancedSolidFeatureDefinition & { kind: 'deleteSolid' },
+): OccFeatureExecutionResult {
+  if (definition.parameters.operationIntent !== undefined) {
+    throw new Error('advanced-feature-unsupported-kernel-case: OCC delete-solid does not support operation intents.')
+  }
+
+  const bodyTargets = getDeleteSolidBodyTargets(definition)
+  requireUniqueTargetBodies(bodyTargets.map((target) => target.bodyId))
+
+  const historyInvalidations = new Map<string, OccReferenceInvalidationRecord>()
+  for (const target of bodyTargets) {
+    const body = requireBody(context, target.bodyId)
+    for (const [key, value] of createDeletedBodyInvalidations(body)) {
+      historyInvalidations.set(key, value)
+    }
+  }
+
+  return {
+    bodies: context.bodies.filter((body) => !bodyTargets.some((target) => target.bodyId === body.bodyId)),
+    constructions: [...context.constructions],
+    constructionPlanes: new Map(context.constructionPlanes),
+    producedTargets: [],
+    entities: [],
+    renderRecords: [],
+    historyInvalidations,
+  }
+}
+
 function buildShellFeatureShape(
   context: OccFeatureExecutionContext,
   parameters: ShellFeatureParameters,
@@ -1307,6 +1471,10 @@ export function executeOccFeature(
       return executeChamferFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'chamfer' })
     case 'thicken':
       return executeThickenFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'thicken' })
+    case 'split':
+      return executeSplitFeature(context, ownerFeatureId, definition as AdvancedSolidFeatureDefinition & { kind: 'split' })
+    case 'deleteSolid':
+      return executeDeleteSolidFeature(context, definition as AdvancedSolidFeatureDefinition & { kind: 'deleteSolid' })
     default:
       throw new Error(`advanced-feature-unsupported-kernel-case: OCC adapter does not implement ${definition.kind} yet.`)
   }

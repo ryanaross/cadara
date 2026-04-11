@@ -15,24 +15,17 @@ import {
   type ValidateSketchResponse,
 } from '@/contracts/solver/schema'
 import {
+  deriveSketchRegionsCore,
   solveSketchDefinitionCore,
   validateSketchDefinitionCore,
   type ProjectedSketchGeometryRef,
-  type RegionLoopRecord,
-  type RegionRecord,
-  type SketchDefinition,
   type SketchPoint2D,
-  type SketchSolveDiagnostic,
-  type SolvedSketchSnapshot,
 } from '@/contracts/sketch'
 import type {
   DocumentId,
   ProjectedGeometryId,
   ReferenceId,
-  RegionId,
-  RegionLoopId,
   RevisionId,
-  SketchId,
 } from '@/contracts/shared/ids'
 import { CONTRACT_VERSION } from '@/contracts/shared/versioning'
 
@@ -62,15 +55,6 @@ function makeResponseBase(
     revisionId: request.revisionId,
     sketchId: request.sketchId,
   }
-}
-
-function makeDiagnostic(
-  code: string,
-  severity: SketchSolveDiagnostic['severity'],
-  message: string,
-  target: SketchSolveDiagnostic['target'],
-): SketchSolveDiagnostic {
-  return { code, severity, message, target }
 }
 
 function createProjectedGeometryId(referenceId: ReferenceId, ordinal: number): ProjectedGeometryId {
@@ -123,116 +107,6 @@ function projectReference(
     }],
     diagnostics: [],
   }
-}
-
-function createRegionId(sketchId: SketchId, ordinal: number): RegionId {
-  const suffix = sketchId.startsWith('sketch_') ? sketchId.slice('sketch_'.length) : sketchId
-  return (ordinal === 0 ? `region_${suffix}-outer` : `region_${suffix}-loop-${ordinal + 1}`) as RegionId
-}
-
-function createRegionLoopId(regionId: RegionId, ordinal: number): RegionLoopId {
-  return `region_loop_${regionId}_${ordinal}` as RegionLoopId
-}
-
-function deriveClosedLineLoops(definition: SketchDefinition) {
-  const lineEntities = definition.entities.filter(
-    (entity): entity is Extract<SketchDefinition['entities'][number], { kind: 'lineSegment' }> =>
-      entity.kind === 'lineSegment' && !entity.isConstruction,
-  )
-  const remaining = [...lineEntities]
-  const loops: Array<{ boundaryEntityIds: string[]; boundaryPointIds: string[] }> = []
-
-  while (remaining.length > 0) {
-    const first = remaining.shift()
-    if (!first) {
-      break
-    }
-
-    const boundaryEntityIds = [first.entityId]
-    const boundaryPointIds = [first.startPointId, first.endPointId]
-    let currentPointId = first.endPointId
-    let closed = first.endPointId === first.startPointId
-
-    while (!closed) {
-      const nextIndex = remaining.findIndex((candidate) => candidate.startPointId === currentPointId)
-      if (nextIndex < 0) {
-        break
-      }
-
-      const [next] = remaining.splice(nextIndex, 1)
-      if (!next) {
-        break
-      }
-      boundaryEntityIds.push(next.entityId)
-      boundaryPointIds.push(next.endPointId)
-      currentPointId = next.endPointId
-      closed = currentPointId === boundaryPointIds[0]
-    }
-
-    if (closed && boundaryEntityIds.length >= 3) {
-      loops.push({
-        boundaryEntityIds,
-        boundaryPointIds: boundaryPointIds.slice(0, -1),
-      })
-    }
-  }
-
-  return loops
-}
-
-function deriveRegions(
-  documentId: DocumentId,
-  revisionId: RevisionId,
-  sketchId: SketchId,
-  solvedSnapshot: SolvedSketchSnapshot,
-  definition: SketchDefinition,
-) {
-  if (solvedSnapshot.status.solveState === 'failed' || solvedSnapshot.status.solveState === 'notEvaluated') {
-    return {
-      regions: [] as RegionRecord[],
-      diagnostics: [
-        makeDiagnostic(
-          'regions-unavailable',
-          'warning',
-          'Closed regions are unavailable until the sketch reaches a usable solved state.',
-          null,
-        ),
-      ],
-    }
-  }
-
-  const loops = deriveClosedLineLoops(definition)
-  const regions = loops.map((loop, index) => {
-    const regionId = createRegionId(sketchId, index)
-    const loopRecord: RegionLoopRecord = {
-      loopId: createRegionLoopId(regionId, 0),
-      role: 'outer',
-      orientation: 'counterClockwise',
-      segments: loop.boundaryEntityIds.map((entityId, segmentIndex) => ({
-        source: { kind: 'entity', entityId: entityId as never },
-        startPointId: (loop.boundaryPointIds[segmentIndex] as never) ?? null,
-        endPointId: (loop.boundaryPointIds[(segmentIndex + 1) % loop.boundaryPointIds.length] as never) ?? null,
-      })),
-      boundaryPointIds: loop.boundaryPointIds as never,
-      isClosed: true,
-    }
-
-    return {
-      ownerDocumentId: documentId,
-      ownerRevisionId: revisionId,
-      ownerFeatureId: null,
-      ownerSketchId: sketchId,
-      ownerBodyId: null,
-      regionId,
-      label: index === 0 ? 'Outer region' : `Loop region ${index + 1}`,
-      target: { kind: 'region', sketchId, regionId },
-      sourceSketch: { kind: 'sketch', sketchId },
-      loops: [loopRecord],
-      isClosed: true,
-    } satisfies RegionRecord
-  })
-
-  return { regions, diagnostics: [] as SketchSolveDiagnostic[] }
 }
 
 function assertSupportedRequest(
@@ -300,13 +174,13 @@ export class SketchConstraintSolverAdapter implements SketchSolverAdapter {
       tolerances: request.tolerances,
       partialSolvePolicy: request.partialSolvePolicy,
     })
-    const derived = deriveRegions(
-      request.documentId,
-      request.revisionId,
-      request.sketchId,
-      solved.solvedSnapshot,
-      request.definition,
-    )
+    const derived = deriveSketchRegionsCore({
+      documentId: request.documentId,
+      revisionId: request.revisionId,
+      sketchId: request.sketchId,
+      solvedSnapshot: solved.solvedSnapshot,
+      definition: request.definition,
+    })
 
     return {
       ...makeResponseBase(request),
@@ -321,13 +195,13 @@ export class SketchConstraintSolverAdapter implements SketchSolverAdapter {
     request: DeriveSketchRegionsRequest,
   ): Promise<DeriveSketchRegionsResponse> {
     assertSupportedRequest(request, this.options)
-    const derived = deriveRegions(
-      request.documentId,
-      request.revisionId,
-      request.sketchId,
-      request.solvedSnapshot,
-      request.definition,
-    )
+    const derived = deriveSketchRegionsCore({
+      documentId: request.documentId,
+      revisionId: request.revisionId,
+      sketchId: request.sketchId,
+      solvedSnapshot: request.solvedSnapshot,
+      definition: request.definition,
+    })
     return {
       ...makeResponseBase(request),
       regions: derived.regions,

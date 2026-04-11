@@ -9,7 +9,14 @@ import {
 import type { CommitSketchRequest, CreateFeatureRequest, FeatureDefinition, ReorderFeatureRequest } from '@/contracts/modeling/schema'
 import { EXTRUDE_FEATURE_SCHEMA_VERSION } from '@/contracts/shared/versioning'
 import { SKETCH_SCHEMA_VERSION } from '@/contracts/sketch/schema'
-import { chamferAdvancedFeatureExample, loftAdvancedFeatureExample, sweepAdvancedFeatureExample, thickenAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import {
+  chamferAdvancedFeatureExample,
+  deleteSolidAdvancedFeatureExample,
+  loftAdvancedFeatureExample,
+  splitAdvancedFeatureExample,
+  sweepAdvancedFeatureExample,
+  thickenAdvancedFeatureExample,
+} from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -311,6 +318,92 @@ function testPreservesChamferParticipantsAndDistanceOptions() {
   )
 }
 
+function testPreservesSplitParticipantsAcrossCreateAndUpdateEntries() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: splitAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_split-1',
+          definition: {
+            ...splitAdvancedFeatureExample,
+            parameters: {
+              participants: [
+                { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target_next' }] },
+                { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_tool_next' }] },
+              ],
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Split advanced solid feature history payloads should validate.')
+  assert(
+    result.ok
+      && result.payload.entries[0]?.kind === 'createFeature'
+      && result.payload.entries[0].payload.definition.kind === 'split'
+      && result.payload.entries[0].payload.definition.parameters.participants.some((participant) => participant.role === 'toolBody')
+      && result.payload.entries[1]?.kind === 'updateFeature'
+      && result.payload.entries[1].payload.definition.kind === 'split'
+      && result.payload.entries[1].payload.definition.parameters.participants.some((participant) => participant.role === 'targetBody'),
+    'Split operation history must preserve explicit targetBody and toolBody participants across create and update entries.',
+  )
+}
+
+function testPreservesDeleteSolidParticipantsAcrossCreateAndUpdateEntries() {
+  const payload: ModelingOperationHistoryPayload = {
+    ...createEmptyOperationHistory('doc_workspace'),
+    entries: [
+      createCreateFeatureHistoryEntry({
+        ...createFeatureRequest,
+        definition: deleteSolidAdvancedFeatureExample,
+      }),
+      {
+        kind: 'updateFeature',
+        payload: {
+          featureId: 'feature_delete-solid-1',
+          definition: {
+            ...deleteSolidAdvancedFeatureExample,
+            parameters: {
+              participants: [
+                {
+                  role: 'body',
+                  targets: [
+                    { kind: 'body', bodyId: 'body_delete_a' },
+                    { kind: 'body', bodyId: 'body_delete_b' },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ],
+  }
+
+  const result = validateOperationHistoryPayload(payload)
+
+  assert(result.ok, 'Delete-solid advanced solid feature history payloads should validate.')
+  assert(
+    result.ok
+      && result.payload.entries[0]?.kind === 'createFeature'
+      && result.payload.entries[0].payload.definition.kind === 'deleteSolid'
+      && result.payload.entries[1]?.kind === 'updateFeature'
+      && result.payload.entries[1].payload.definition.kind === 'deleteSolid'
+      && result.payload.entries[1].payload.definition.parameters.participants[0]?.targets.length === 2,
+    'Delete-solid operation history must preserve explicit body participants across create and update entries.',
+  )
+}
+
 function testPreservesLoftParticipantOrderAndGuideCurves() {
   const payload: ModelingOperationHistoryPayload = {
     ...createEmptyOperationHistory('doc_workspace'),
@@ -425,6 +518,8 @@ testValidatesProfileCollectionFeaturePayloads()
 testRejectsLegacyAndInvalidProfileCollections()
 testPreservesAdvancedParticipantsAndOperationIntent()
 testPreservesChamferParticipantsAndDistanceOptions()
+testPreservesSplitParticipantsAcrossCreateAndUpdateEntries()
+testPreservesDeleteSolidParticipantsAcrossCreateAndUpdateEntries()
 testPreservesLoftParticipantOrderAndGuideCurves()
 testRejectsInvalidAdvancedParticipants()
 testPreservesThickenParticipantsAndOptions()

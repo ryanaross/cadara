@@ -397,6 +397,10 @@ function hasFaceTarget(snapshot: DocumentSnapshot, bodyId: string, faceId: FaceI
   return snapshot.bodies.some((body) => body.bodyId === bodyId && body.topology.faceIds.includes(faceId))
 }
 
+function hasBodyTarget(snapshot: DocumentSnapshot, bodyId: string) {
+  return snapshot.bodies.some((body) => body.bodyId === bodyId)
+}
+
 function hasEdgeTarget(snapshot: DocumentSnapshot, bodyId: string, edgeId: string) {
   return snapshot.bodies.some((body) => body.bodyId === bodyId && body.topology.edgeIds.includes(edgeId as typeof body.topology.edgeIds[number]))
 }
@@ -838,6 +842,76 @@ function validateFeatureDefinitionAgainstSnapshot(
 
       return { accepted: true as const, diagnostics: [] }
     }
+    case 'split': {
+      const targetBodyTargets = getAdvancedParticipant(definition, 'targetBody')?.targets ?? []
+      const toolBodyTargets = getAdvancedParticipant(definition, 'toolBody')?.targets ?? []
+      const planeTargets = getAdvancedParticipant(definition, 'plane')?.targets ?? []
+
+      if (targetBodyTargets.length !== 1 || targetBodyTargets.some((target) => target.kind !== 'body')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-split',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Split requires exactly one explicit targetBody participant.')],
+        }
+      }
+
+      if (toolBodyTargets.length !== 1 || toolBodyTargets.some((target) => target.kind !== 'body')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-split',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Split requires exactly one explicit toolBody participant in the initial implementation.')],
+        }
+      }
+
+      if (planeTargets.length > 0) {
+        return {
+          accepted: false as const,
+          reasonCode: 'advanced-feature-unsupported-kernel-case',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Mock split does not implement plane split tools yet.')],
+        }
+      }
+
+      const [targetBody] = targetBodyTargets
+      const [toolBody] = toolBodyTargets
+      if (targetBody?.kind !== 'body' || toolBody?.kind !== 'body') {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-split',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Split targetBody and toolBody participants must resolve to live durable bodies.')],
+        }
+      }
+
+      if (!hasBodyTarget(snapshot, targetBody.bodyId) || !hasBodyTarget(snapshot, toolBody.bodyId)) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-split',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Split targetBody and toolBody participants must resolve to live durable bodies.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
+    case 'deleteSolid': {
+      const bodyTargets = getAdvancedParticipant(definition, 'body')?.targets ?? []
+
+      if (bodyTargets.length === 0 || bodyTargets.some((target) => target.kind !== 'body')) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-delete-solid',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Delete-solid requires one or more explicit body participants.')],
+        }
+      }
+
+      if (bodyTargets.some((target) => target.kind !== 'body' || !hasBodyTarget(snapshot, target.bodyId))) {
+        return {
+          accepted: false as const,
+          reasonCode: 'mock-invalid-delete-solid',
+          diagnostics: [createUnsupportedFeatureDiagnostic(definition, 'Delete-solid body participants must resolve to live durable bodies.')],
+        }
+      }
+
+      return { accepted: true as const, diagnostics: [] }
+    }
     default:
       return {
         accepted: false as const,
@@ -866,6 +940,16 @@ function buildPreviewRenderables(definition: FeatureDefinition, snapshot: Docume
   if (definition.kind === 'thicken') {
     const face = getAdvancedParticipant(definition, 'face')?.targets[0]
     return face ? createPreviewRenderableSet(getPrimitiveRefKey(face)) : []
+  }
+
+  if (definition.kind === 'split') {
+    const body = getAdvancedParticipant(definition, 'targetBody')?.targets[0]
+    return body ? createPreviewRenderableSet(getPrimitiveRefKey(body)) : []
+  }
+
+  if (definition.kind === 'deleteSolid') {
+    const body = getAdvancedParticipant(definition, 'body')?.targets[0]
+    return body ? createPreviewRenderableSet(getPrimitiveRefKey(body)) : []
   }
 
   if (definition.kind !== 'extrude') {
@@ -1530,8 +1614,8 @@ async function buildSnapshot(solverAdapter: SketchSolverAdapter): Promise<Docume
       angularToleranceRadians: 0.0001,
     },
     capabilities: {
-      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'loft', 'chamfer', 'thicken'],
-      previewableFeatureKinds: ['extrude', 'sweep', 'loft', 'chamfer', 'thicken'],
+      supportedFeatureKinds: ['extrude', 'fillet', 'sweep', 'loft', 'chamfer', 'thicken', 'split', 'deleteSolid'],
+      previewableFeatureKinds: ['extrude', 'sweep', 'loft', 'chamfer', 'thicken', 'split', 'deleteSolid'],
       supportedProfileKinds: ['region', 'face'],
       supportsFaceBackedSketchPlanes: true,
       supportsDurableTopologyNaming: false,

@@ -1,6 +1,7 @@
 import {
   solveSketchDefinitionCore,
   validateSketchDefinitionCore,
+  type SketchSolveStrategy,
 } from '@/contracts/sketch/solver-core'
 import type { SketchDefinition } from '@/contracts/sketch/schema'
 
@@ -675,6 +676,10 @@ async function testAxisAlignedRectangle() {
 }
 
 async function testRotatedRectangle() {
+  await assertRotatedRectangleSolvesWithStrategy('bfgs')
+}
+
+async function assertRotatedRectangleSolvesWithStrategy(strategy: SketchSolveStrategy) {
   const definition: SketchDefinition = {
     schemaVersion: 'sketch-definition/v1alpha1',
     referenceIds: [],
@@ -775,17 +780,35 @@ async function testRotatedRectangle() {
     ],
   }
 
-  const solved = solveSketchDefinitionCore({ definition, tolerances, partialSolvePolicy: 'bestEffort' })
+  const solved = solveSketchDefinitionCore({
+    definition,
+    tolerances,
+    partialSolvePolicy: 'bestEffort',
+    strategy,
+  })
   const coords = new Map(solved.solvedSnapshot.solvedPoints.map((point) => [point.pointId, point.solvedPosition]))
   const a = coords.get('sketch_point_a')
   const b = coords.get('sketch_point_b')
   const d = coords.get('sketch_point_d')
   const reference = coords.get('sketch_point_reference')
-  assert(a && b && d && reference, 'Expected solved rotated-rectangle anchors.')
-  assert(Math.hypot(a[0], a[1]) < 1e-5, 'A should remain at origin.')
-  assert(Math.hypot(reference[0] - 1, reference[1]) < 1e-5, 'Reference point should remain fixed.')
-  assert(Math.abs(Math.hypot(b[0] - a[0], b[1] - a[1]) - 2) < 1e-4, 'AB should solve to length 2.')
-  assert(Math.abs(Math.hypot(d[0] - a[0], d[1] - a[1]) - 3) < 1e-4, 'AD should solve to length 3.')
+  assert(a && b && d && reference, `Expected solved rotated-rectangle anchors for ${strategy}.`)
+  assert(solved.status.solveState === 'solved', `Rotated rectangle should fully solve for ${strategy}.`)
+  assert(Math.hypot(a[0], a[1]) < 1e-5, `A should remain at origin for ${strategy}.`)
+  assert(Math.hypot(reference[0] - 1, reference[1]) < 1e-5, `Reference point should remain fixed for ${strategy}.`)
+  assert(Math.abs(Math.hypot(b[0] - a[0], b[1] - a[1]) - 2) < 1e-4, `AB should solve to length 2 for ${strategy}.`)
+  assert(Math.abs(Math.hypot(d[0] - a[0], d[1] - a[1]) - 3) < 1e-4, `AD should solve to length 3 for ${strategy}.`)
+}
+
+async function testRotatedRectangleGradientDescent() {
+  await assertRotatedRectangleSolvesWithStrategy('gradientDescent')
+}
+
+async function testRotatedRectangleGaussNewton() {
+  await assertRotatedRectangleSolvesWithStrategy('gaussNewton')
+}
+
+async function testRotatedRectangleLevenbergMarquardt() {
+  await assertRotatedRectangleSolvesWithStrategy('levenbergMarquardt')
 }
 
 async function testValidationRejectsDegenerateLine() {
@@ -876,6 +899,9 @@ async function run() {
   await testArcEndPointCoincident()
   await testAxisAlignedRectangle()
   await testRotatedRectangle()
+  await testRotatedRectangleGradientDescent()
+  await testRotatedRectangleGaussNewton()
+  await testRotatedRectangleLevenbergMarquardt()
   await testValidationRejectsDegenerateLine()
   await testValidationRejectsPointIdsWithoutRecords()
   await testValidationRejectsMissingConstraintReferences()

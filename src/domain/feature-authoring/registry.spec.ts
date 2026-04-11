@@ -29,7 +29,7 @@ function testRegistryContainsCurrentFeatureSet() {
     .sort()
 
   assert(
-    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'sweep', 'thicken']),
+    JSON.stringify(registeredKinds) === JSON.stringify(['chamfer', 'deleteSolid', 'extrude', 'fillet', 'loft', 'plane', 'revolve', 'shell', 'split', 'sweep', 'thicken']),
     'The feature authoring registry should contain every current authored feature kind.',
   )
 }
@@ -342,6 +342,98 @@ function testThickenHydrationPreservesFaceTargetsAndOptions() {
   assert(hydrated?.draft.options.side === 'symmetric', 'Thicken hydration should preserve side.')
 }
 
+function testSplitDraftSelectionAndDefinitionBuilder() {
+  const targetBody = { kind: 'body' as const, bodyId: 'body_target' as const }
+  const toolBody = { kind: 'body' as const, bodyId: 'body_tool' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'split',
+    selectedTarget: targetBody,
+  })
+
+  assert(initialSession.featureType === 'split', 'Split activation should create a split authoring session.')
+  assert(buildFeatureDefinition(initialSession) === null, 'Split drafts without a tool body should not build a modeling definition.')
+
+  const targetField = getFeatureEditorFormSchema(initialSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'split-target-body')
+  const toolField = getFeatureEditorFormSchema(initialSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'split-tool-body')
+
+  assert(targetField?.kind === 'referencePicker', 'Split form schema should expose the target body as a reference picker.')
+  assert(toolField?.kind === 'referencePicker', 'Split form schema should expose the tool body as a reference picker.')
+  assert(targetField.advancedParticipant?.role === 'targetBody', 'Split target field should expose the targetBody participant role.')
+  assert(toolField.advancedParticipant?.role === 'toolBody', 'Split tool field should expose the toolBody participant role.')
+
+  const completedSession = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(toolField, toolBody),
+  )
+  const definition = buildFeatureDefinition(completedSession)
+
+  assert(definition?.kind === 'split', 'Completed split drafts should build a split advanced-solid definition.')
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'targetBody' && participant.targets[0] === targetBody),
+    'Split definitions should preserve the explicit target body participant.',
+  )
+  assert(
+    definition.parameters.participants.some((participant) => participant.role === 'toolBody' && participant.targets[0] === toolBody),
+    'Split definitions should preserve the explicit tool body participant.',
+  )
+}
+
+function testDeleteSolidDraftSelectionAndHydration() {
+  const bodyA = { kind: 'body' as const, bodyId: 'body_a' as const }
+  const bodyB = { kind: 'body' as const, bodyId: 'body_b' as const }
+  const initialSession = createFeatureEditSession({
+    featureType: 'deleteSolid',
+    selectedTarget: bodyA,
+  })
+
+  assert(initialSession.featureType === 'deleteSolid', 'Delete-solid activation should create a delete-solid authoring session.')
+
+  const bodiesField = getFeatureEditorFormSchema(initialSession)
+    .sections.flatMap((section) => section.fields)
+    .find((field) => field.id === 'delete-solid-bodies')
+  assert(bodiesField?.kind === 'referenceCollection', 'Delete-solid form schema should expose the body targets as a reference collection.')
+  assert(bodiesField.advancedParticipant?.role === 'body', 'Delete-solid body field should expose the body participant role.')
+
+  const completeSession = patchFeatureEditSession(
+    initialSession,
+    createFeatureEditorReferenceSelectionPatch(bodiesField, bodyB),
+  )
+  const definition = buildFeatureDefinition(completeSession)
+
+  assert(definition?.kind === 'deleteSolid', 'Completed delete-solid drafts should build a delete-solid advanced-solid definition.')
+  assert(definition.parameters.participants[0]?.targets.length === 2, 'Delete-solid definitions should preserve the selected body collection.')
+
+  const hydrated = hydrateFeatureEditSession({
+    ownerDocumentId: 'doc_workspace',
+    ownerRevisionId: 'rev_1',
+    ownerFeatureId: 'feature_delete-solid-1',
+    ownerSketchId: null,
+    ownerBodyId: null,
+    featureId: 'feature_delete-solid-1',
+    label: 'feature_delete-solid-1',
+    definition: {
+      kind: 'deleteSolid',
+      featureTypeVersion: 'advanced-solid-feature/v0',
+      parameters: {
+        participants: [
+          {
+            role: 'body',
+            targets: [bodyA, bodyB],
+          },
+        ],
+      },
+    },
+    producedTargets: [],
+  })
+
+  assert(hydrated?.featureType === 'deleteSolid', 'Delete-solid snapshots should hydrate into delete-solid edit sessions.')
+  assert(hydrated?.draft.bodyTargets.length === 2, 'Delete-solid hydration should preserve explicit body targets.')
+}
+
 function testProfileBasedAuthoringUsesReferenceCollections() {
   const profileA = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_a' as const }
   const profileB = { kind: 'region' as const, sketchId: 'sketch_a' as const, regionId: 'region_b' as const }
@@ -422,6 +514,8 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   const loft = definitions.find((definition) => definition.metadata.kind === 'loft')
   const chamfer = definitions.find((definition) => definition.metadata.kind === 'chamfer')
   const thicken = definitions.find((definition) => definition.metadata.kind === 'thicken')
+  const split = definitions.find((definition) => definition.metadata.kind === 'split')
+  const deleteSolid = definitions.find((definition) => definition.metadata.kind === 'deleteSolid')
 
   assert(extrude?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Extrude should declare profile participants for profile/path substrate coverage.')
   assert(fillet?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Fillet should declare edge participants for topology modifier substrate coverage.')
@@ -430,6 +524,8 @@ function testAdvancedParticipantDescriptorsAreMachineReadable() {
   assert(loft?.advancedParticipants?.some((participant) => participant.role === 'profile'), 'Loft should declare ordered profile participants for profile-family coverage.')
   assert(chamfer?.advancedParticipants?.some((participant) => participant.role === 'edge'), 'Chamfer should declare edge participants for topology modifier substrate coverage.')
   assert(thicken?.advancedParticipants?.some((participant) => participant.role === 'face'), 'Thicken should declare face participants for face-driven advanced solid coverage.')
+  assert(split?.advancedParticipants?.some((participant) => participant.role === 'toolBody'), 'Split should declare explicit toolBody participants for body split coverage.')
+  assert(deleteSolid?.advancedParticipants?.some((participant) => participant.role === 'body'), 'Delete-solid should declare explicit body participants for body removal coverage.')
 
   const shellSession = createFeatureEditSession({
     featureType: 'shell',
@@ -459,6 +555,8 @@ function testAdvancedAuthoringAndInspectorDoNotImportKernelModules() {
     'src/domain/feature-authoring/features/loft.ts',
     'src/domain/feature-authoring/features/chamfer.ts',
     'src/domain/feature-authoring/features/thicken.ts',
+    'src/domain/feature-authoring/features/split.ts',
+    'src/domain/feature-authoring/features/delete-solid.ts',
     'src/components/layout/feature-inspector.tsx',
   ]
 
@@ -604,6 +702,8 @@ testLoftDraftSelectionReorderingAndDefinitionBuilder()
 testLoftHydrationPreservesOrderedProfilesForEditing()
 testThickenDraftSelectionOptionsAndDefinitionBuilder()
 testThickenHydrationPreservesFaceTargetsAndOptions()
+testSplitDraftSelectionAndDefinitionBuilder()
+testDeleteSolidDraftSelectionAndHydration()
 testProfileBasedAuthoringUsesReferenceCollections()
 testShellOwnsFaceSelectionDefaultsAndFormSchema()
 testAdvancedParticipantDescriptorsAreMachineReadable()

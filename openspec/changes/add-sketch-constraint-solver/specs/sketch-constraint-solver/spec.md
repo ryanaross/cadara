@@ -32,3 +32,21 @@ The system SHALL return solved points, solved entities, per-constraint statuses,
 #### Scenario: Solve cannot satisfy the authored system fully
 - **WHEN** the solver detects invalid input, inconsistent constraints, or non-convergent results
 - **THEN** it returns machine-readable diagnostics and an appropriate solved-sketch status instead of inventing unsourced geometry
+
+### Requirement: Sketch contract SHALL own ring and region extraction behavior
+The system SHALL define loop, ring, and derived region extraction as sketch-domain behavior that operates on solved sketch geometry and remains outside kernel-specific adapter code.
+
+#### Scenario: Solver derives closed loops from solved sketch geometry
+- **WHEN** a solved sketch contains connected line, arc, or circle geometry that forms closed boundaries
+- **THEN** the sketch-domain extraction logic identifies closed loops and exposes them as sketch-owned derived region data
+
+#### Scenario: Modeling adapter needs derived sketch regions
+- **WHEN** a modeling adapter requests derived regions for a solved sketch
+- **THEN** it consumes region extraction from the sketch-domain subsystem instead of reimplementing ring traversal inside adapter code
+
+### Requirement: Sketch contract SHALL expose multiple deterministic solve strategies
+The system SHALL support multiple sketch-domain solve strategies for the same authored constraint system so direct tests can verify equivalent behavior across supported iterative methods.
+
+#### Scenario: Rotated rectangle fixture is solved with an alternative strategy
+- **WHEN** the sketch-domain solver evaluates a supported sketch using gradient-descent, Gauss-Newton, Levenberg-Marquardt, or BFGS strategy selection
+- **THEN** each supported strategy returns a valid solved sketch result within the documented tolerance for that fixture

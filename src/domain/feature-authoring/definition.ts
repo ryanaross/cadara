@@ -96,6 +96,15 @@ export interface ThickenFeatureParameterDraft {
   }
 }
 
+export interface SplitFeatureParameterDraft {
+  targetBodyTarget: Extract<PrimitiveRef, { kind: 'body' }> | null
+  toolBodyTarget: Extract<PrimitiveRef, { kind: 'body' }> | null
+}
+
+export interface DeleteSolidFeatureParameterDraft {
+  bodyTargets: readonly Extract<PrimitiveRef, { kind: 'body' }>[]
+}
+
 export interface FeatureDraftByKind {
   extrude: ExtrudeFeatureParameterDraft
   revolve: RevolveFeatureParameterDraft
@@ -106,6 +115,8 @@ export interface FeatureDraftByKind {
   loft: LoftFeatureParameterDraft
   chamfer: ChamferFeatureParameterDraft
   thicken: ThickenFeatureParameterDraft
+  split: SplitFeatureParameterDraft
+  deleteSolid: DeleteSolidFeatureParameterDraft
 }
 
 export interface FeatureParametersByKind {
@@ -118,6 +129,8 @@ export interface FeatureParametersByKind {
   loft: AdvancedSolidFeatureParameters
   chamfer: AdvancedSolidFeatureParameters
   thicken: AdvancedSolidFeatureParameters
+  split: AdvancedSolidFeatureParameters
+  deleteSolid: AdvancedSolidFeatureParameters
 }
 
 export interface FeatureVersionByKind {
@@ -130,10 +143,12 @@ export interface FeatureVersionByKind {
   loft: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
   chamfer: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
   thicken: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  split: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
+  deleteSolid: typeof ADVANCED_SOLID_FEATURE_SCHEMA_VERSION
 }
 
 export type FeatureDefinitionByKind<TKind extends AuthoredFeatureKind> =
-  TKind extends 'sweep' | 'loft' | 'chamfer' | 'thicken'
+  TKind extends 'sweep' | 'loft' | 'chamfer' | 'thicken' | 'split' | 'deleteSolid'
     ? AdvancedSolidFeatureDefinition & { kind: TKind }
     : Extract<FeatureDefinition, { kind: TKind }>
 
@@ -162,6 +177,8 @@ export type SweepFeatureEditSessionState = FeatureEditSessionStateForKind<'sweep
 export type LoftFeatureEditSessionState = FeatureEditSessionStateForKind<'loft'>
 export type ChamferFeatureEditSessionState = FeatureEditSessionStateForKind<'chamfer'>
 export type ThickenFeatureEditSessionState = FeatureEditSessionStateForKind<'thicken'>
+export type SplitFeatureEditSessionState = FeatureEditSessionStateForKind<'split'>
+export type DeleteSolidFeatureEditSessionState = FeatureEditSessionStateForKind<'deleteSolid'>
 
 export type FeatureEditSessionState =
   | ExtrudeFeatureEditSessionState
@@ -173,6 +190,8 @@ export type FeatureEditSessionState =
   | LoftFeatureEditSessionState
   | ChamferFeatureEditSessionState
   | ThickenFeatureEditSessionState
+  | SplitFeatureEditSessionState
+  | DeleteSolidFeatureEditSessionState
 
 export type FeatureDraftPatch = Record<string, unknown>
 

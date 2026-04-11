@@ -143,6 +143,46 @@ const thickenDescriptor = {
   ],
 } satisfies AdvancedSolidFeatureAuthoringDescriptor
 
+const splitDescriptor = {
+  featureKind: 'split',
+  participants: [
+    {
+      role: 'targetBody',
+      label: 'Target body',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['body'],
+    },
+    {
+      role: 'toolBody',
+      label: 'Split tool body',
+      required: true,
+      cardinality: { min: 1, max: 1 },
+      acceptedKinds: ['body'],
+    },
+    {
+      role: 'plane',
+      label: 'Split plane',
+      required: false,
+      cardinality: { min: 0, max: 1 },
+      acceptedKinds: ['construction', 'face'],
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
+const deleteSolidDescriptor = {
+  featureKind: 'deleteSolid',
+  participants: [
+    {
+      role: 'body',
+      label: 'Body targets',
+      required: true,
+      cardinality: { min: 1, max: null },
+      acceptedKinds: ['body'],
+    },
+  ],
+} satisfies AdvancedSolidFeatureAuthoringDescriptor
+
 function testAdvancedParticipantValidationAcceptsRoleSpecificPayloads() {
   const diagnostics = validateAdvancedSolidFeatureDefinition({
     kind: 'sweep',
@@ -319,6 +359,115 @@ function testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets() {
   )
 }
 
+function testSplitValidationAcceptsExplicitTargetAndToolBodies() {
+  const diagnostics = validateAdvancedSolidFeatureDefinition({
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' }] },
+        { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_tool' }] },
+      ],
+    },
+  }, splitDescriptor)
+
+  assert(diagnostics.length === 0, 'Split validation should accept one explicit target body and one tool body.')
+}
+
+function testSplitValidationRejectsMissingBodiesAndUnsupportedToolFamilies() {
+  const missingTool = validateAdvancedSolidFeatureDefinition({
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' }] },
+      ],
+    },
+  }, splitDescriptor)
+  const invalidPlaneKind = validateAdvancedSolidFeatureDefinition({
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' }] },
+        { role: 'plane', targets: [{ kind: 'edge', bodyId: 'body_tool', edgeId: 'edge_wrong' }] },
+      ],
+    },
+  }, splitDescriptor)
+  const invalidTargetCardinality = validateAdvancedSolidFeatureDefinition({
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        {
+          role: 'targetBody',
+          targets: [
+            { kind: 'body', bodyId: 'body_target_a' },
+            { kind: 'body', bodyId: 'body_target_b' },
+          ],
+        },
+        { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_tool' }] },
+      ],
+    },
+  }, splitDescriptor)
+
+  assert(
+    missingTool.some((diagnostic) => diagnostic.code === 'advanced-feature-missing-participant' && diagnostic.role === 'toolBody'),
+    'Split validation should require one explicit split tool participant.',
+  )
+  assert(
+    invalidPlaneKind.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'plane'),
+    'Split validation should reject unsupported split-tool target kinds.',
+  )
+  assert(
+    invalidTargetCardinality.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-cardinality' && diagnostic.role === 'targetBody'),
+    'Split validation should enforce the first-slice target-body cardinality.',
+  )
+}
+
+function testDeleteSolidValidationAcceptsAndRejectsExplicitBodyTargets() {
+  const valid = validateAdvancedSolidFeatureDefinition({
+    kind: 'deleteSolid',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        {
+          role: 'body',
+          targets: [
+            { kind: 'body', bodyId: 'body_a' },
+            { kind: 'body', bodyId: 'body_b' },
+          ],
+        },
+      ],
+    },
+  }, deleteSolidDescriptor)
+  const invalid = validateAdvancedSolidFeatureDefinition({
+    kind: 'deleteSolid',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'face', bodyId: 'body_a', faceId: 'face_a' }] },
+      ],
+    },
+  }, deleteSolidDescriptor)
+
+  assert(valid.length === 0, 'Delete-solid validation should accept one or more explicit body targets.')
+  assert(
+    invalid.some((diagnostic) => diagnostic.code === 'advanced-feature-invalid-target-kind' && diagnostic.role === 'body'),
+    'Delete-solid validation should reject non-body participants.',
+  )
+}
+
+testAdvancedParticipantValidationAcceptsRoleSpecificPayloads()
+testAdvancedParticipantValidationRejectsMissingAndWrongKinds()
+testAdvancedOperationIntentValidationRejectsUnsupportedModes()
+testSweepPathCardinalityAndBooleanTargetValidation()
+testLoftValidationPreservesOrderedProfilesAndGuideCurves()
+testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets()
+testSplitValidationAcceptsExplicitTargetAndToolBodies()
+testSplitValidationRejectsMissingBodiesAndUnsupportedToolFamilies()
+testDeleteSolidValidationAcceptsAndRejectsExplicitBodyTargets()
+
 function testChamferEdgeParticipantsAndDistanceValidation() {
   const valid = validateAdvancedSolidFeatureDefinition({
     kind: 'chamfer',
@@ -429,5 +578,8 @@ testAdvancedOperationIntentValidationRejectsUnsupportedModes()
 testSweepPathCardinalityAndBooleanTargetValidation()
 testLoftValidationPreservesOrderedProfilesAndGuideCurves()
 testLoftValidationRejectsMissingProfilesAndInvalidBooleanTargets()
+testSplitValidationAcceptsExplicitTargetAndToolBodies()
+testSplitValidationRejectsMissingBodiesAndUnsupportedToolFamilies()
+testDeleteSolidValidationAcceptsAndRejectsExplicitBodyTargets()
 testChamferEdgeParticipantsAndDistanceValidation()
 testThickenFaceParticipantsAndThicknessValidation()

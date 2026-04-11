@@ -1,12 +1,14 @@
 import type { AuthoredFeatureKind } from '@/contracts/modeling/schema'
 import type { FeatureAuthoringDefinition } from '@/domain/feature-authoring/definition'
 import { chamferAuthoringDefinition } from '@/domain/feature-authoring/features/chamfer'
+import { deleteSolidAuthoringDefinition } from '@/domain/feature-authoring/features/delete-solid'
 import { extrudeAuthoringDefinition } from '@/domain/feature-authoring/features/extrude'
 import { filletAuthoringDefinition } from '@/domain/feature-authoring/features/fillet'
 import { loftAuthoringDefinition } from '@/domain/feature-authoring/features/loft'
 import { planeAuthoringDefinition } from '@/domain/feature-authoring/features/plane'
 import { revolveAuthoringDefinition } from '@/domain/feature-authoring/features/revolve'
 import { shellAuthoringDefinition } from '@/domain/feature-authoring/features/shell'
+import { splitAuthoringDefinition } from '@/domain/feature-authoring/features/split'
 import { sweepAuthoringDefinition } from '@/domain/feature-authoring/features/sweep'
 import { thickenAuthoringDefinition } from '@/domain/feature-authoring/features/thicken'
 
@@ -20,6 +22,8 @@ export const featureAuthoringDefinitions = [
   loftAuthoringDefinition,
   chamferAuthoringDefinition,
   thickenAuthoringDefinition,
+  splitAuthoringDefinition,
+  deleteSolidAuthoringDefinition,
 ] as const satisfies readonly FeatureAuthoringDefinition[]
 
 const featureAuthoringRegistry = new Map<AuthoredFeatureKind, FeatureAuthoringDefinition>(

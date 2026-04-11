@@ -8,7 +8,18 @@ export const FEATURE_FIXTURE = {
   body: 'body_feature_extrude-1',
 } as const
 
-type FeatureKind = 'extrude' | 'revolve' | 'sweep' | 'loft' | 'fillet' | 'chamfer' | 'thicken' | 'shell' | 'plane'
+type FeatureKind =
+  | 'extrude'
+  | 'revolve'
+  | 'sweep'
+  | 'loft'
+  | 'split'
+  | 'fillet'
+  | 'chamfer'
+  | 'thicken'
+  | 'deleteSolid'
+  | 'shell'
+  | 'plane'
 
 export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
   constructor(page: Page) {
@@ -20,30 +31,68 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
     await expect.poll(() => this.revisionLabel(), { timeout: 30_000 }).not.toBe('loading')
   }
 
-  async createRectangleProfileFixture() {
+  async createRectangleProfileFixture(options: {
+    start?: { x: number; y: number }
+    end?: { x: number; y: number }
+  } = {}) {
+    const beforeTargets = await this.listRegionTargetIds()
     await this.activateTool('Start a new sketch.')
     await this.page.getByRole('button', { name: /Top Plane/ }).first().click()
     await this.expectMachine('editingSketch')
     await this.activateTool('Create rectangle geometry.')
-    await this.clickViewportAt({ x: 520, y: 320 })
-    await this.clickViewportAt({ x: 680, y: 440 })
+    await this.clickViewportAt(options.start ?? { x: 520, y: 320 })
+    await this.clickViewportAt(options.end ?? { x: 680, y: 440 })
     await this.activateTool('Exit the active sketch.')
-    await this.referenceButton(FEATURE_FIXTURE.profile).waitFor({ state: 'visible', timeout: 30_000 })
-    await expect.poll(() => this.referenceDisabled(FEATURE_FIXTURE.profile), { timeout: 30_000 }).toBe(false)
+    await expect
+      .poll(async () => (await this.listRegionTargetIds()).length, { timeout: 30_000 })
+      .toBeGreaterThan(beforeTargets.length)
+    const afterTargets = await this.listRegionTargetIds()
+    const profileTarget = afterTargets.find((target) => !beforeTargets.includes(target))
 
-    return { profileTarget: FEATURE_FIXTURE.profile }
+    if (!profileTarget) {
+      throw new Error('Expected sketch creation to expose a new region reference target.')
+    }
+
+    await this.referenceButton(profileTarget).waitFor({ state: 'visible', timeout: 30_000 })
+    await expect.poll(() => this.referenceDisabled(profileTarget), { timeout: 30_000 }).toBe(false)
+
+    return { profileTarget }
   }
 
   async createBaseExtrudeFixture() {
-    await this.createRectangleProfileFixture()
-    await this.selectReference(FEATURE_FIXTURE.profile)
+    const fixture = await this.createRectangleProfileFixture()
+    await this.selectReference(fixture.profileTarget)
     await this.activateFeature('extrude')
     await this.expectFeaturePreviewReady('extrude')
     await this.commitFeature('feature_extrude-1')
 
     return {
-      profileTarget: FEATURE_FIXTURE.profile,
+      profileTarget: fixture.profileTarget,
       bodyTarget: FEATURE_FIXTURE.body,
+    }
+  }
+
+  async createTwoExtrudeBodiesFixture() {
+    const first = await this.createRectangleProfileFixture()
+    await this.selectReference(first.profileTarget)
+    await this.activateFeature('extrude')
+    await this.expectFeaturePreviewReady('extrude')
+    await this.commitFeature('feature_extrude-1')
+
+    const second = await this.createRectangleProfileFixture({
+      start: { x: 560, y: 320 },
+      end: { x: 720, y: 440 },
+    })
+    await this.selectReference(second.profileTarget)
+    await this.activateFeature('extrude')
+    await this.expectFeaturePreviewReady('extrude')
+    await this.commitFeature('feature_extrude-2')
+
+    return {
+      firstProfileTarget: first.profileTarget,
+      secondProfileTarget: second.profileTarget,
+      targetBody: 'body_feature_extrude-1',
+      toolBody: 'body_feature_extrude-2',
     }
   }
 
@@ -58,9 +107,11 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
       revolve: 'Create a revolved solid or surface.',
       sweep: 'Create a swept solid or surface.',
       loft: 'Create a lofted solid from ordered profiles.',
+      split: 'Split one solid body with another solid tool body.',
       fillet: 'Round selected edges.',
       chamfer: 'Bevel selected edges.',
       thicken: 'Offset selected faces into a solid.',
+      deleteSolid: 'Delete one or more solid bodies from the document.',
       shell: 'Hollow a solid body.',
       plane: 'Create a construction plane.',
     }
@@ -71,6 +122,14 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
     const button = this.referenceButton(targetId)
     await button.click()
     await expect.poll(() => this.currentEditorSelection(), { timeout: 10_000 }).toContain(targetId)
+  }
+
+  async selectBodyTarget(bodyId: string) {
+    await this.selectReference(bodyId)
+  }
+
+  async selectSplitToolBody(bodyId: string) {
+    await this.selectReference(bodyId)
   }
 
   async selectFirstReferenceMatching(pattern: RegExp) {
@@ -162,6 +221,31 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
     }, pattern.source)
   }
 
+  private async listRegionTargetIds() {
+    const labels = await this.getReferenceLabelsMatching(/^Select .*\.region_/)
+    return labels.map(extractTargetId)
+  }
+
+  private async listVisibleBodyIds() {
+    const labels = await this.page.getByRole('button').evaluateAll((buttons) =>
+      buttons.flatMap((button) => {
+        if (button.getAttribute('aria-disabled') === 'true') {
+          return []
+        }
+
+        const label = button.getAttribute('aria-label')
+        if (!label?.startsWith('Select ')) {
+          return []
+        }
+
+        const match = /^Select .* (body_[A-Za-z0-9_-]+)$/.exec(label)
+        return match ? [match[1]] : []
+      }),
+    )
+
+    return Array.from(new Set(labels))
+  }
+
   async setNumericField(label: string, value: number) {
     await this.page.getByLabel(label).fill(String(value))
   }
@@ -186,6 +270,18 @@ export class FeatureWorkbenchHarness extends SketchWorkbenchHarness {
 
   async canvasBytes() {
     return this.viewport().screenshot()
+  }
+
+  async expectBodyPresent(bodyId: string) {
+    await expect.poll(() => this.listVisibleBodyIds(), { timeout: 30_000 }).toContain(bodyId)
+  }
+
+  async expectBodyAbsent(bodyId: string) {
+    await expect.poll(() => this.listVisibleBodyIds(), { timeout: 30_000 }).not.toContain(bodyId)
+  }
+
+  async expectBodyCountAtLeast(count: number) {
+    await expect.poll(async () => (await this.listVisibleBodyIds()).length, { timeout: 30_000 }).toBeGreaterThanOrEqual(count)
   }
 
   private referenceButton(targetId: string): Locator {
@@ -262,4 +358,9 @@ export function meanPixelDelta(left: Buffer, right: Buffer) {
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function extractTargetId(label: string) {
+  const match = /^Select .* (.+)$/.exec(label)
+  return match?.[1] ?? label
 }

@@ -69,6 +69,8 @@ export type SelectionFilterKind =
   | 'revolveReferences'
   | 'sweepReferences'
   | 'loftReferences'
+  | 'splitReferences'
+  | 'deleteSolidReferences'
   | 'thickenReferences'
   | 'filletEdges'
   | 'chamferEdges'
@@ -413,6 +415,64 @@ export const loftSelectionFilter: SelectionFilter = {
           id: 'loft-boolean-target',
           label: 'Boolean target',
           description: 'Select one body target.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
+export const splitSelectionFilter: SelectionFilter = {
+  kind: 'splitReferences',
+  allowedKinds: ['body'],
+  label: 'Split references',
+  requirements: [
+    {
+      id: 'split-target-body',
+      label: 'Target body',
+      description: 'Split requires one explicit durable body to split.',
+      slots: [
+        {
+          id: 'split-target-body',
+          label: 'Target body',
+          description: 'Select one body to split.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+    {
+      id: 'split-tool-body',
+      label: 'Split tool body',
+      description: 'The initial split implementation accepts one explicit durable tool body.',
+      slots: [
+        {
+          id: 'split-tool-body',
+          label: 'Split tool body',
+          description: 'Select one body to use as the split tool.',
+          acceptedKinds: ['body'],
+          acceptedSemantics: ['body'],
+        },
+      ],
+    },
+  ],
+}
+
+export const deleteSolidSelectionFilter: SelectionFilter = {
+  kind: 'deleteSolidReferences',
+  allowedKinds: ['body'],
+  label: 'Delete-solid references',
+  requirements: [
+    {
+      id: 'delete-solid-body',
+      label: 'Body target',
+      description: 'Delete-solid accepts one or more explicit durable body targets.',
+      slots: [
+        {
+          id: 'delete-solid-body',
+          label: 'Body target',
+          description: 'Select one body to remove.',
           acceptedKinds: ['body'],
           acceptedSemantics: ['body'],
         },

@@ -308,10 +308,19 @@ export const splitAdvancedFeatureExample = {
   kind: 'split',
   featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
   parameters: {
-    operationIntent: 'subtract',
     participants: [
       { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
       { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_tool' as BodyId }] },
+    ],
+  },
+} satisfies AdvancedSolidFeatureDefinition
+
+export const deleteSolidAdvancedFeatureExample = {
+  kind: 'deleteSolid',
+  featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+  parameters: {
+    participants: [
+      { role: 'body', targets: [{ kind: 'body', bodyId: 'body_target' as BodyId }] },
     ],
   },
 } satisfies AdvancedSolidFeatureDefinition

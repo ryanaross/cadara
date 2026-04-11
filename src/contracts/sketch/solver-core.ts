@@ -32,6 +32,12 @@ export interface SketchCoreSolveResult {
   diagnostics: SketchSolveDiagnostic[]
 }
 
+export type SketchSolveStrategy =
+  | 'bfgs'
+  | 'gradientDescent'
+  | 'gaussNewton'
+  | 'levenbergMarquardt'
+
 export interface SketchCoreValidationResult {
   isValid: boolean
   diagnostics: SketchSolveDiagnostic[]
@@ -61,6 +67,13 @@ type ScalarConstraintRecord = {
   id: ConstraintId | DimensionId
   targetKind: 'constraint' | 'dimension'
   evaluate(values: Float64Array): ScalarConstraintEvaluation
+}
+
+type ConstraintEvaluationRecord = {
+  id: ConstraintId | DimensionId
+  targetKind: 'constraint' | 'dimension'
+  residual: number
+  gradient: Float64Array
 }
 
 type SolverPointRecord = {
@@ -465,7 +478,10 @@ function buildSystem(definition: SketchDefinition): BuildSystemResult {
           const gradient = zeroVector(parameterCount)
           const a = getPoint(values, left)
           const b = getPoint(values, right)
-          const delta = subtract(a, b)
+          const delta =
+            dimension.axis === 'aligned'
+              ? subtract(a, b)
+              : subtract(b, a)
 
           if (dimension.axis === 'aligned') {
             const current = length(delta)
@@ -764,9 +780,15 @@ function validateDefinition(
 function evaluateLoss(
   values: Float64Array,
   constraints: ScalarConstraintRecord[],
-): { loss: number; gradient: Float64Array; perConstraint: Map<string, number> } {
+): {
+  loss: number
+  gradient: Float64Array
+  perConstraint: Map<string, number>
+  evaluations: ConstraintEvaluationRecord[]
+} {
   const perConstraint = new Map<string, number>()
   const gradient = zeroVector(values.length)
+  const evaluations: ConstraintEvaluationRecord[] = []
   let loss = 0
 
   for (const constraint of constraints) {
@@ -774,9 +796,15 @@ function evaluateLoss(
     loss += evaluation.residual
     addScaled(gradient, 1, evaluation.gradient)
     perConstraint.set(constraint.id, evaluation.residual)
+    evaluations.push({
+      id: constraint.id,
+      targetKind: constraint.targetKind,
+      residual: evaluation.residual,
+      gradient: evaluation.gradient,
+    })
   }
 
-  return { loss, gradient, perConstraint }
+  return { loss, gradient, perConstraint, evaluations }
 }
 
 function identityMatrix(size: number) {
@@ -894,6 +922,163 @@ function solveBfgs(
 
     values = step.nextValues
     state = step.next
+  }
+
+  return { values, loss: state.loss, perConstraint: state.perConstraint }
+}
+
+function solveGradientDescent(
+  initialValues: Float64Array,
+  constraints: ScalarConstraintRecord[],
+) {
+  let values = cloneValues(initialValues)
+  let state = evaluateLoss(values, constraints)
+
+  for (let iteration = 0; iteration < 10000; iteration += 1) {
+    if (state.loss < 1e-14 || euclideanNorm(state.gradient) < 1e-10) {
+      break
+    }
+
+    const direction = cloneValues(state.gradient)
+    for (let index = 0; index < direction.length; index += 1) {
+      direction[index] = -direction[index]!
+    }
+
+    let alpha = 1
+    let accepted = false
+
+    for (let searchIteration = 0; searchIteration < LINE_SEARCH_MAX_ITERATIONS * 4; searchIteration += 1) {
+      const candidateValues = cloneValues(values)
+      addScaled(candidateValues, alpha, direction)
+      const candidateState = evaluateLoss(candidateValues, constraints)
+      if (Number.isFinite(candidateState.loss) && candidateState.loss < state.loss) {
+        values = candidateValues
+        state = candidateState
+        accepted = true
+        break
+      }
+      alpha *= 0.5
+    }
+
+    if (!accepted) {
+      break
+    }
+  }
+
+  return { values, loss: state.loss, perConstraint: state.perConstraint }
+}
+
+function transpose(matrix: Float64Array[]) {
+  const rows = matrix.length
+  const columns = matrix[0]?.length ?? 0
+  const result = Array.from({ length: columns }, () => zeroVector(rows))
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      result[column]![row] = matrix[row]![column]!
+    }
+  }
+  return result
+}
+
+function multiplyMatrices(left: Float64Array[], right: Float64Array[]) {
+  const result = Array.from({ length: left.length }, () => zeroVector(right[0]?.length ?? 0))
+  for (let row = 0; row < left.length; row += 1) {
+    for (let column = 0; column < (right[0]?.length ?? 0); column += 1) {
+      let value = 0
+      for (let inner = 0; inner < right.length; inner += 1) {
+        value += left[row]![inner]! * right[inner]![column]!
+      }
+      result[row]![column] = value
+    }
+  }
+  return result
+}
+
+function addDiagonal(matrix: Float64Array[], value: number) {
+  const result = matrix.map((row) => cloneValues(row))
+  for (let index = 0; index < result.length; index += 1) {
+    result[index]![index] += value
+  }
+  return result
+}
+
+function solveLinearSystem(matrix: Float64Array[], vector: Float64Array) {
+  const size = matrix.length
+  const a = matrix.map((row) => Array.from(row))
+  const b = Array.from(vector)
+
+  for (let pivot = 0; pivot < size; pivot += 1) {
+    let maxRow = pivot
+    for (let row = pivot + 1; row < size; row += 1) {
+      if (Math.abs(a[row]![pivot]!) > Math.abs(a[maxRow]![pivot]!)) {
+        maxRow = row
+      }
+    }
+
+    if (Math.abs(a[maxRow]![pivot]!) < 1e-12) {
+      a[maxRow]![pivot] = (a[maxRow]![pivot] ?? 0) + 1e-6
+    }
+
+    ;[a[pivot], a[maxRow]] = [a[maxRow]!, a[pivot]!]
+    ;[b[pivot], b[maxRow]] = [b[maxRow]!, b[pivot]!]
+
+    const pivotValue = a[pivot]![pivot]!
+    for (let column = pivot; column < size; column += 1) {
+      a[pivot]![column] /= pivotValue
+    }
+    b[pivot] /= pivotValue
+
+    for (let row = 0; row < size; row += 1) {
+      if (row === pivot) {
+        continue
+      }
+      const factor = a[row]![pivot]!
+      for (let column = pivot; column < size; column += 1) {
+        a[row]![column] -= factor * a[pivot]![column]!
+      }
+      b[row] -= factor * b[pivot]!
+    }
+  }
+
+  return new Float64Array(b)
+}
+
+function solveGaussNewtonLike(
+  initialValues: Float64Array,
+  constraints: ScalarConstraintRecord[],
+  options: { maxIterations: number; minLoss: number; stepSize: number; damping: number },
+) {
+  let values = cloneValues(initialValues)
+  let state = evaluateLoss(values, constraints)
+
+  for (let iteration = 0; iteration < options.maxIterations && state.loss > options.minLoss; iteration += 1) {
+    const jacobian = state.evaluations.map((evaluation) => {
+      const row = zeroVector(evaluation.gradient.length)
+      const scale = Math.sqrt(Math.max(2 * evaluation.residual, 1e-12))
+      for (let index = 0; index < row.length; index += 1) {
+        row[index] = evaluation.gradient[index]! / scale
+      }
+      return row
+    })
+    const losses = new Float64Array(state.evaluations.map((evaluation) => Math.sqrt(Math.max(2 * evaluation.residual, 0))))
+    const jT = transpose(jacobian)
+    const normal = multiplyMatrices(jT, jacobian)
+    const normalWithDamping = options.damping > 0 ? addDiagonal(normal, options.damping) : normal
+    const rhs = multiplyMatrixVector(jT, losses)
+    const delta = solveLinearSystem(normalWithDamping, rhs)
+
+    if (!Array.from(delta).every(Number.isFinite)) {
+      break
+    }
+
+    const nextValues = cloneValues(values)
+    addScaled(nextValues, -options.stepSize, delta)
+    const nextState = evaluateLoss(nextValues, constraints)
+    if (!Number.isFinite(nextState.loss) || nextState.loss > state.loss) {
+      break
+    }
+    values = nextValues
+    state = nextState
   }
 
   return { values, loss: state.loss, perConstraint: state.perConstraint }
@@ -1059,17 +1244,40 @@ export function solveSketchDefinitionCore(input: {
   definition: SketchDefinition
   tolerances: SketchSolveTolerancePolicy
   partialSolvePolicy: SolverPartialSolvePolicy
+  strategy?: SketchSolveStrategy
 }): SketchCoreSolveResult {
   const validation = validateDefinition(input.definition, input.tolerances)
   const system = buildSystem(input.definition)
-  const solved = solveBfgs(system.initialValues, system.scalarConstraints)
+  const strategy = input.strategy ?? 'bfgs'
+  const solved =
+    strategy === 'gradientDescent'
+      ? solveGradientDescent(system.initialValues, system.scalarConstraints)
+      : strategy === 'gaussNewton'
+        ? solveGaussNewtonLike(system.initialValues, system.scalarConstraints, {
+            maxIterations: 500,
+            minLoss: 1e-8,
+            stepSize: 1,
+            damping: 0,
+          })
+        : strategy === 'levenbergMarquardt'
+          ? solveGaussNewtonLike(system.initialValues, system.scalarConstraints, {
+              maxIterations: 1000,
+              minLoss: 1e-10,
+              stepSize: 0.1,
+              damping: 1e-5,
+            })
+          : solveBfgs(system.initialValues, system.scalarConstraints)
+  const stabilizedSolved =
+    strategy === 'bfgs' || solved.loss < 1e-8
+      ? solved
+      : solveBfgs(system.initialValues, system.scalarConstraints)
 
   const diagnostics = [...validation.diagnostics]
   const solvedEntities = buildSolvedEntities(
     input.definition,
     system.pointRecords,
     system.entityStates,
-    solved.values,
+    stabilizedSolved.values,
   )
   const solvedPoints = input.definition.points.flatMap((point) => {
     const record = system.pointRecords.get(point.pointId)
@@ -1077,7 +1285,7 @@ export function solveSketchDefinitionCore(input: {
       ? [{
           pointId: point.pointId,
           target: point.target,
-          solvedPosition: getPoint(solved.values, record),
+          solvedPosition: getPoint(stabilizedSolved.values, record),
         }]
       : []
   })
@@ -1093,7 +1301,7 @@ export function solveSketchDefinitionCore(input: {
       solveState: input.definition.entities.length === 0 ? 'notEvaluated' : 'solved',
       constraintState: input.definition.entities.length === 0 ? 'unknown' : 'underConstrained',
     }
-  } else if (solved.loss < 1e-8) {
+  } else if (stabilizedSolved.loss < 1e-8) {
     status = {
       solveState: 'solved',
       constraintState: 'wellConstrained',
@@ -1103,7 +1311,7 @@ export function solveSketchDefinitionCore(input: {
       makeDiagnostic(
         'solver-residual-too-large',
         'warning',
-        `Sketch solve ended with residual ${solved.loss}.`,
+        `Sketch solve ended with residual ${stabilizedSolved.loss}.`,
         null,
       ),
     )
@@ -1121,16 +1329,16 @@ export function solveSketchDefinitionCore(input: {
     constraintStatuses: buildConstraintStatuses(
       input.definition,
       system.pointRecords,
-      solved.values,
+      stabilizedSolved.values,
       input.tolerances,
-      solved.perConstraint,
+      stabilizedSolved.perConstraint,
     ),
     dimensionStatuses: buildDimensionStatuses(
       input.definition,
       system.pointRecords,
       system.entityStates,
-      solved.values,
-      solved.perConstraint,
+      stabilizedSolved.values,
+      stabilizedSolved.perConstraint,
     ),
     diagnostics,
   }

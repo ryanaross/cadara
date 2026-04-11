@@ -93,6 +93,36 @@ test('thicken previews and commits from a durable planar face', async ({ page })
   await workbench.commitFeature('feature_thicken-1')
 })
 
+test('split previews and commits from explicit target and tool bodies', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createTwoExtrudeBodiesFixture()
+  await workbench.selectBodyTarget(fixture.targetBody)
+  await workbench.activateFeature('split')
+  await workbench.selectSplitToolBody(fixture.toolBody)
+
+  await workbench.expectFeaturePreviewReady('split')
+  await workbench.commitFeature('feature_split-1')
+  await workbench.expectBodyAbsent(fixture.targetBody)
+  await workbench.expectBodyPresent(fixture.toolBody)
+  await workbench.expectBodyCountAtLeast(3)
+})
+
+test('delete-solid previews and commits from an explicit body target', async ({ page }) => {
+  const workbench = new FeatureWorkbenchHarness(page)
+
+  await workbench.open()
+  const fixture = await workbench.createTwoExtrudeBodiesFixture()
+  await workbench.activateFeature('deleteSolid')
+  await workbench.selectBodyTarget(fixture.targetBody)
+
+  await workbench.expectFeaturePreviewReady('deleteSolid')
+  await workbench.commitFeature('feature_deleteSolid-1')
+  await workbench.expectBodyAbsent(fixture.targetBody)
+  await workbench.expectBodyPresent(fixture.toolBody)
+})
+
 test('shell previews, commits, and keeps consecutive canvas frames stable', async ({ page }) => {
   const workbench = new FeatureWorkbenchHarness(page)
 

@@ -8,7 +8,7 @@ import {
   PLANE_FEATURE_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
 import { ADVANCED_SOLID_FEATURE_SCHEMA_VERSION } from '@/contracts/modeling/advanced-solid'
-import { splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
+import { deleteSolidAdvancedFeatureExample, splitAdvancedFeatureExample } from '@/contracts/modeling/advanced-solid'
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -923,6 +923,131 @@ async function testThickenPreviewCommitAndUnsupportedCasesUseAdvancedParticipant
   assert(after.snapshot.revisionId === created.revisionId, 'Rejected thicken create requests must not mutate committed document state.')
 }
 
+async function testSplitPreviewCommitAndUnsupportedCasesUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const splitDefinition = {
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_part-1' }] },
+        { role: 'toolBody', targets: [{ kind: 'body', bodyId: 'body_part-1' }] },
+      ],
+    },
+  } as const
+  const unsupportedPlaneDefinition = {
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: 'body_part-1' }] },
+        { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+      ],
+    },
+  } as const
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_split_valid',
+    definition: splitDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: splitDefinition,
+  })
+  const unsupported = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: unsupportedPlaneDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedSplit = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock split previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock split previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock split create requests should be accepted.')
+  assert(committedSplit?.definition.kind === 'split', 'Committed mock split should be present in the next snapshot.')
+  assert(
+    committedSplit.definition.parameters.participants.some((participant) => participant.role === 'toolBody'),
+    'Committed mock split should preserve the explicit toolBody participant role.',
+  )
+  assert(unsupported.revisionState.kind === 'rejected', 'Unsupported plane-based split create requests should reject explicitly.')
+  assert(after.snapshot.revisionId === created.revisionId, 'Rejected split create requests must not mutate committed document state.')
+}
+
+async function testDeleteSolidPreviewCommitAndValidationUseAdvancedParticipants() {
+  const adapter = new MockKernelAdapter()
+  const before = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const deleteDefinition = {
+    kind: 'deleteSolid',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        {
+          role: 'body',
+          targets: [
+            { kind: 'body', bodyId: 'body_part-1' },
+          ],
+        },
+      ],
+    },
+  } as const
+  const invalidDefinition = {
+    ...deleteSolidAdvancedFeatureExample,
+    parameters: {
+      participants: [{ role: 'body' as const, targets: [{ kind: 'face' as const, bodyId: 'body_part-1' as const, faceId: 'face_top' as const }] }],
+    },
+  }
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    previewId: 'preview_delete_solid_valid',
+    definition: deleteDefinition,
+  })
+  const created = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: before.snapshot.revisionId,
+    definition: deleteDefinition,
+  })
+  const invalid = await adapter.createFeature({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: invalidDefinition,
+  })
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+  const committedDelete = after.snapshot.features.find((feature) => feature.featureId === created.featureId)
+
+  assert(preview.render.records.length > 0, 'Supported mock delete-solid previews should return transient renderables.')
+  assert(preview.diagnostics.length === 0, 'Supported mock delete-solid previews should not emit diagnostics.')
+  assert(created.revisionState.kind === 'accepted', 'Supported mock delete-solid create requests should be accepted.')
+  assert(committedDelete?.definition.kind === 'deleteSolid', 'Committed mock delete-solid should be present in the next snapshot.')
+  assert(committedDelete.definition.parameters.participants[0]?.targets.length === 1, 'Committed mock delete-solid should preserve the selected body participants.')
+  assert(invalid.revisionState.kind === 'rejected', 'Invalid delete-solid body targets should reject explicitly.')
+  assert(after.snapshot.revisionId === created.revisionId, 'Rejected delete-solid create requests must not mutate committed document state.')
+}
+
 async function testSnapshotRenderablesExposeSemanticBindings() {
   const adapter = new MockKernelAdapter()
   const snapshot = await adapter.getDocumentSnapshot({
@@ -1162,6 +1287,8 @@ await testSweepUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
   await testLoftUnsupportedCasesReturnStructuredDiagnosticsWithoutMutation()
   await testChamferPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
   await testThickenPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
+  await testSplitPreviewCommitAndUnsupportedCasesUseAdvancedParticipants()
+  await testDeleteSolidPreviewCommitAndValidationUseAdvancedParticipants()
   await testSnapshotRenderablesExposeSemanticBindings()
 await testConstructionPlanesExposeFilledRenderSurfaces()
 testResolvePickTargetUsesKernelPriority()

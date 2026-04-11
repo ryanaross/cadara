@@ -52,8 +52,17 @@ This keeps the solver interacting only with typed authored sketch data rather th
 
 Alternative considered: keeping those constructs as test-only internal types. Rejected because the solver would then not actually be driven by the sketch contract.
 
-### Keep projection and region derivation behavior separate from the solve core
-The sketch-only module will own validation and solving. The adapter will continue to own request envelope handling, external reference projection stubs, and region derivation wiring so the core stays focused on sketch math.
+### Keep projection in the adapter but move region extraction into the sketch contract
+The sketch-only module will own validation, solving, and ring/region extraction. The adapter will continue to own request envelope handling, external reference projection stubs, and reference-resolution wiring, but it should consume sketch-domain region extraction rather than reimplementing loop traversal internally.
+
+### Add alternative solve strategies behind the same sketch-domain input model
+The sketch-only module will expose multiple iterative solve strategies over the same residual and gradient definitions:
+- gradient descent with Wolfe line search
+- BFGS
+- Gauss-Newton
+- Levenberg-Marquardt
+
+The first-class public result still uses the same solved sketch schema, but direct tests can verify that multiple strategies solve the canonical fixtures.
 
 ## Risks / Trade-offs
 

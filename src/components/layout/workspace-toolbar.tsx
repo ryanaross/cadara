@@ -27,7 +27,9 @@ import {
   Sigma,
   Slash,
   Spline,
+  SplitSquareVertical,
   Square,
+  Trash2,
   Undo2,
 } from 'lucide-react'
 
@@ -60,9 +62,11 @@ const iconMap: Record<ToolIconId, typeof Undo2> = {
   revolve: Orbit,
   sweep: Spline,
   loft: Shapes,
+  split: SplitSquareVertical,
   fillet: Crop,
   chamfer: Diamond,
   thicken: Cuboid,
+  deleteSolid: Trash2,
   shell: Cuboid,
   linearPattern: Shapes,
   circularPattern: RotateCcw,

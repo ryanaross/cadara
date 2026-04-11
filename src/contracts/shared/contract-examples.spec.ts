@@ -28,6 +28,7 @@ import {
 import { SOLVER_SCHEMA_VERSION } from '@/contracts/solver/schema'
 import {
   chamferAdvancedFeatureExample,
+  deleteSolidAdvancedFeatureExample,
   loftAdvancedFeatureExample,
   splitAdvancedFeatureExample,
   sweepAdvancedFeatureExample,
@@ -619,8 +620,9 @@ function testAdvancedSolidExamplesUseRoleSpecificParticipants() {
   assert(chamferAdvancedFeatureExample.parameters.participants[0]?.role === 'edge', 'Chamfer example must preserve topology modifier edge participants.')
   assert(thickenAdvancedFeatureExample.parameters.participants[0]?.role === 'face', 'Thicken example must preserve explicit face participants.')
   assert(thickenAdvancedFeatureExample.parameters.options?.thickness === 1.5, 'Thicken example must preserve positive thickness options.')
-  assert(splitAdvancedFeatureExample.parameters.operationIntent === 'subtract', 'Split example must preserve operation intent.')
+  assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'targetBody'), 'Split example must preserve explicit target-body participants.')
   assert(splitAdvancedFeatureExample.parameters.participants.some((participant) => participant.role === 'toolBody'), 'Split example must preserve body-operation tool participants.')
+  assert(deleteSolidAdvancedFeatureExample.parameters.participants[0]?.role === 'body', 'Delete-solid example must preserve explicit body participants.')
 }
 
 testSolveSketchExampleIsFullyTyped()

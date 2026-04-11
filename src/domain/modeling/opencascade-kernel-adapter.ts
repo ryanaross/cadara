@@ -462,6 +462,24 @@ function buildPreviewRenderRecords(
     .filter((record) => record.ownerFeatureId === previewFeatureId)
 }
 
+function filterPreviewInvalidationDiagnostics(
+  previousState: OccAuthoringState,
+  previewState: OccAuthoringState,
+  diagnostics: readonly ModelingDiagnostic[],
+) {
+  const previewInvalidationKeys = new Set(
+    getNewInvalidatedTargets(previousState, previewState).map((target) => getOccDurableRefKey(target)),
+  )
+
+  return diagnostics.filter((diagnostic) => {
+    if (diagnostic.code !== 'occ-invalid-reference' || diagnostic.target === null) {
+      return true
+    }
+
+    return !previewInvalidationKeys.has(getOccDurableRefKey(diagnostic.target))
+  })
+}
+
 function createDefaultSolverCorrelation(sketchId: SketchId, revisionId: RevisionId) {
   const revisionSuffix = revisionId.replace(/[^a-zA-Z0-9]+/g, '_')
   const sketchSuffix = sketchId.replace(/[^a-zA-Z0-9]+/g, '_')
@@ -555,6 +573,9 @@ function getFeatureConsumedTargets(definition: FeatureDefinition) {
 
       return targets
     }
+    case 'split':
+    case 'deleteSolid':
+      return []
     default:
       return definition.parameters.participants.flatMap((participant) => [...participant.targets])
   }
@@ -1599,9 +1620,14 @@ export class OpenCascadeKernelAdapter implements ModelingKernelAdapter {
         cursor: { kind: 'feature', featureId: previewFeatureId },
       })
       const snapshot = buildOccWorkspaceSnapshot(previewState)
+      const previewDiagnostics = filterPreviewInvalidationDiagnostics(
+        runtimeState.authoringState,
+        previewState,
+        snapshot.diagnostics,
+      )
       const diagnostics = request.baseRevisionId === currentRevisionId
-        ? snapshot.diagnostics
-        : [createStalePreviewDiagnostic(request.previewId, request.baseRevisionId, currentRevisionId), ...snapshot.diagnostics]
+        ? previewDiagnostics
+        : [createStalePreviewDiagnostic(request.previewId, request.baseRevisionId, currentRevisionId), ...previewDiagnostics]
 
       return {
         contractVersion: CONTRACT_VERSION,

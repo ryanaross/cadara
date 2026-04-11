@@ -1035,6 +1035,54 @@ async function testFilletRejectsEmptyEdgeTargetList() {
   assert(thrownMessage === 'Fillet requires at least one target edge.', 'Fillet should reject empty target-edge lists explicitly.')
 }
 
+async function testSplitReplacesTargetBodyWithExplicitResultBodies() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const targetBody = await makeBoxBody(oc, 'body_phase4_split_target' as BodyId, 6, 4, 4, 'feature_phase4_split_seed_target' as FeatureId)
+  const toolBody = await makeBoxBody(oc, 'body_phase4_split_tool' as BodyId, 3, 4, 4, 'feature_phase4_split_seed_tool' as FeatureId, [2, 0, 0])
+  const context = await createContext({ bodies: [targetBody, toolBody] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_split' as FeatureId, {
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: targetBody.bodyId }] },
+        { role: 'toolBody', targets: [{ kind: 'body', bodyId: toolBody.bodyId }] },
+      ],
+    },
+  })
+
+  assert(result.bodies.every((body) => body.bodyId !== targetBody.bodyId), 'Split should remove the original target body from the next state.')
+  assert(result.bodies.some((body) => body.bodyId === toolBody.bodyId), 'Split should preserve the tool body in the next state.')
+  assert(result.producedTargets.length >= 2, 'Split should report the produced replacement body targets.')
+  assert(
+    result.bodies.filter((body) => body.bodyId.startsWith('body_feature_phase4_split_')).length >= 2,
+    'Split should append replacement split result bodies.',
+  )
+}
+
+async function testDeleteSolidRemovesSelectedBodiesAndKeepsInvalidationHistory() {
+  const oc = await getDefaultOpenCascadeInstance()
+  const bodyA = await makeBoxBody(oc, 'body_phase4_delete_a' as BodyId, 4, 4, 4, 'feature_phase4_delete_seed_a' as FeatureId)
+  const bodyB = await makeBoxBody(oc, 'body_phase4_delete_b' as BodyId, 4, 4, 4, 'feature_phase4_delete_seed_b' as FeatureId, [10, 0, 0])
+  const context = await createContext({ bodies: [bodyA, bodyB] })()
+
+  const result = executeOccFeature(context, 'feature_phase4_delete_solid' as FeatureId, {
+    kind: 'deleteSolid',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: [{ kind: 'body', bodyId: bodyA.bodyId }] },
+      ],
+    },
+  })
+
+  assert(result.producedTargets.length === 0, 'Delete-solid should not report new produced bodies.')
+  assert(result.bodies.every((body) => body.bodyId !== bodyA.bodyId), 'Delete-solid should remove the selected body from the next state.')
+  assert(result.bodies.some((body) => body.bodyId === bodyB.bodyId), 'Delete-solid should preserve unselected bodies.')
+  assert(result.historyInvalidations.size > 0, 'Delete-solid should preserve invalidation history for removed body topology.')
+}
+
 async function testShellBuildsPreviewableSolidFromExplicitBodyAndFaces() {
   const oc = await getDefaultOpenCascadeInstance()
   const boxBody = await makeBoxBody(oc, 'body_phase4_shell' as BodyId, 4, 4, 4, 'feature_phase4_shell_seed' as FeatureId)
@@ -1167,6 +1215,8 @@ await testLoftBuildsStandaloneBodyFromOrderedProfiles()
 await testLoftRejectsUnsupportedGuideCurvesAndBooleanComposition()
 await testFilletReplacesAffectedBody()
 await testFilletRejectsEmptyEdgeTargetList()
+await testSplitReplacesTargetBodyWithExplicitResultBodies()
+await testDeleteSolidRemovesSelectedBodiesAndKeepsInvalidationHistory()
 await testShellBuildsPreviewableSolidFromExplicitBodyAndFaces()
 await testOccAuthoringStateRebuildUsesFeatureExecutionFlow()
 await testOccAuthoringStateRebuildIsDeterministicAcrossRepeatedRuns()

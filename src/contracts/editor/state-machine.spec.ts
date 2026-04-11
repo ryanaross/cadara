@@ -640,6 +640,57 @@ function testThickenActivationSeedsFaceTargetsFromSelection() {
   assert(activation.effects[0]?.type === 'feature.evaluatePreview', 'Thicken activation should request a preview effect.')
 }
 
+function testSplitAndDeleteSolidActivationStartFeatureSessions() {
+  const splitActivation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'body', bodyId: 'body_a' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'split',
+    },
+  )
+
+  assert(splitActivation.state.kind === 'editingFeature', 'Split activation should enter feature editing.')
+  assert(splitActivation.state.session.featureType === 'split', 'Split activation should create a split session.')
+  assert(
+    splitActivation.state.session.draft.targetBodyTarget?.bodyId === 'body_a',
+    'Split activation should seed the selected body as the target body.',
+  )
+  assert(splitActivation.effects.length === 0, 'Split activation should wait for the tool body before previewing.')
+
+  const deleteSolidActivation = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      selectionCatalog: createRegionSelectionCatalog(),
+      selection: [{ kind: 'body', bodyId: 'body_a' }],
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'deleteSolid',
+    },
+  )
+
+  assert(deleteSolidActivation.state.kind === 'editingFeature', 'Delete-solid activation should enter feature editing.')
+  assert(deleteSolidActivation.state.session.featureType === 'deleteSolid', 'Delete-solid activation should create a delete-solid session.')
+  assert(
+    deleteSolidActivation.state.session.draft.bodyTargets[0]?.bodyId === 'body_a',
+    'Delete-solid activation should seed the selected body into the delete list.',
+  )
+  assert(deleteSolidActivation.effects.length === 1, 'Delete-solid activation with a selected body should emit one preview effect.')
+  assert(deleteSolidActivation.effects[0]?.type === 'feature.evaluatePreview', 'Delete-solid activation should request a preview effect.')
+}
+
 function testActiveReferencePickerRoutesSingleAndMultiSelections() {
   const catalog = createRegionSelectionCatalog()
   const activation = transitionEditorState(
@@ -1051,6 +1102,7 @@ testRevolveActivationStartsFeaturePreviewFlow()
 testRevolveActivationSupportsFaceThenEdgeSelection()
 testShellActivationSeedsBodyFromSelectedFace()
 testThickenActivationSeedsFaceTargetsFromSelection()
+testSplitAndDeleteSolidActivationStartFeatureSessions()
 testActiveReferencePickerRoutesSingleAndMultiSelections()
 testReferencePickerCancellationAndSessionCleanup()
 testReplayIsDeterministic()

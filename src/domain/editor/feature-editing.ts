@@ -32,8 +32,12 @@ export type {
   ShellFeatureParameterDraft,
   SweepFeatureEditSessionState,
   SweepFeatureParameterDraft,
+  SplitFeatureEditSessionState,
+  SplitFeatureParameterDraft,
   ThickenFeatureEditSessionState,
   ThickenFeatureParameterDraft,
+  DeleteSolidFeatureEditSessionState,
+  DeleteSolidFeatureParameterDraft,
 } from '@/domain/feature-authoring/definition'
 
 function createBaseFeatureSession(
@@ -102,6 +106,8 @@ export function hydrateFeatureEditSession(
     && feature.definition.kind !== 'loft'
     && feature.definition.kind !== 'chamfer'
     && feature.definition.kind !== 'thicken'
+    && feature.definition.kind !== 'split'
+    && feature.definition.kind !== 'deleteSolid'
   ) {
     return null
   }

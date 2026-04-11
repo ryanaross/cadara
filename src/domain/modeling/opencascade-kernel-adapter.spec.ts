@@ -624,6 +624,31 @@ function createThickenDefinition(bodyId: BodyId, faceId: FaceId, thickness: numb
   }
 }
 
+function createSplitDefinition(targetBodyId: BodyId, toolBodyId: BodyId): FeatureDefinition {
+  return {
+    kind: 'split',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'targetBody', targets: [{ kind: 'body', bodyId: targetBodyId }] },
+        { role: 'toolBody', targets: [{ kind: 'body', bodyId: toolBodyId }] },
+      ],
+    },
+  }
+}
+
+function createDeleteSolidDefinition(bodyIds: readonly BodyId[]): FeatureDefinition {
+  return {
+    kind: 'deleteSolid',
+    featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+    parameters: {
+      participants: [
+        { role: 'body', targets: bodyIds.map((bodyId) => ({ kind: 'body' as const, bodyId })) },
+      ],
+    },
+  }
+}
+
 function createShellDefinition(bodyId: BodyId, faceId: FaceId, thickness: number): FeatureDefinition {
   return {
     kind: 'shell',
@@ -1523,6 +1548,159 @@ async function testThickenPreviewCreateAndUnsupportedCases() {
   )
 }
 
+async function testSplitPreviewCreateAndUnsupportedCases() {
+  const adapter = createAdapter()
+  const firstSketchCommit = await commitSeedSketch(adapter)
+
+  if (firstSketchCommit.revisionState.kind !== 'accepted') {
+    throw new Error('Initial sketch commit must succeed before split coverage.')
+  }
+
+  const secondSketchCommit = await commitOffsetSketch(adapter, firstSketchCommit.revisionId, {
+    sketchLabel: 'Split Tool',
+    offsetX: 2,
+    offsetY: 0,
+  })
+  assert(secondSketchCommit.revisionState.kind === 'accepted', 'Second sketch commit must be accepted for split coverage.')
+
+  const sketchSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const firstSketch = requirePrimarySketch(sketchSnapshot.snapshot)
+  const secondSketch = requireSketch(sketchSnapshot.snapshot, secondSketchCommit.sketchId)
+  const targetBody = await createExtrudeBody(adapter, sketchSnapshot.snapshot.revisionId, firstSketch, 6)
+  const toolBody = await createExtrudeBody(adapter, targetBody.response.revisionId, secondSketch, 6)
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: toolBody.response.revisionId,
+    previewId: 'preview_split_body_tool',
+    definition: createSplitDefinition(targetBody.bodyId, toolBody.bodyId),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh split previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Body-tool split preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: toolBody.response.revisionId,
+    definition: createSplitDefinition(targetBody.bodyId, toolBody.bodyId),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Split create must be accepted for the supported tool-body path.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Accepted split create must rebuild.')
+  assert(
+    created.changedTargets.filter((target) => target.kind === 'body').length >= 2,
+    'Split create must report the produced replacement bodies.',
+  )
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  assert(
+    after.snapshot.bodies.every((body) => body.bodyId !== targetBody.bodyId),
+    'Split create must replace the target body with new result bodies.',
+  )
+  assert(
+    after.snapshot.bodies.some((body) => body.bodyId === toolBody.bodyId),
+    'Split create must preserve the tool body in committed state.',
+  )
+  assert(
+    after.snapshot.bodies.filter((body) => body.bodyId.startsWith('body_feature_split-')).length >= 2,
+    'Split create must append replacement split result bodies.',
+  )
+
+  const unsupportedPlane = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: created.revisionId,
+    definition: {
+      kind: 'split',
+      featureTypeVersion: ADVANCED_SOLID_FEATURE_SCHEMA_VERSION,
+      parameters: {
+        participants: [
+          { role: 'targetBody', targets: [{ kind: 'body', bodyId: toolBody.bodyId }] },
+          { role: 'plane', targets: [{ kind: 'construction', constructionId: 'construction_plane-xy' }] },
+        ],
+      },
+    },
+  })
+
+  assert(unsupportedPlane.revisionState.kind === 'rejected', 'Plane-based split create must reject unsupported composition explicitly.')
+  assert(
+    unsupportedPlane.diagnostics.some((diagnostic) => diagnostic.detail?.kind === 'rebuildFailure'),
+    'Unsupported split create rejection must surface structured diagnostics.',
+  )
+}
+
+async function testDeleteSolidPreviewCreateAndReferenceInvalidation() {
+  const adapter = createAdapter()
+  const firstSketchCommit = await commitSeedSketch(adapter)
+
+  if (firstSketchCommit.revisionState.kind !== 'accepted') {
+    throw new Error('Initial sketch commit must succeed before delete-solid coverage.')
+  }
+
+  const secondSketchCommit = await commitOffsetSketch(adapter, firstSketchCommit.revisionId, {
+    sketchLabel: 'Delete Solid 2',
+    offsetX: 20,
+    offsetY: 0,
+  })
+  assert(secondSketchCommit.revisionState.kind === 'accepted', 'Second sketch commit must be accepted for delete-solid coverage.')
+
+  const sketchSnapshot = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  const firstSketch = requirePrimarySketch(sketchSnapshot.snapshot)
+  const secondSketch = requireSketch(sketchSnapshot.snapshot, secondSketchCommit.sketchId)
+  const bodyA = await createExtrudeBody(adapter, sketchSnapshot.snapshot.revisionId, firstSketch, 6)
+  const bodyB = await createExtrudeBody(adapter, bodyA.response.revisionId, secondSketch, 6)
+
+  const preview = await adapter.evaluatePreview({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: bodyB.response.revisionId,
+    previewId: 'preview_delete_solid_body',
+    definition: createDeleteSolidDefinition([bodyA.bodyId]),
+  })
+
+  assert(preview.freshness.kind === 'fresh', 'Fresh delete-solid previews must report fresh freshness state.')
+  assertNoErrorDiagnostics(preview.diagnostics, 'Delete-solid preview must not emit error diagnostics.')
+
+  const created = await adapter.createFeature({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    baseRevisionId: bodyB.response.revisionId,
+    definition: createDeleteSolidDefinition([bodyA.bodyId]),
+  })
+
+  assert(created.revisionState.kind === 'accepted', 'Delete-solid create must be accepted.')
+  assert(created.rebuildResult.kind === 'rebuilt', 'Accepted delete-solid create must rebuild.')
+
+  const after = await adapter.getDocumentSnapshot({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+  })
+  assert(after.snapshot.bodies.every((body) => body.bodyId !== bodyA.bodyId), 'Delete-solid create must remove the selected body from the committed snapshot.')
+  assert(after.snapshot.bodies.some((body) => body.bodyId === bodyB.bodyId), 'Delete-solid create must preserve unselected bodies.')
+
+  const resolved = await adapter.resolveReference({
+    contractVersion: CONTRACT_VERSION,
+    documentId: 'doc_workspace',
+    target: { kind: 'body', bodyId: bodyA.bodyId },
+  })
+
+  assert(
+    resolved.resolution.invalidation?.reason === 'occ-topology-deleted' || resolved.resolution.invalidation?.reason === 'occ-reference-missing',
+    'Delete-solid must invalidate removed body references explicitly after commit.',
+  )
+}
+
 async function testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs() {
   const adapter = createAdapter()
   const committed = await commitSeedSketch(adapter)
@@ -2302,6 +2480,8 @@ await testFilletCreateAndUpdateMutateBodyTopology()
 await testChamferPreviewCreateAndUnsupportedCases()
 await testShellPreviewCreateUpdateAndSnapshotRoundTrip()
 await testThickenPreviewCreateAndUnsupportedCases()
+await testSplitPreviewCreateAndUnsupportedCases()
+await testDeleteSolidPreviewCreateAndReferenceInvalidation()
 await testDeleteFeatureRebuildsSnapshotAndResolveReferenceInvalidatesMissingRefs()
 await testReorderFeatureAndConflictHandling()
 await testPreviewFreshness()
