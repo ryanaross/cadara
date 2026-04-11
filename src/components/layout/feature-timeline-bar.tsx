@@ -17,6 +17,7 @@ import { useEditorState } from '@/hooks/use-editor-state'
 interface FeatureTimelineBarProps {
   snapshot: DocumentSnapshot | null
   onSelectTarget: (target: PrimitiveRef) => void
+  onReopenTarget: (target: PrimitiveRef) => void
   onCursorRequested?: (cursor: DocumentFeatureCursor) => void
   visibleSelection: PrimitiveRef[]
 }
@@ -36,6 +37,7 @@ function getCursorIndex(features: readonly FeatureSnapshotRecord[], cursor: Docu
 export function FeatureTimelineBar({
   snapshot,
   onSelectTarget,
+  onReopenTarget,
   onCursorRequested,
   visibleSelection,
 }: FeatureTimelineBarProps) {
@@ -113,13 +115,15 @@ export function FeatureTimelineBar({
 
                         onSelectTarget(target)
                       }}
+                      onDoubleClick={() => onReopenTarget(target)}
                       className={`flex h-8 w-8 items-center justify-center rounded-md border text-[var(--cad-foreground)] transition hover:border-[var(--cad-border-strong)] hover:bg-[var(--cad-surface-elevated)] ${
                         isSelected
                           ? 'border-[var(--cad-border-strong)] bg-[var(--cad-surface-elevated)]'
                           : 'border-transparent bg-transparent'
                       } ${isAfterCursor ? 'opacity-45' : ''} ${!isAllowed ? 'cursor-not-allowed' : ''}`}
-                      aria-label={`Select ${feature.label}`}
+                      aria-label={`Select ${feature.label}. Double-click to reopen.`}
                       aria-disabled={!isAllowed}
+                      title="Double-click to reopen authoring in place"
                     >
                       <Layers3 className="h-4 w-4" />
                     </button>

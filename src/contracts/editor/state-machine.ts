@@ -21,6 +21,7 @@ import { createFeatureEditorReferenceSelectionPatch } from '@/domain/feature-aut
 import {
   acceptSketchDraw,
   beginSketchTool,
+  clearActiveSketchTool,
   deleteSelectedSketchAnnotation,
   getSketchSessionPreviewLabel,
   patchSketchConstraintValue,
@@ -256,6 +257,15 @@ export interface ViewportSelectionRequestedEvent {
   target: PrimitiveRef
 }
 
+/** Reopens committed feature or sketch authoring directly from a navigation surface. */
+export interface AuthoringReopenRequestedEvent {
+  type: 'authoring.reopenRequested'
+  /** Durable target that should reopen in place. */
+  target: PrimitiveRef
+  /** Tool flow to use for the reopen request. */
+  toolId: ToolId
+}
+
 /** Updates the current sketch pointer position in sketch-plane coordinates. */
 export interface SketchPointerMovedEvent {
   type: 'sketch.pointerMoved'
@@ -275,6 +285,11 @@ export interface SketchToolPatchedEvent {
   type: 'sketch.toolPatched'
   /** Patch payload declared by the active sketch tool schema control. */
   patch: Record<string, unknown>
+}
+
+/** Clears the active sketch tool while leaving the sketch session open. */
+export interface SketchActiveToolClearedEvent {
+  type: 'sketch.activeToolCleared'
 }
 
 /** Deletes the currently selected committed sketch annotation, if any. */
@@ -335,9 +350,11 @@ export type EditorEvent =
   | ViewportHoveredEvent
   | ViewportHoverClearedEvent
   | ViewportSelectionRequestedEvent
+  | AuthoringReopenRequestedEvent
   | SketchPointerMovedEvent
   | SketchPointerReleasedEvent
   | SketchToolPatchedEvent
+  | SketchActiveToolClearedEvent
   | SketchAnnotationDeleteRequestedEvent
   | FormFeaturePatchedEvent
   | FormReferencePickerActivatedEvent
@@ -1552,6 +1569,51 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
         effects: [],
       }
     }
+    case 'authoring.reopenRequested': {
+      if (event.target.kind === 'sketch' && event.toolId === 'sketch') {
+        const nextState = createCommandState(
+          state,
+          'sketch',
+          state.mode,
+          sketchStartSelectionFilter,
+          createSelectionPreview(state, sketchStartSelectionFilter),
+        )
+
+        return emitSketchOpen(
+          {
+            ...nextState,
+            selection: [event.target],
+            hoverTarget: event.target,
+          },
+          [event.target],
+        )
+      }
+
+      if (event.target.kind !== 'feature' || !isFeatureTool(event.toolId)) {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      const selectionFilter = getSelectionFilterForFeatureType(event.toolId)
+      const nextState = createCommandState(
+        state,
+        event.toolId,
+        'part',
+        selectionFilter,
+        createSelectionPreview(state, selectionFilter),
+      )
+
+      return emitFeatureHydration(
+        {
+          ...nextState,
+          selection: [event.target],
+          hoverTarget: event.target,
+        },
+        event.target.featureId,
+      )
+    }
     case 'sketch.pointerMoved':
       if (state.kind !== 'editingSketch') {
         return {
@@ -1650,6 +1712,37 @@ export function transitionEditorState(state: EditorState, event: EditorEvent): E
           },
         },
         effects: [],
+      }
+    case 'sketch.activeToolCleared':
+      if (state.kind !== 'editingSketch') {
+        return {
+          state,
+          effects: [],
+        }
+      }
+
+      {
+        const session = clearActiveSketchTool(state.session)
+
+        return {
+          state: {
+            ...state,
+            selection: [],
+            hoverTarget: null,
+            session,
+            command: {
+              ...state.command,
+              toolId: 'sketch',
+              phase: 'editing',
+            },
+            preview: {
+              kind: 'sketch',
+              label: getSketchSessionPreviewLabel(session),
+              target: session.planeTarget,
+            },
+          },
+          effects: [],
+        }
       }
     case 'sketch.annotationDeleteRequested':
       if (state.kind !== 'editingSketch') {

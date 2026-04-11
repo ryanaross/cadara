@@ -25,8 +25,9 @@ build
 *.sln
 *.sw?
 node_modules
-.codex
+.codex/*
 .playwright-cli/
 .playwright/
 playwright-report/
 test-results/
+!.codex/skills/

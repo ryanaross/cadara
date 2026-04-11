@@ -43,12 +43,13 @@ const sidebarMarkup = renderToStaticMarkup(
       hiddenTargetKeys={{}}
       visibleSelection={[]}
       onSelectTarget={() => undefined}
+      onReopenTarget={() => undefined}
       onToggleTargetVisibility={() => undefined}
     />
   </EditorContext.Provider>,
 )
 
-assert(!sidebarMarkup.includes('Feature Tree'), 'Sidebar should no longer render the feature tree section.')
+assert(sidebarMarkup.includes('Feature Tree'), 'Sidebar should render the feature tree section.')
 assert(sidebarMarkup.includes('Parts &amp; Objects'), 'Sidebar should keep the parts and objects section.')
 assert(sidebarMarkup.includes('Snapshot References'), 'Sidebar should keep snapshot references.')
 assert(sidebarMarkup.includes('Document Diagnostics'), 'Sidebar should keep document diagnostics.')
@@ -59,13 +60,14 @@ const timelineMarkup = renderToStaticMarkup(
       snapshot={snapshot}
       visibleSelection={[{ kind: 'feature', featureId: 'feature_extrude-1' }]}
       onSelectTarget={() => undefined}
+      onReopenTarget={() => undefined}
       onCursorRequested={() => undefined}
     />
   </EditorContext.Provider>,
 )
 
 assert(timelineMarkup.includes('aria-label="Feature timeline"'), 'Timeline should expose a region label.')
-assert(timelineMarkup.includes('aria-label="Select Extrude 1"'), 'Timeline should expose feature selection labels.')
+assert(timelineMarkup.includes('aria-label="Select Extrude 1. Double-click to reopen."'), 'Timeline should expose feature selection labels.')
 assert(timelineMarkup.includes('aria-current="step"'), 'Timeline should expose the current cursor position.')
 assert(!timelineMarkup.includes('>Extrude 1</button>'), 'Timeline feature controls should be icon-only.')
 assert(timelineMarkup.includes('aria-label="Move cursor before first feature"'), 'Timeline should expose a cursor position before the first feature.')

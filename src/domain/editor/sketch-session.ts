@@ -732,6 +732,25 @@ export function beginSketchTool(session: SketchSessionState, toolId: SketchAutho
   }
 }
 
+export function clearActiveSketchTool(session: SketchSessionState): SketchSessionState {
+  if (session.activeTool === null) {
+    return session
+  }
+
+  return {
+    ...session,
+    activeTool: null,
+    status: 'idle',
+    pointerDownPoint: null,
+    livePoint: null,
+    entities: session.entities.filter((entity) => entity.status === 'accepted'),
+    validationMessage: null,
+    toolPresentation: null,
+    constraintAuthoring: null,
+    selectedAnnotation: null,
+  }
+}
+
 export function updateSketchPointer(
   session: SketchSessionState,
   point: SketchPoint | null,

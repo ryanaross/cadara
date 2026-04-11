@@ -23,6 +23,10 @@ import {
   type PrimitiveRef,
 } from '@/domain/editor/schema'
 import {
+  getEscapeEvent,
+  getNavigationReopenRequest,
+} from '@/domain/editor/workbench-interactions'
+import {
   getFeatureSnapshot,
   getSelectionDetail,
 } from '@/domain/modeling/document-snapshot-view'
@@ -78,7 +82,13 @@ export function CadWorkbench() {
   }, [modelingService])
 
   useEffect(() => {
-    if (!activeReferencePickerFieldId) {
+    const escapeEvent = getEscapeEvent({
+      activeCommand,
+      activeReferencePickerFieldId,
+      sketchSession,
+    })
+
+    if (!escapeEvent) {
       return
     }
 
@@ -88,12 +98,12 @@ export function CadWorkbench() {
       }
 
       event.preventDefault()
-      dispatch({ type: 'form.referencePickerCancelled' })
+      dispatch(escapeEvent)
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeReferencePickerFieldId, dispatch])
+  }, [activeCommand, activeReferencePickerFieldId, dispatch, sketchSession])
 
   useEffect(() => {
     if (!sketchSession) {
@@ -215,6 +225,16 @@ export function CadWorkbench() {
     dispatch({ type: 'viewport.selectionRequested', target })
   }
 
+  const handleNavigationReopen = (target: PrimitiveRef) => {
+    const reopenEvent = getNavigationReopenRequest(snapshot, target)
+
+    if (!reopenEvent) {
+      return
+    }
+
+    dispatch(reopenEvent)
+  }
+
   const handleViewportHoverClear = () => {
     dispatch({ type: 'viewport.hoverCleared' })
   }
@@ -269,6 +289,7 @@ export function CadWorkbench() {
           snapshot={snapshot}
           hiddenTargetKeys={visibleHiddenTargetKeys}
           onSelectTarget={handleViewportSelect}
+          onReopenTarget={handleNavigationReopen}
           onToggleTargetVisibility={handleTargetVisibilityToggle}
           visibleSelection={visibleSelection}
         />
@@ -321,6 +342,7 @@ export function CadWorkbench() {
             snapshot={snapshot}
             visibleSelection={visibleSelection}
             onSelectTarget={handleViewportSelect}
+            onReopenTarget={handleNavigationReopen}
             onCursorRequested={handleTimelineCursorRequested}
           />
         </div>

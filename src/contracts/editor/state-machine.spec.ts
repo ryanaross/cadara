@@ -22,7 +22,13 @@ import {
   RENDER_EXPORT_SCHEMA_VERSION,
   SNAPSHOT_SCHEMA_VERSION,
 } from '@/contracts/shared/versioning'
-import { createSketchSessionFromSnapshot, mapSketchPointToWorld } from '@/domain/editor/sketch-session'
+import {
+  createNewSketchSession,
+  createSketchSessionFromSnapshot,
+  mapSketchPointToWorld,
+} from '@/domain/editor/sketch-session'
+import { buildSelectionTargetCatalog } from '@/domain/modeling/document-snapshot-view'
+import { MockKernelAdapter } from '@/domain/modeling/mock-kernel-adapter'
 import type { SketchPlaneDefinition } from '@/contracts/shared/sketch-plane'
 import { createStandardPlaneDefinition } from '@/domain/modeling/opencascade-kernel-seed'
 
@@ -215,6 +221,16 @@ function createSnapshot(): DocumentSnapshot {
       ],
     },
   }
+}
+
+async function createMockWorkspaceSnapshot() {
+  const adapter = new MockKernelAdapter()
+  const response = await adapter.getDocumentSnapshot({
+    contractVersion: 'modeling-contract/v1alpha1',
+    documentId: 'doc_workspace',
+  })
+
+  return response.snapshot
 }
 
 function runEventTrace(events: readonly EditorEvent[]) {
@@ -1138,6 +1154,156 @@ async function testRuntimeLoopReopensStoredSketchPlane() {
   assert(result.state.session.plane.key === 'yz', 'Reopened sketch sessions should preserve the stored sketch plane.')
 }
 
+async function testRuntimeLoopReopensCommittedFeatureFromExplicitIntent() {
+  const runtimeSnapshot = await createMockWorkspaceSnapshot()
+  const runtime: EditorEffectRuntime = {
+    getCurrentDocumentSnapshot: async () => runtimeSnapshot,
+    commitSketch: async () => null,
+    evaluatePreview: async () => ({
+      revisionId: runtimeSnapshot.revisionId,
+      stale: false,
+      diagnostics: [],
+      renderables: [],
+    }),
+    commitFeature: async () => ({
+      revisionId: runtimeSnapshot.revisionId,
+      featureId: 'feature_extrude-1' as const,
+      accepted: true,
+      diagnostics: [],
+    }),
+  }
+
+  const result = await replayEditorEventsWithRuntime(
+    [
+      { type: 'session.started' },
+      {
+        type: 'effect.snapshotLoaded',
+        payload: {
+          requestId: 'request_snapshot-1',
+          documentId: runtimeSnapshot.documentId,
+          revisionId: runtimeSnapshot.revisionId,
+          snapshot: runtimeSnapshot,
+          selectionCatalog: buildSelectionTargetCatalog(runtimeSnapshot),
+        },
+      },
+      {
+        type: 'authoring.reopenRequested',
+        target: { kind: 'feature', featureId: 'feature_extrude-1' },
+        toolId: 'extrude',
+      },
+    ],
+    runtime,
+  )
+
+  assert(result.state.kind === 'editingFeature', 'Committed feature reopen should enter feature editing.')
+  assert(result.state.session.mode === 'edit', 'Committed feature reopen should hydrate an edit session.')
+  assert(result.state.session.featureId === 'feature_extrude-1', 'Committed feature reopen should preserve the feature identity.')
+}
+
+async function testRuntimeLoopReopensSketchFromExplicitIntent() {
+  const runtimeSnapshot = createReopenableYzSketchSnapshot()
+  const runtime: EditorEffectRuntime = {
+    getCurrentDocumentSnapshot: async () => runtimeSnapshot,
+    commitSketch: async () => null,
+    evaluatePreview: async () => ({
+      revisionId: 'rev_1' as const,
+      stale: false,
+      diagnostics: [],
+      renderables: [],
+    }),
+    commitFeature: async () => ({
+      revisionId: 'rev_1' as const,
+      featureId: 'feature_alpha' as const,
+      accepted: true,
+      diagnostics: [],
+    }),
+  }
+
+  const result = await replayEditorEventsWithRuntime(
+    [
+      { type: 'session.started' },
+      {
+        type: 'effect.snapshotLoaded',
+        payload: {
+          requestId: 'request_snapshot-1',
+          documentId: 'doc_workspace',
+          revisionId: 'rev_1',
+          snapshot: runtimeSnapshot,
+          selectionCatalog: {
+            ...createSelectionCatalog(),
+            selectableTargetKeys: [...createSelectionCatalog().selectableTargetKeys, 'sketch:sketch_yz'],
+            existingSketchKeys: ['sketch:sketch_a', 'sketch:sketch_yz'],
+          },
+        },
+      },
+      {
+        type: 'authoring.reopenRequested',
+        target: { kind: 'sketch', sketchId: 'sketch_yz' },
+        toolId: 'sketch',
+      },
+    ],
+    runtime,
+  )
+
+  assert(result.state.kind === 'editingSketch', 'Committed sketch reopen should enter sketch editing.')
+  assert(result.state.session.sketchId === 'sketch_yz', 'Committed sketch reopen should preserve the sketch identity.')
+  assert(result.state.session.plane.key === 'yz', 'Committed sketch reopen should preserve the stored sketch plane.')
+}
+
+function testSketchToolClearStaysInSketchEditing() {
+  const activated = transitionEditorState(
+    {
+      ...initialEditorState,
+      document: {
+        documentId: 'doc_workspace',
+        revisionId: 'rev_1',
+      },
+      snapshot: createSnapshot(),
+      selectionCatalog: createSelectionCatalog(),
+    },
+    {
+      type: 'tool.activated',
+      toolId: 'sketch',
+    },
+  )
+
+  const openRequested = transitionEditorState(activated.state, {
+    type: 'viewport.selectionRequested',
+    target: { kind: 'construction', constructionId: 'construction_plane-xy' },
+  })
+
+  const openEffect = openRequested.effects[0]
+
+  assert(openEffect?.type === 'sketch.openSession', 'Sketch fixture should emit an open-session effect.')
+
+  const opened = transitionEditorState(openRequested.state, {
+    type: 'effect.sketchSessionOpened',
+    requestId: openEffect.requestId,
+    documentId: 'doc_workspace',
+    revisionId: 'rev_1',
+    commandSessionId: openEffect.commandSessionId,
+    session: createNewSketchSession(createStandardPlaneDefinition('xy')),
+  })
+
+  assert(opened.state.kind === 'editingSketch', 'Sketch open fixture should enter sketch editing.')
+
+  const withTool = transitionEditorState(opened.state, {
+    type: 'tool.activated',
+    toolId: 'line',
+  })
+
+  assert(withTool.state.kind === 'editingSketch', 'Sketch tool activation should stay in sketch editing.')
+  assert(withTool.state.session.activeTool === 'line', 'Sketch tool activation should mark the active tool.')
+
+  const cleared = transitionEditorState(withTool.state, {
+    type: 'sketch.activeToolCleared',
+  })
+
+  assert(cleared.state.kind === 'editingSketch', 'Clearing an active sketch tool should keep the sketch session open.')
+  assert(cleared.state.session.activeTool === null, 'Clearing an active sketch tool should remove the active tool.')
+  assert(cleared.state.command.toolId === 'sketch', 'Clearing an active sketch tool should restore sketch-session command identity.')
+}
+
 testSketchActivationEmitsCorrelatedOpenEffect()
 testSketchActivationAcceptsAllPrimaryConstructionPlanes()
 testSketchSessionPreservesStoredPlaneDefinition()
@@ -1150,8 +1316,11 @@ testSplitAndDeleteSolidActivationStartFeatureSessions()
 testMirrorAndTransformActivationStartFeatureSessions()
 testActiveReferencePickerRoutesSingleAndMultiSelections()
 testReferencePickerCancellationAndSessionCleanup()
+testSketchToolClearStaysInSketchEditing()
 testReplayIsDeterministic()
 testSelectionKeyUsesDurableRefs()
 await testRuntimeLoopProcessesSketchOpen()
 await testRuntimeLoopOpensSketchFromNonXYConstruction()
 await testRuntimeLoopReopensStoredSketchPlane()
+await testRuntimeLoopReopensCommittedFeatureFromExplicitIntent()
+await testRuntimeLoopReopensSketchFromExplicitIntent()
