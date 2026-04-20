@@ -1,8 +1,5 @@
-# feature-flow-e2e-harness Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change stabilize-basic-feature-e2e-harness. Update Purpose after archive.
-## Requirements
 ### Requirement: Feature flow tests SHALL use a reusable Playwright harness
 The system SHALL provide a lightweight Playwright harness for feature testing that can open the workbench, create deterministic sketch/body fixtures, activate feature tools, set feature form values, select durable viewport targets, preview features, commit features, and compose multiple feature steps in a single scenario. State reads (machine state, selection targets, revision, feature session, preview diagnostics) SHALL use the structured `window.__cadTestState` bridge instead of regex-based `body.textContent()` scraping. Viewport geometry selection for non-picking tests SHALL use the programmatic `window.__cadSelectTarget()` bridge or the coordinate projection `window.__cadProjectToScreen()` bridge instead of hardcoded pixel coordinate maps. Canvas frame stability checks SHALL use the `data-render-idle` DOM attribute instead of screenshot byte-delta comparison.
 
@@ -26,35 +23,6 @@ The system SHALL provide a lightweight Playwright harness for feature testing th
 - **WHEN** the harness waits for the viewport to settle after a commit or reload
 - **THEN** the harness awaits `[data-render-idle="true"]` instead of polling screenshot byte-delta comparisons
 
-### Requirement: Supported feature flows SHALL have Playwright coverage
-The system SHALL include Playwright e2e coverage for extrude, revolve, fillet, shell, plane, and Combine boolean feature flows through the workbench UI, including assertions that committed boolean geometry visibly changes and survives rebuild.
-
-#### Scenario: Extrude remains covered
-- **WHEN** the e2e suite runs the extrude feature flow
-- **THEN** a valid sketch profile can be selected, previewed, and committed without runtime errors or failed diagnostics
-
-#### Scenario: Revolve is covered
-- **WHEN** the e2e suite runs the revolve feature flow with a valid profile and durable edge-backed axis
-- **THEN** the feature can be previewed and committed without runtime errors or failed diagnostics
-
-#### Scenario: Fillet is covered
-- **WHEN** the e2e suite runs the fillet feature flow against one or more durable body edges
-- **THEN** the edges are selectable in the viewport and the feature can be previewed and committed without runtime errors or failed diagnostics
-
-#### Scenario: Shell is covered
-- **WHEN** the e2e suite runs the shell feature flow against a valid body and removable face
-- **THEN** the feature can be previewed and committed without runtime errors or failed diagnostics
-
-#### Scenario: Plane is covered
-- **WHEN** the e2e suite runs the plane feature flow from a supported construction plane or planar face reference
-- **THEN** the construction plane feature can be previewed and committed without runtime errors or failed diagnostics
-
-#### Scenario: Boolean is covered
-- **WHEN** the e2e suite runs a Combine boolean feature flow with deterministic target bodies, tool bodies, and explicit operation intent
-- **THEN** the Combine operation can be previewed and committed without runtime errors or failed diagnostics
-- **AND** the viewport or generated snapshot demonstrates that committed geometry changed from the pre-combine body set
-- **AND** refreshing or rebuilding the document preserves the committed Combine result
-
 ### Requirement: Feature selection SHALL expose required durable target kinds
 The system SHALL expose viewport selection targets required by active feature authoring definitions, including durable edges for fillet, durable faces for shell and plane, durable bodies for boolean scope, and profile/axis references for revolve.
 
@@ -65,15 +33,3 @@ The system SHALL expose viewport selection targets required by active feature au
 #### Scenario: Feature-specific filters preserve target intent
 - **WHEN** a feature session declares a target filter for edges, faces, bodies, profiles, axes, or constructions
 - **THEN** the viewport selection path only applies accepted targets to the feature draft and leaves rejected targets out of the draft
-
-### Requirement: Shell render output SHALL be visually stable
-The system SHALL render shell feature results with stable material and color assignment so the resulting body interior does not flicker or display excessive transient coloring after preview or commit.
-
-#### Scenario: Shell commit has stable viewport coloring
-- **WHEN** a shell feature is committed and the viewport renders the resulting body
-- **THEN** the body interior uses stable material assignment across consecutive frames
-
-#### Scenario: Shell preview does not pollute committed materials
-- **WHEN** a shell preview is evaluated before commit
-- **THEN** transient preview coloring does not remain on the committed body after the feature is created
-
