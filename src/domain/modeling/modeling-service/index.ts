@@ -1,13 +1,3 @@
-/**
- * Re-export barrel for backward compatibility.
- * The implementation now lives in ./modeling-service/ sub-modules.
- */
-export {
-  createModelingService,
-  createSketchSolverService,
-  modelingRuntimeValidators,
-} from './modeling-service/index'
-
 export type {
   ModelingService,
   ModelingServiceOptions,
@@ -44,4 +34,7 @@ export type {
   ModelingProjectSketchExternalReferencesInput,
   ModelingPreviewResult,
   ModelingResolvedReferenceResult,
-} from './modeling-service/index'
+} from './types'
+
+export { createModelingService, modelingRuntimeValidators } from './service'
+export { createSketchSolverService } from './sketch-solver'
