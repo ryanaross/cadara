@@ -1,9 +1,5 @@
-# bun-test-harness Specification
+## MODIFIED Requirements
 
-## Purpose
-Define the Bun-managed non-Playwright test harness contract, including lane-aware execution and logic-only coverage reporting.
-
-## Requirements
 ### Requirement: Repository unit and integration specs SHALL run through Bun's native test harness in explicit lanes
 The repository SHALL execute non-Playwright `.spec.ts` and `.spec.tsx` coverage through `bun:test` rather than through raw TypeScript entrypoint scripts, and the Bun-managed suite SHALL support explicit `logic`, `ui`, and `static` execution lanes instead of treating all non-Playwright specs as one undifferentiated suite.
 
@@ -22,14 +18,6 @@ The repository SHALL execute non-Playwright `.spec.ts` and `.spec.tsx` coverage 
 - **THEN** Bun discovers and executes the repository's supported `static`-lane checks through `bun:test`
 - **AND** the checks remain isolated from browser-based e2e execution
 
-### Requirement: Playwright SHALL remain the dedicated e2e harness
-The repository SHALL keep Playwright as the dedicated browser e2e runner and SHALL not route e2e specs through `bun:test`.
-
-#### Scenario: Running end-to-end coverage
-- **WHEN** a developer runs the repository `test:e2e` script
-- **THEN** the repository executes Playwright tests using the existing Playwright harness
-- **AND** browser-based e2e execution remains isolated from the Bun unit and integration harness
-
 ### Requirement: Public test scripts SHALL expose lane-aware workflows and umbrella commands
 The repository SHALL expose lane-aware top-level test commands for Bun-managed non-Playwright coverage while preserving umbrella entrypoints for ordinary developer use.
 
@@ -42,6 +30,8 @@ The repository SHALL expose lane-aware top-level test commands for Bun-managed n
 - **WHEN** a developer runs the repository `test` script
 - **THEN** the repository executes the intended umbrella Bun-managed suite for the refactored non-Playwright lanes
 - **AND** the workflow does not require separate raw TypeScript entrypoint scripts for those checks
+
+## ADDED Requirements
 
 ### Requirement: Non-UI coverage SHALL be emitted from the Bun logic lane
 The repository SHALL provide a Bun-managed coverage workflow for the `logic` lane so the team can measure non-UI code independently from UI and static checks.
