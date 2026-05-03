@@ -1,8 +1,37 @@
-# history-undo-redo Specification
+## ADDED Requirements
 
-## Purpose
-TBD - created by archiving change add-history-undo-redo. Update Purpose after archive.
-## Requirements
+### Requirement: Durable document mutations SHALL be undone and redone through repository-backed history groups
+Undoable durable document mutations SHALL be reversed and reapplied through repository-backed history groups instead of mutation-specific inverse stacks owned by workbench hooks.
+
+#### Scenario: Undo durable variable rename or value edit
+- **WHEN** the user changes a document variable name or value and the mutation is accepted
+- **AND** the user later requests Undo
+- **THEN** the accepted variable mutation is reverted through the durable history group recorded for that action
+- **AND** the workbench does not depend on a React-local inverse entry for the variable
+
+#### Scenario: Undo accepted document history reorder
+- **WHEN** the user performs an accepted document history reorder
+- **AND** the user later requests Undo
+- **THEN** the reorder is reverted through the recorded durable history group
+- **AND** Redo reapplies that same grouped reorder action
+
+### Requirement: Sketch draft undo and redo SHALL restore durable draft state
+While a document-changing sketch draft session is active, Undo and Redo SHALL restore the repository-backed draft state for that session rather than delegating to document timeline cursor movement.
+
+#### Scenario: Undo restores deleted draft geometry and dependents
+- **WHEN** the user deletes selected sketch draft geometry with dependent draft constraints or dimensions
+- **AND** then requests Undo while the same draft session is active
+- **THEN** the deleted geometry and its dependent draft constraints or dimensions are restored together from draft history
+- **AND** the sketch draft session remains active
+
+#### Scenario: Redo reapplies a reverted draft action
+- **WHEN** a sketch draft action has been undone in the active draft session
+- **AND** the user requests Redo
+- **THEN** the reverted draft action is reapplied from the durable draft history substrate
+- **AND** the workbench does not fall through to document timeline rollback
+
+## MODIFIED Requirements
+
 ### Requirement: Toolbar history tools SHALL use the active undo context
 The workbench SHALL route toolbar Undo and Redo actions to the active durable undo context instead of treating them as generic tool activations or document timeline cursor commands.
 
@@ -87,33 +116,28 @@ The shared durable-history coordinator SHALL select and dispatch the active undo
 - **THEN** the authoritative repository/runtime-owned path sequences any required follow-up refresh
 - **AND** the history coordinator remains a dispatcher rather than a second document-state store
 
-### Requirement: Durable document mutations SHALL be undone and redone through repository-backed history groups
-Undoable durable document mutations SHALL be reversed and reapplied through repository-backed history groups instead of mutation-specific inverse stacks owned by workbench hooks.
+## REMOVED Requirements
 
-#### Scenario: Undo durable variable rename or value edit
-- **WHEN** the user changes a document variable name or value and the mutation is accepted
-- **AND** the user later requests Undo
-- **THEN** the accepted variable mutation is reverted through the durable history group recorded for that action
-- **AND** the workbench does not depend on a React-local inverse entry for the variable
+### Requirement: Sketch undo and redo SHALL move the sketch-local cursor
+**Reason**: Undo ownership is being moved off sketch-session-local cursor mechanics and onto the shared repository-backed durable draft-history substrate.
+**Migration**: Route sketch draft Undo and Redo through the dedicated durable-history coordinator and restore visible sketch draft state from durable draft history instead of relying on the old sketch-local cursor behavior as the authoritative user-visible model.
 
-#### Scenario: Undo accepted document history reorder
-- **WHEN** the user performs an accepted document history reorder
-- **AND** the user later requests Undo
-- **THEN** the reorder is reverted through the recorded durable history group
-- **AND** Redo reapplies that same grouped reorder action
+### Requirement: Variable edit undo and redo SHALL restore variable values
+**Reason**: Variable edits become one example of generic repository-backed durable history groups instead of a special-case workbench-local inverse stack.
+**Migration**: Record accepted variable edits through the durable history grouping seam and let Undo and Redo replay them through repository-backed durable history.
 
-### Requirement: Sketch draft undo and redo SHALL restore durable draft state
-While a document-changing sketch draft session is active, Undo and Redo SHALL restore the repository-backed draft state for that session rather than delegating to document timeline cursor movement.
+### Requirement: Sketch geometry deletion SHALL be restored by sketch-local undo
+**Reason**: Sketch deletion recovery now belongs to the shared durable draft-history substrate rather than a distinct sketch-local undo owner.
+**Migration**: Keep the atomic restore behavior, but implement it through durable draft-history groups that the shared history coordinator uses while the draft session is active.
 
-#### Scenario: Undo restores deleted draft geometry and dependents
-- **WHEN** the user deletes selected sketch draft geometry with dependent draft constraints or dimensions
-- **AND** then requests Undo while the same draft session is active
-- **THEN** the deleted geometry and its dependent draft constraints or dimensions are restored together from draft history
-- **AND** the sketch draft session remains active
+### Requirement: Document undo and redo SHALL use editor-owned cursor mutations
+**Reason**: Document timeline cursor rollback remains a separate CAD navigation action and is no longer the fallback meaning of Undo and Redo.
+**Migration**: Preserve explicit timeline rollback controls, but remove Undo and Redo fallback routing to document cursor mutation requests.
 
-#### Scenario: Redo reapplies a reverted draft action
-- **WHEN** a sketch draft action has been undone in the active draft session
-- **AND** the user requests Redo
-- **THEN** the reverted draft action is reapplied from the durable draft history substrate
-- **AND** the workbench does not fall through to document timeline rollback
+### Requirement: Document undo and redo SHALL be unavailable during pending cursor refresh
+**Reason**: Cursor refresh sequencing no longer defines Undo and Redo availability once timeline cursor rollback is separated from Undo and Redo semantics.
+**Migration**: Base Undo and Redo availability on durable draft-history and durable document-history availability instead of pending cursor refresh state.
 
+### Requirement: Document history reorder undo and redo SHALL restore accepted orders
+**Reason**: Accepted document history reorders become ordinary durable history groups rather than a dedicated workbench-local undo entry type.
+**Migration**: Record accepted reorders through the durable history grouping seam and let Undo and Redo restore them through repository-backed durable history.
