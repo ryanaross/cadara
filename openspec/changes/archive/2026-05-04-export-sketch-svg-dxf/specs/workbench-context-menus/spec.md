@@ -1,19 +1,4 @@
-# workbench-context-menus Specification
-
-## Purpose
-Defines custom workbench context menus for navigation rows, including object actions, reference and diagnostic target actions, and feature history commands.
-## Requirements
-### Requirement: Workbench rows SHALL expose custom context menus
-The workbench SHALL render a custom right-click context menu for visible navigation rows in Parts & Objects, Snapshot References, Document Diagnostics, and the Feature Timeline/history.
-
-#### Scenario: Right-click a supported row
-- **WHEN** the user right-clicks a supported workbench row
-- **THEN** the browser context menu is suppressed
-- **AND** a workbench-styled context menu opens at the interaction point
-
-#### Scenario: Open menu from keyboard
-- **WHEN** a supported focusable row receives the Context Menu key or Shift+F10
-- **THEN** the workbench opens the same context menu for that row
+## MODIFIED Requirements
 
 ### Requirement: Parts and objects menu SHALL include delete and export actions
 The Parts & Objects context menu SHALL offer Delete and Export actions for each exportable object row. Delete SHALL request generic durable deletion for supported parts and objects, and Export SHALL open the document export modal for the selected row with file types filtered to that row's target.
@@ -38,30 +23,6 @@ The Parts & Objects context menu SHALL offer Delete and Export actions for each 
 - **THEN** the workbench opens the export modal for that sketch target
 - **AND** the modal offers SVG and DXF as the available file types
 - **AND** the modal omits body-only export formats for that sketch target
-
-### Requirement: Body and part rename SHALL persist to the document
-The Parts & Objects context menu SHALL offer Rename for body/part rows and commit accepted body labels through the modeling document mutation path.
-
-#### Scenario: Rename a body row
-- **WHEN** the user renames a body/part row from the Parts & Objects context menu
-- **THEN** the modeling document stores the new body label
-- **AND** the refreshed Parts & Objects tree shows the persisted body label
-- **AND** operation-history restore preserves the body label
-
-### Requirement: Snapshot and diagnostic menus SHALL support target-oriented actions
-Snapshot Reference and Document Diagnostic context menus SHALL offer target selection when a row has an allowed target, plus a placeholder inspection action.
-
-#### Scenario: Select a reference target from menu
-- **WHEN** the user selects the target action for an allowed Snapshot Reference row
-- **THEN** the workbench dispatches the same target selection request as left-click selection
-
-#### Scenario: Select a diagnostic target from menu
-- **WHEN** the user selects the target action for an allowed Document Diagnostic row that has a target
-- **THEN** the workbench dispatches the same target selection request for that diagnostic target
-
-#### Scenario: Invoke inspection placeholder
-- **WHEN** the user selects an inspection action from a Snapshot Reference or Document Diagnostic context menu
-- **THEN** the workbench shows an inline status message that inspection is not implemented yet
 
 ### Requirement: Feature history menu SHALL include edit, suppress, cursor, and delete actions
 The Feature Timeline/history context menu SHALL offer Edit, Rename, Roll History Here, Roll To End, and Delete for supported committed document history items. Committed sketch history items SHALL also offer Export and, when eligible, `Change Sketch Plane`. Feature-only actions such as Suppress and Unsuppress SHALL remain available only for committed feature items and SHALL route to the modeling suppression mutation.
@@ -115,16 +76,3 @@ The Feature Timeline/history context menu SHALL offer Edit, Rename, Roll History
 - **THEN** the workbench routes an unsuppress request through the editor/runtime document mutation path
 - **AND** the refreshed history bar marks the feature as active when the mutation is accepted
 - **AND** the action no longer shows the placeholder status message
-
-### Requirement: Parts and objects sketch menus SHALL expose plane reassignment for eligible sketches
-The `Parts & Objects` context menu SHALL expose `Change Sketch Plane` for committed sketch rows that participate in the support-plane reassignment capability.
-
-#### Scenario: Eligible sketch row shows change-plane action
-- **WHEN** the user opens the context menu for an eligible committed sketch row in `Parts & Objects`
-- **THEN** the menu includes `Change Sketch Plane`
-- **AND** selecting that action opens the dedicated sketch-plane edit flow for that sketch
-
-#### Scenario: Non-sketch or unsupported sketch row omits change-plane action
-- **WHEN** the user opens the context menu for a non-sketch row or a committed sketch row that does not participate in support-plane reassignment
-- **THEN** the `Parts & Objects` menu does not expose `Change Sketch Plane` as an enabled action
-
