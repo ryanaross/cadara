@@ -45,4 +45,22 @@ test("src/core/tools/tool-registry.spec.ts", () => {
     searchToolDefinitions("mesh").some((tool) => tool.id === "import"),
     "Tool search should discover Import by mesh intent.",
   );
+  expectTrue(
+    searchToolDefinitions("measure", "part").some(
+      (tool) => tool.id === "measure",
+    ),
+    "Tool search should surface Measure when explicitly searching in part mode.",
+  );
+  expectTrue(
+    searchToolDefinitions("measure", "sketch").length === 0,
+    "Tool search should hide part-only tools when scoped to sketch mode.",
+  );
+  expectTrue(
+    searchToolDefinitions("extrude", "sketch").length === 0,
+    "Tool search should hide feature tools when scoped to sketch mode.",
+  );
+  expectTrue(
+    searchToolDefinitions("line", "sketch").some((tool) => tool.id === "line"),
+    "Tool search should surface sketch tools when scoped to sketch mode.",
+  );
 });
